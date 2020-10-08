@@ -4,6 +4,12 @@ Created on Tue Sep  8 23:03:05 2020
 
 @author: Frank
 """
+"""
+TODO:
+    1) Fix the losses, write it like a model
+    2) Simplify some things (where applicable)
+    3) Very stability of validation and training loss
+"""
 import math
 import numpy as np
 import os
@@ -30,6 +36,9 @@ from SplineModel_v3 import SplineModel, fit_linear_model
 import pickle
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
+
+#Fix the ani1_path for now
+ani1_path = 'data/ANI-1ccx_clean_shifted.h5'
 
 def get_ani1data(allowed_Z, max_heavy_atoms, max_config, target):
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path) 
@@ -252,6 +261,31 @@ def torch_segment_sum(data, segment_ids, device, dtype): # Can potentially repla
         res[segment_ids[i]] += val
     return res
 
+class loss_model:
+    '''
+    General class for handling losses; users will have to supply list of targets to use in
+    loss computation and a function for actually computing it.
+    
+    Targets will be a list of strings.
+    '''
+    def __init__(self, targets, loss_function):
+        self.targets = targets
+        self.loss_func = loss_function
+ 
+    def get_targets(self):
+        return self.targets
+    
+    def compute_loss(self, output, feed):
+        '''
+        Computes the loss using the user-provided loss function by comparing the 
+        differences in target fields. The user defined loss function should have
+        the following signature:
+        
+        def loss(output, feed, targets):
+            # Logic
+            # Returns a pytorch loss object with a backward method for backpropagation
+        '''
+        return self.loss_func(output, feed, self.targets)
 
 class DFTB_Layer(nn.Module):
     def __init__(self, device, dtype):
@@ -267,7 +301,7 @@ class DFTB_Layer(nn.Module):
         model_vals = list()
         for model_spec in data_input['models']:
             model_vals.append( all_models[model_spec].get_values(data_input[model_spec]) )
-        net_vals = torch.cat(model_vals)        
+        net_vals = torch.cat(model_vals)
         calc = OrderedDict() 
         ## SLATER-KOSTER ROTATIONS ##
         rot_out = torch.tensor([0.0, 1.0], dtype = self.dtype, device = self.device, requires_grad = True)
@@ -369,6 +403,21 @@ def loss_temp(output, data_dict):
             computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
     return loss_criterion(computed_tensor, target_tensor) 
 
+def loss_refactored(output, data_dict, targets):
+    '''
+    Slightly refactored loss, will be used within the objet oriented handler
+    '''
+    all_bsizes = list(output[targets[0]].keys())
+    loss_criterion = nn.MSELoss()
+    target_tensors, computed_tensors = list(), list()
+    for bsize in all_bsizes:
+        for target in targets:
+            computed_tensors.append(output[target][bsize])
+            target_tensors.append(output[target][bsize])
+    total_targets = torch.cat(target_tensors)
+    total_computed = torch.cat(computed_tensors)
+    return loss_criterion(total_computed, total_targets)
+
 def recursive_type_conversion(data, device = None, dtype = torch.double):
     '''
     Transports all the tensors stored in data to a tensor with the correct dtype
@@ -380,14 +429,16 @@ def recursive_type_conversion(data, device = None, dtype = torch.double):
         elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
             recursive_type_conversion(data[key])
 
-if os.getenv("USER") == "yaron":
-    ani1_path = 'data/ANI-1ccx_clean_shifted.h5'
-    gammas_path = 'data/gammas_50_5_extend.h5'
-elif os.getenv("USER") == "francishe":
-    ani1_path = "/home/francishe/Downloads/ANI-1ccx_clean_shifted.h5"
-    gammas_path = "/home/francishe/Downloads/gammas_50_5_extend.h5"
-else:
-    raise ValueError("Invalid user")
+# Leave this off for now because all data will be in the repo (small datasets)
+# Also going to ignore gammas_path
+# if os.getenv("USER") == "yaron":
+#     ani1_path = 'data/ANI-1ccx_clean_shifted.h5'
+#     gammas_path = 'data/gammas_50_5_extend.h5'
+# elif os.getenv("USER") == "francishe":
+#     ani1_path = "/home/francishe/Downloads/ANI-1ccx_clean_shifted.h5"
+#     gammas_path = "/home/francishe/Downloads/gammas_50_5_extend.h5"
+# else:
+#     raise ValueError("Invalid user")
 
 #%%
 
@@ -400,6 +451,7 @@ dataset = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
 #%%
 config = dict()
 config['opers_to_model'] = ['H', 'R']
+targets_for_loss = ['Eelec', 'Eref']
 
 print('making graphs')
 feeds = list()
@@ -411,6 +463,8 @@ for batch in dataset:
 
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
+
+loss = loss_model(targets_for_loss, loss_refactored) # Add this to the model dictionary
 
 all_models['Eref'] = Reference_energy(allowed_Zs)
 model_variables['Eref'] = all_models['Eref'].get_variables()
