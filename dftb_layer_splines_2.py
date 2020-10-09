@@ -192,8 +192,8 @@ class Reference_energy:
     def __init__(self,allowed_Zs):
         self.allowed_Zs = np.sort(np.array(allowed_Zs))
         self.values = np.zeros(self.allowed_Zs.shape)
-        self.values[0] = 0.11360826
-        self.values[1] = 0.1304542
+        self.values[0] = 0.4763409827 #test_values
+        self.values[1] = 0.8430858562
         self.variables = torch.from_numpy(self.values)
         self.variables.requires_grad = True
     def get_variables(self):
@@ -384,7 +384,7 @@ class DFTB_Layer(nn.Module):
             calc['Eref'][bsize] = torch.dot(data_input['zcounts'][bsize].squeeze(0), ref_energy_variables)
         return calc
 
-def loss_temp(output, data_dict):
+def loss_temp(output, data_dict, targets):
     '''
     Calculates the MSE loss for a given minibatch using the torch implementation of 
     MSELoss
@@ -403,6 +403,12 @@ def loss_temp(output, data_dict):
             computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
     return loss_criterion(computed_tensor, target_tensor) 
 
+def dataset_equals(dataset_lst):
+    '''
+    Quick check to see if generated datasets are the same each time
+    '''
+    pass
+
 def loss_refactored(output, data_dict, targets):
     '''
     Slightly refactored loss, will be used within the objet oriented handler
@@ -414,6 +420,12 @@ def loss_refactored(output, data_dict, targets):
         for target in targets:
             computed_tensors.append(output[target][bsize])
             target_tensors.append(output[target][bsize])
+    assert(len(target_tensors) == len(computed_tensors))
+    for i in range(len(target_tensors)):
+        if len(target_tensors[i].shape) == 0:
+            target_tensors[i] = target_tensors[i].unsqueeze(0)
+        if len(computed_tensors[i].shape) == 0:
+            computed_tensors[i] = computed_tensors[i].unsqueeze(0)
     total_targets = torch.cat(target_tensors)
     total_computed = torch.cat(computed_tensors)
     return loss_criterion(total_computed, total_targets)
@@ -448,6 +460,9 @@ max_config = 2
 target = 'de'
 
 dataset = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
+dataset2 = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
+dataset3 = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
+dataset4 = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
 #%%
 config = dict()
 config['opers_to_model'] = ['H', 'R']
@@ -464,9 +479,10 @@ for batch in dataset:
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
 
-loss = loss_model(targets_for_loss, loss_refactored) # Add this to the model dictionary
+loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
 
 all_models['Eref'] = Reference_energy(allowed_Zs)
+all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
 #%%
@@ -487,10 +503,10 @@ for feed in feeds:
 #%%
 
 dftblayer = DFTB_Layer(device = None, dtype = torch.double)
-output = dftblayer(feeds[0], all_models)
-loss = loss_temp(output, feeds[0])
-print('loss is ', loss)
-loss.backward()
+# output = dftblayer(feeds[0], all_models)
+# loss = loss_temp(output, feeds[0], targets_for_loss)
+# print('loss is ', loss)
+# loss.backward()
 learning_rate = 1.0e-4
 optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate)
 optimizer.step()
@@ -500,10 +516,12 @@ for i in range(1000):
     for feed in feeds:
         optimizer.zero_grad()
         output = dftblayer(feed, all_models)
-        loss = loss_temp(output, feed)
+        loss = all_models['Loss'].compute_loss(output, feed)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
     print(epoch_loss)
+
+print(all_models['Eref'].get_variables())
 
 
