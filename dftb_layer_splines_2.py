@@ -14,6 +14,7 @@ import math
 import numpy as np
 import os
 import random
+import pickle
 
 from collections import OrderedDict, Counter
 import collections
@@ -189,11 +190,14 @@ class Reference_energy:
     Ths value model should return a single torch tensor for its variables too...
     '''
     #TODO: add const to this
-    def __init__(self,allowed_Zs):
+    def __init__(self,allowed_Zs, prev_values = None):
         self.allowed_Zs = np.sort(np.array(allowed_Zs))
         self.values = np.zeros(self.allowed_Zs.shape)
-        self.values[0] = 0.4763409827 #test_values
-        self.values[1] = 0.8430858562
+        if prev_values is not None:
+            #Load previous values if they are given
+            #FOR DEBUGGING PURPOSES ONLY
+            self.values[0] = prev_values[0]
+            self.values[1] = prev_values[1]
         self.variables = torch.from_numpy(self.values)
         self.variables.requires_grad = True
     def get_variables(self):
@@ -391,23 +395,29 @@ def loss_temp(output, data_dict, targets):
     '''
     all_bsizes = list(output['Eelec'].keys())
     loss_criterion = nn.MSELoss() #Compute MSE loss by the pytorch specification
-    target_tensor, computed_tensor = None, None
+    target_tensors, computed_tensors = list(), list()
     for bsize in all_bsizes:
-        if (target_tensor == None) and (computed_tensor == None):
-            computed_tensor = output['Eelec'][bsize] + output['Eref'][bsize]
-            target_tensor = data_dict['Etot']
-        else:
-            current_computed_tensor = output['Eelec'][bsize] + output['Eref'][bsize]
-            current_target_tensor = data_dict['Etot']
-            target_tensor = torch.cat((target_tensor, current_target_tensor))
-            computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
-    return loss_criterion(computed_tensor, target_tensor) 
-
-def dataset_equals(dataset_lst):
-    '''
-    Quick check to see if generated datasets are the same each time
-    '''
-    pass
+        # if (target_tensor == None) and (computed_tensor == None):
+        #     # computed_tensor = output['Eelec'][bsize] + output['Eref'][bsize]
+        #     computed_tensor = output['Eref'][bsize]
+        #     target_tensor = data_dict['Etot']
+        # else:
+        #     # current_computed_tensor = output['Eelec'][bsize] + output['Eref'][bsize]
+        #     current_computed_tensor = output['Eref'][bsize]
+        #     current_target_tensor = data_dict['Etot']
+        #     target_tensor = torch.cat((target_tensor, current_target_tensor))
+        #     computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
+        computed_result = output['Eref'][bsize] + output['Eelec'][bsize]
+        target_result = data_dict['Etot']
+        if len(computed_result.shape) == 0:
+            computed_result = computed_result.unsqueeze(0)
+        if len(target_result.shape) == 0:
+            target_result = target_result.unsqueeze(0)
+        computed_tensors.append(computed_result)
+        target_tensors.append(target_result)
+    total_targets = torch.cat(target_tensors)
+    total_computed = torch.cat(computed_tensors)
+    return loss_criterion(total_computed, total_targets) 
 
 def loss_refactored(output, data_dict, targets):
     '''
@@ -459,69 +469,84 @@ max_heavy_atoms = 2
 max_config = 2
 target = 'de'
 
+reference_energies = list() # Save the reference energies to see how the losses are really changing
+training_losses = list()
+first_epoch_losses = list()
+
 dataset = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
-dataset2 = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
-dataset3 = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
-dataset4 = get_ani1data(allowed_Zs, max_heavy_atoms, max_config, target)
 #%%
 config = dict()
 config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
 
-print('making graphs')
-feeds = list()
-for batch in dataset:
-    feed = create_graph_feed(config, batch, allowed_Zs)
-    for target in batch[0]['targets']:
-        feed[target] = np.array([x['targets'][target] for x in batch])
-    feeds.append(feed)
-
-all_models = dict()
-model_variables = dict() #This is used for the optimizer later on
-
-loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
-
-all_models['Eref'] = Reference_energy(allowed_Zs)
-all_models['Loss'] = loss_mod
-model_variables['Eref'] = all_models['Eref'].get_variables()
-
-#%%
-print('making feeds')
-for ibatch,feed in enumerate(feeds):
-   for model_spec in feed['models']:
-       if (model_spec not in all_models):
-           all_models[model_spec] = get_model_value_spline(model_spec)
-           #all_models[model_spec] = get_model_dftb(model_spec)
-           model_variables[model_spec] = all_models[model_spec].get_variables()
-       model = all_models[model_spec]
-       feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
-
-#%%
-for feed in feeds:
-    recursive_type_conversion(feed)
-
-#%%
-
-dftblayer = DFTB_Layer(device = None, dtype = torch.double)
-# output = dftblayer(feeds[0], all_models)
-# loss = loss_temp(output, feeds[0], targets_for_loss)
-# print('loss is ', loss)
-# loss.backward()
-learning_rate = 1.0e-4
-optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate)
-optimizer.step()
-#%%
-for i in range(1000):
-    epoch_loss = 0.0
+for j in range(100): #Optimize the reference energies a bunch of times
+    print('making graphs')
+    feeds = list()
+    for batch in dataset:
+        feed = create_graph_feed(config, batch, allowed_Zs)
+        for target in batch[0]['targets']:
+            feed[target] = np.array([x['targets'][target] for x in batch])
+        feeds.append(feed)
+    
+    all_models = dict()
+    model_variables = dict() #This is used for the optimizer later on
+    
+    loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
+    
+    all_models['Eref'] = Reference_energy(allowed_Zs,
+                                          prev_values = None if reference_energies == [] else reference_energies)
+    all_models['Loss'] = loss_mod
+    model_variables['Eref'] = all_models['Eref'].get_variables()
+    
+    #%%
+    print('making feeds')
+    for ibatch,feed in enumerate(feeds):
+       for model_spec in feed['models']:
+           if (model_spec not in all_models):
+               all_models[model_spec] = get_model_value_spline(model_spec)
+               #all_models[model_spec] = get_model_dftb(model_spec)
+               model_variables[model_spec] = all_models[model_spec].get_variables()
+           model = all_models[model_spec]
+           feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
+    
+    #%%
     for feed in feeds:
-        optimizer.zero_grad()
-        output = dftblayer(feed, all_models)
-        loss = all_models['Loss'].compute_loss(output, feed)
-        epoch_loss += loss.item()
-        loss.backward()
-        optimizer.step()
-    print(epoch_loss)
+        recursive_type_conversion(feed)
+    
+    #%%
+    
+    dftblayer = DFTB_Layer(device = None, dtype = torch.double)
+    # output = dftblayer(feeds[0], all_models)
+    # loss = loss_temp(output, feeds[0], targets_for_loss)
+    # print('loss is ', loss)
+    # loss.backward()
+    learning_rate = 1.0e-4
+    optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate)
+    optimizer.step()
+    #%%
+    for i in range(1000):
+        epoch_loss = 0.0
+        for feed in feeds:
+            optimizer.zero_grad()
+            output = dftblayer(feed, all_models)
+            loss = all_models['Loss'].compute_loss(output, feed)
+            epoch_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+        random.shuffle(feeds) #Shuffle after each epoch
+        if (i == 0):
+            print(f"First epoch loss is {epoch_loss}")
+            first_epoch_losses.append(epoch_loss)
+        if (i % 25 == 0):
+            print(epoch_loss)
+            training_losses.append(epoch_loss)
+    print("Finished with 1000 epochs")
 
-print(all_models['Eref'].get_variables())
+    print(all_models['Eref'].get_variables())
+    reference_energies = [elem.item() for elem in all_models['Eref'].get_variables()]
 
+with open("losses.p", "wb") as handle:
+    pickle.dump(training_losses, handle)
+    pickle.dump(first_epoch_losses, handle)
+    pickle.dump([100, 1000, 25]) #Plot configuration information for future use
 
