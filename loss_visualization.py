@@ -34,8 +34,8 @@ if __name__ == "__main__":
     
     fig, axs = plt.subplots()
     axs.plot(xs_for_total[:1000], train_losses[:1000], label = 'Training loss')
-    axs.plot(xs_for_first[:25], first_epoch_losses[:25], label = 'Reference energy loss')
-    axs.set_title("Training losses and reference energies")
+    # axs.plot(xs_for_first[:25], first_epoch_losses[:25], label = 'Reference energy loss')
+    axs.set_title("Training losses update charges standalone dftb")
     axs.set_xlabel("Epochs")
     axs.set_ylabel("Total Epoch Loss (Energy)")
     axs.legend()
