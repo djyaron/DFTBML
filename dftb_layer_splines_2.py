@@ -36,6 +36,8 @@ from modelspline import get_dftb_vals
 from SplineModel_v3 import SplineModel, fit_linear_model
 import pickle
 
+# Reference energies from training: [0.3376962073, 1.7313747014]
+
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 
 #Fix the ani1_path for now
@@ -548,5 +550,5 @@ for j in range(100): #Optimize the reference energies a bunch of times
 with open("losses.p", "wb") as handle:
     pickle.dump(training_losses, handle)
     pickle.dump(first_epoch_losses, handle)
-    pickle.dump([100, 1000, 25]) #Plot configuration information for future use
+    pickle.dump([100, 1000, 25], handle) #Plot configuration information for future use
 
