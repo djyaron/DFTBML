@@ -6,9 +6,10 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Fix the losses, write it like a model
-    2) Simplify some things (where applicable)
-    3) Very stability of validation and training loss
+    1) Fix the losses, write it like a model (X)
+    2) Simplify some things (where applicable) (X)
+    3) Very stability of validation and training loss (X)
+    4) Figure out update charges (just one molecule for now...)
 """
 import math
 import numpy as np
@@ -43,7 +44,7 @@ from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_shifted.h5'
 
-def get_ani1data(allowed_Z, max_heavy_atoms, max_config, target, exclude = None):
+def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path) 
     all_coords =  get_targets_from_h5file('coordinates', ani1_path) 
     all_targets = get_targets_from_h5file(target, ani1_path)
@@ -111,7 +112,7 @@ def create_graph_feed(config, batch, allowed_Zs):
     dftblist = DFTBList(batch)
     feed = create_dataset(batch,dftblist,needed_fields)
 
-    return feed
+    return feed, dftblist
 
 
 class Input_layer_DFTB:
@@ -237,7 +238,7 @@ def get_model_value_spline(model_spec):
             if z[0] != z[1]:
                 flipped[(z[1],z[0])] = rs
         cutoffs.update(flipped)
-        num_knots = 10
+        num_knots = 30
         minimum_val = cutoffs[model_spec.Zs][0]
         maximum_val = cutoffs[model_spec.Zs][1]
         xknots = np.linspace(minimum_val, maximum_val, num = num_knots-1)
@@ -398,7 +399,7 @@ class DFTB_Layer(nn.Module):
             calc['Eref'][bsize] = torch.dot(data_input['zcounts'][bsize].squeeze(0), ref_energy_variables)
         return calc
 
-def loss_temp(output, data_dict):
+def loss_temp(output, data_dict, targets):
     '''
     Calculates the MSE loss for a given minibatch using the torch implementation of 
     MSELoss
@@ -417,7 +418,7 @@ def loss_temp(output, data_dict):
         #     current_target_tensor = data_dict['Etot']
         #     target_tensor = torch.cat((target_tensor, current_target_tensor))
         #     computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
-        computed_result = output['Eref'][bsize] + output['Eelec'][bsize]
+        computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] 
         target_result = data_dict['Etot']
         if len(computed_result.shape) == 0:
             computed_result = computed_result.unsqueeze(0)
@@ -472,11 +473,112 @@ def recursive_type_conversion(data, device = None, dtype = torch.double):
 # else:
 #     raise ValueError("Invalid user")
 
+# Update charges based on method in dftb.py:
+    
+# def get_dQ_from_H(self, newH, newG = None):
+#     Hsave = self._coreH
+#     self._coreH = newH
+#     if newG is not None:
+#         Gsave = self._gamma
+#         self._gamma = self.FullBasisToShell(newG)
+#     E,Flist,rholist, occ_rho_mask = self.SCF(get_occ_rho_mask=True)                            
+#     S  = self.GetOverlap()
+#     rho = 2.0 * rholist[0]
+#     qBasis = (rho)*S
+#     GOP = np.sum(qBasis,axis=1)
+#     self._coreH = Hsave
+
+#     # Current hack to deal with smearing = None
+#     if self.smearing:
+#         entropy_term = self.entropy * self.smearing
+#     else:
+#         entropy_term = 0.0
+#     if newG is not None:
+#         self._gamma = Gsave
+#     return self._qN - GOP, occ_rho_mask, entropy_term
+
+
+def assemble_ops_for_charges(feed, all_models):
+    '''
+    This is just to assemble the operators for updating the charges
+    '''
+    model_vals = list()
+    for model_spec in feed['models']:
+        model_vals.append( all_models[model_spec].get_values(feed[model_spec]) )
+    net_vals = torch.cat(model_vals)
+    calc = OrderedDict() 
+    ## SLATER-KOSTER ROTATIONS ##
+    rot_out = torch.tensor([0.0, 1.0])
+    for s, gather in feed['gather_for_rot'].items():
+        gather = gather.long()
+        if feed['rot_tensors'][s] is None:
+            rot_out = torch.cat((rot_out, net_vals[gather]))
+        else:
+            vals = net_vals[gather].reshape((-1, s[1])).unsqueeze(2)
+            tensor = feed['rot_tensors'][s]
+            rot_out_temp = torch.matmul(tensor, vals).squeeze(2)
+            rot_out = torch.cat((rot_out, torch.flatten(rot_out_temp)))
+    
+    ## ASSEMBLE SK ROTATION VALUES INTO OPERATORS ##
+    for oname in feed['onames']:
+        calc[oname] = {}
+        if oname != "R":
+            for bsize in feed['basis_sizes']:
+                gather = feed['gather_for_oper'][oname][bsize].long()
+                calc[oname][bsize] = rot_out[gather].reshape((len(feed['glabels'][bsize]),bsize,bsize))
+    
+    if 'S' not in feed['onames']:
+        calc['S'] = deepcopy(feed['S']) #Deepcopy operations may be too inefficient...
+    if 'G' not in feed['onames']:
+            calc['G'] = deepcopy(feed['G'])
+    
+    return calc
+
+def update_charges(feed, op_dict, dftblst):
+    '''
+    Test code right now, only works for current configuration of one molecule per batch
+    
+    Since there is a correspondence between the feed dictionary and dftblst and the op_dict is generated
+    from the feed, the basis sizes used should all match
+    '''
+    for bsize in op_dict['H'].keys():
+        np_Hs = op_dict['H'][bsize].detach().numpy() #Don't care about gradients here
+        for i in range(len(dftblst.dftbs_by_bsize[bsize])):
+            curr_dftb = dftblst.dftbs_by_bsize[bsize][i]
+            curr_H = np_Hs[i]
+            newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H) #Ignore the entropy term for now
+            newQ, occ_rho_mask_upd = torch.tensor(newQ).unsqueeze(1), torch.tensor(occ_rho_mask_upd)
+            feed['qneutral'][bsize][i] += newQ # add on newQ instead
+            feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
+
+def update_charges_2(feed, op_dict):
+    '''
+    Try again, this time without batches, create a standalone dftb object much like how we did in
+    dftb_layer_splines_1.py
+    
+    Test code right now, only works for one molecule per batch
+    '''
+    geom_labels = list(feed['geoms'].keys())
+    geom_labels.sort()
+    geom_lst = [feed['geoms'][x] for x in geom_labels]
+    for geom in geom_lst:
+        dftb = DFTB(ParDict(), to_cart(geom), charge = 0)
+        curr_basis_size = dftb.nBasis()
+        curr_H = op_dict['H'][curr_basis_size]
+        curr_H = curr_H.detach().numpy()[0]
+        newQ, new_occ_mask, _ = dftb.get_dQ_from_H(curr_H)
+        newQ, new_occ_mask = torch.tensor(newQ).unsqueeze(1), torch.tensor(new_occ_mask)
+        feed['qneutral'][curr_basis_size][0] += newQ
+        feed['occ_rho_mask'][curr_basis_size][0] = new_occ_mask
+
+    pass
+    
+
 #%%
 
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [3]
-max_config = 1
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
+max_config = 3
 target = 'dt'
 exclude = ['O3', 'N2O1']
 
@@ -497,8 +599,11 @@ print('making graphs')
 feeds = list()
 degeneracies = list()
 degeneracy_tolerance = 1.0e-3
+debug_Etarget = list()
+debug_Ecalc = list()
+dftblists  = list()
 for batch in dataset:
-    feed = create_graph_feed(config, batch, allowed_Zs)
+    feed, batch_dftblist = create_graph_feed(config, batch, allowed_Zs)
     # TODO: will work only if 1 molecule in each batch
     eorb = list(feed['eorb'].values())[0]
     degeneracy = np.min(np.diff(np.sort(eorb)))
@@ -507,17 +612,26 @@ for batch in dataset:
     degeneracies.append(degeneracy)
     feed['name'] = batch[0]['name']
     feed['iconfig'] = batch[0]['iconfig']
-    print
     for target in batch[0]['targets']:
-        feed[target] = np.array([x['targets'][target] for x in batch])
+        if target == 'Etot':
+            Etot = list(feed['Eelec'].values())[0][0] + list(feed['Erep'].values())[0][0]
+            feed[target] = np.array([Etot])
+            debug_Etarget.append(batch[0]['targets']['Etot'])
+            debug_Ecalc.append(Etot)
+        else:
+            feed[target] = np.array([x['targets'][target] for x in batch])
     feeds.append(feed)
+    dftblists.append(batch_dftblist)
 print('number of molecules after degeneracy rejection',len(feeds))
 times['graph'] = time.process_time()
 
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
 
+loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
+
 all_models['Eref'] = Reference_energy(allowed_Zs)
+all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
 #%%
@@ -531,20 +645,20 @@ for ibatch,feed in enumerate(feeds):
        model = all_models[model_spec]
        feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
 
-#%%
+
 for feed in feeds:
     recursive_type_conversion(feed)
 times['feeds'] = time.process_time()
-#%%
+
 
 dftblayer = DFTB_Layer(device = None, dtype = torch.double)
-output = dftblayer(feeds[0], all_models)
-loss = loss_temp(output, feeds[0])
-print('loss is ', loss)
-loss.backward()
-learning_rate = 1.0e-4
+# output = dftblayer(feeds[0], all_models)
+# loss = loss_temp(output, feeds[0], targets_for_loss)
+# print('loss is ', loss)
+# loss.backward()
+learning_rate = 1.0e-5
 optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate)
-optimizer.step()
+#optimizer.step()
 #%%
 nepochs = 100
 for i in range(nepochs):
@@ -552,15 +666,29 @@ for i in range(nepochs):
     for feed in feeds:
         optimizer.zero_grad()
         output = dftblayer(feed, all_models)
-        loss = loss_temp(output, feed)
+        loss = all_models['Loss'].compute_loss(output, feed)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
-    if i%10 == 0:
-        print('epoch', i, 'loss', epoch_loss)
+    #Perform shuffling while keeping order b/w dftblsts and feeds consistent
+    # temp = list(zip(feeds, dftblsts))
+    # random.shuffle(temp)
+    # feeds, dftblsts = zip(*temp)
+    if (i == 0):
+        print(f"First epoch loss is {epoch_loss}")
+        first_epoch_losses.append(epoch_loss)
+    print(i,np.sqrt(epoch_loss/len(feeds)) * 627.0, 'kcal/mol')
+    training_losses.append(epoch_loss)
+    if (i % 10 == 0):
+        # Update charges every 10 epochs
+        for j in range(len(feeds)):
+            feed = feeds[j]
+            dftb_list = dftblists[j]
+            op_dict = assemble_ops_for_charges(feed, all_models)
+            update_charges(feed, op_dict, dftb_list)
+print("Finished with 1000 epochs")
 times['train'] = time.process_time()
 
-#%%
 print('dataset with', len(feeds), 'batches')
 time_names  = list(times.keys())
 time_vals  = list(times.values())
@@ -569,4 +697,12 @@ for itime in range(1,len(time_names)):
         print(time_names[itime], (time_vals[itime] - time_vals[itime-1])/nepochs)
     else:
         print(time_names[itime], time_vals[itime] - time_vals[itime-1])
+
+# print(all_models['Eref'].get_variables())
+# reference_energies = [elem.item() for elem in all_models['Eref'].get_variables()]
+
+with open("losses.p", "wb") as handle:
+    pickle.dump(training_losses, handle)
+    pickle.dump(first_epoch_losses, handle)
+    pickle.dump([100, 100, 1], handle) #Plot configuration information for future use
 
