@@ -8,8 +8,11 @@ Created on Tue Sep  8 23:03:05 2020
 TODO:
     1) Fix the losses, write it like a model (X)
     2) Simplify some things (where applicable) (X)
-    3) Very stability of validation and training loss (X)
-    4) Figure out update charges (just one molecule for now...)
+    3) Very stability of validation and training loss (IP)
+        Random loss spikes / oscillations, unstable training (problym with Adam maybe?)
+        1) linearly decrease training rate every 20 epochs (adaptive LR)
+        2) Epsilon workaround https://stackoverflow.com/questions/42327543/adam-optimizer-goes-haywire-after-200k-batches-training-loss-grows
+    4) Fix charge updating method (Update the correct field(s)) (X) 
 """
 import math
 import numpy as np
@@ -215,6 +218,11 @@ class Reference_energy:
 def get_model_dftb(model_spec): 
     return Input_layer_DFTB(model_spec)
 
+'''
+Right now, the maximum distance is 6.439 approximately
+determined through finding min and max on mod_raw
+(see find_config_range method)
+'''
 def get_model_value_spline(model_spec):
     par_dict = ParDict()
     noise_magnitude = 0.0
@@ -238,11 +246,13 @@ def get_model_value_spline(model_spec):
             if z[0] != z[1]:
                 flipped[(z[1],z[0])] = rs
         cutoffs.update(flipped)
-        num_knots = 30
-        minimum_val = cutoffs[model_spec.Zs][0]
-        maximum_val = cutoffs[model_spec.Zs][1]
-        xknots = np.linspace(minimum_val, maximum_val, num = num_knots-1)
-        xknots = np.concatenate([xknots,[12.0]],0)
+        num_knots = 45
+        # minimum_val = cutoffs[model_spec.Zs][0]
+        # maximum_val = cutoffs[model_spec.Zs][1]
+        minimum_val = 0.0
+        maximum_val = 6.44
+        xknots = np.linspace(minimum_val, maximum_val, num = num_knots)
+        # xknots = np.concatenate([xknots,[6.8]],0)
         config = {'xknots' : xknots,
                   'deg'    : 3,
                   'bconds' : 'vanishing'}  
@@ -548,7 +558,7 @@ def update_charges(feed, op_dict, dftblst):
             curr_H = np_Hs[i]
             newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H) #Ignore the entropy term for now
             newQ, occ_rho_mask_upd = torch.tensor(newQ).unsqueeze(1), torch.tensor(occ_rho_mask_upd)
-            feed['qneutral'][bsize][i] += newQ # add on newQ instead
+            feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
             feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
 
 def update_charges_2(feed, op_dict):
@@ -568,11 +578,24 @@ def update_charges_2(feed, op_dict):
         curr_H = curr_H.detach().numpy()[0]
         newQ, new_occ_mask, _ = dftb.get_dQ_from_H(curr_H)
         newQ, new_occ_mask = torch.tensor(newQ).unsqueeze(1), torch.tensor(new_occ_mask)
-        feed['qneutral'][curr_basis_size][0] += newQ
+        feed['dQ'][curr_basis_size][0] = newQ # Change dQ to newQ instead
         feed['occ_rho_mask'][curr_basis_size][0] = new_occ_mask
-
     pass
-    
+
+def find_config_range(data_dict_lst):
+    '''
+    Finds the range of distances for configuring the splines so that the models do 
+    not behave crazily
+    '''
+    minimum, maximum = 0.0, 0.0
+    for data_dict in data_dict_lst:
+        mod_raw_lsts = [data for _, data in data_dict['mod_raw'].items()]
+        distances = [x.rdist for lst in mod_raw_lsts for x in lst]
+        (tempMax, tempMin) = max(distances), min(distances)
+        if tempMax > maximum: maximum = tempMax
+        if tempMin < minimum: minimum = tempMin
+    return minimum, maximum
+
 
 #%%
 
@@ -657,7 +680,7 @@ dftblayer = DFTB_Layer(device = None, dtype = torch.double)
 # print('loss is ', loss)
 # loss.backward()
 learning_rate = 1.0e-5
-optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate)
+optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad=True)
 #optimizer.step()
 #%%
 nepochs = 100
@@ -686,7 +709,10 @@ for i in range(nepochs):
             dftb_list = dftblists[j]
             op_dict = assemble_ops_for_charges(feed, all_models)
             update_charges(feed, op_dict, dftb_list)
-print("Finished with 1000 epochs")
+    #Simple adaptive learning rate approach
+    if (i % 20 == 0):
+        optimizer.param_groups[0]['lr'] /= 2 #Try halving the learning rate
+print("Finished with 100 epochs")
 times['train'] = time.process_time()
 
 print('dataset with', len(feeds), 'batches')
