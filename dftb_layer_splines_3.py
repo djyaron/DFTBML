@@ -8,7 +8,8 @@ Created on Tue Sep  8 23:03:05 2020
 TODO:
     1) Fix the losses, write it like a model (X)
     2) Simplify some things (where applicable) (X)
-    3) Very stability of validation and training loss (IP)
+    3) Very stability of validation and training loss (X)
+        Managed to keep training losses relatively stable using learning rate scheduler
         Random loss spikes / oscillations, unstable training (problym with Adam maybe?)
         1) linearly decrease training rate every 20 epochs (adaptive LR)
         2) Epsilon workaround https://stackoverflow.com/questions/42327543/adam-optimizer-goes-haywire-after-200k-batches-training-loss-grows
@@ -39,8 +40,6 @@ from batch import create_batch, create_dataset, DFTBList
 from modelspline import get_dftb_vals
 from SplineModel_v3 import SplineModel, fit_linear_model
 import pickle
-
-# Reference energies from training: [0.3376962073, 1.7313747014]
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 
@@ -219,11 +218,9 @@ def get_model_dftb(model_spec):
     return Input_layer_DFTB(model_spec)
 
 '''
-Right now, the maximum distance is 6.439 approximately
-determined through finding min and max on mod_raw
-(see find_config_range method)
+The minimum and maximum should be determined dynamically each training session
 '''
-def get_model_value_spline(model_spec):
+def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0.1):
     par_dict = ParDict()
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
@@ -246,11 +243,11 @@ def get_model_value_spline(model_spec):
             if z[0] != z[1]:
                 flipped[(z[1],z[0])] = rs
         cutoffs.update(flipped)
-        num_knots = 45
+        num_knots = num_knots
         # minimum_val = cutoffs[model_spec.Zs][0]
         # maximum_val = cutoffs[model_spec.Zs][1]
         minimum_val = 0.0
-        maximum_val = 6.44
+        maximum_val = max_val + buffer
         xknots = np.linspace(minimum_val, maximum_val, num = num_knots)
         # xknots = np.concatenate([xknots,[6.8]],0)
         config = {'xknots' : xknots,
@@ -604,6 +601,9 @@ heavy_atoms = [1,2,3]
 max_config = 3
 target = 'dt'
 exclude = ['O3', 'N2O1']
+# Parameters for configuring the spline
+num_knots = 50
+max_val = None
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
 training_losses = list()
@@ -657,12 +657,15 @@ all_models['Eref'] = Reference_energy(allowed_Zs)
 all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
+#Find the minimum and maximum value based on the mod_raw distance range
+_, max_val = find_config_range(feeds)
+
 #%%
 print('making feeds')
 for ibatch,feed in enumerate(feeds):
    for model_spec in feed['models']:
        if (model_spec not in all_models):
-           all_models[model_spec] = get_model_value_spline(model_spec)
+           all_models[model_spec] = get_model_value_spline(model_spec, max_val = max_val, num_knots = num_knots)
            #all_models[model_spec] = get_model_dftb(model_spec)
            model_variables[model_spec] = all_models[model_spec].get_variables()
        model = all_models[model_spec]
@@ -675,28 +678,25 @@ times['feeds'] = time.process_time()
 
 
 dftblayer = DFTB_Layer(device = None, dtype = torch.double)
-# output = dftblayer(feeds[0], all_models)
-# loss = loss_temp(output, feeds[0], targets_for_loss)
-# print('loss is ', loss)
-# loss.backward()
 learning_rate = 1.0e-5
 optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad=True)
-#optimizer.step()
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
 #%%
-nepochs = 100
+nepochs = 300
 for i in range(nepochs):
     epoch_loss = 0.0
     for feed in feeds:
         optimizer.zero_grad()
         output = dftblayer(feed, all_models)
-        loss = all_models['Loss'].compute_loss(output, feed)
+        loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
+    scheduler.step(epoch_loss) #Step on the epoch loss
     #Perform shuffling while keeping order b/w dftblsts and feeds consistent
-    # temp = list(zip(feeds, dftblsts))
-    # random.shuffle(temp)
-    # feeds, dftblsts = zip(*temp)
+    temp = list(zip(feeds, dftblists))
+    random.shuffle(temp)
+    feeds, dftblists = zip(*temp)
     if (i == 0):
         print(f"First epoch loss is {epoch_loss}")
         first_epoch_losses.append(epoch_loss)
@@ -709,9 +709,6 @@ for i in range(nepochs):
             dftb_list = dftblists[j]
             op_dict = assemble_ops_for_charges(feed, all_models)
             update_charges(feed, op_dict, dftb_list)
-    #Simple adaptive learning rate approach
-    if (i % 20 == 0):
-        optimizer.param_groups[0]['lr'] /= 2 #Try halving the learning rate
 print("Finished with 100 epochs")
 times['train'] = time.process_time()
 
@@ -723,9 +720,6 @@ for itime in range(1,len(time_names)):
         print(time_names[itime], (time_vals[itime] - time_vals[itime-1])/nepochs)
     else:
         print(time_names[itime], time_vals[itime] - time_vals[itime-1])
-
-# print(all_models['Eref'].get_variables())
-# reference_energies = [elem.item() for elem in all_models['Eref'].get_variables()]
 
 with open("losses.p", "wb") as handle:
     pickle.dump(training_losses, handle)
