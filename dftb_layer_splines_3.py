@@ -747,11 +747,12 @@ for i in range(nepochs):
     temp = list(zip(feeds, dftblists))
     random.shuffle(temp)
     feeds, dftblists = zip(*temp)
+    feeds, dftblists = list(feeds), list(dftblists)
     if (i == 0):
         print(f"First epoch loss is {epoch_loss}")
         first_epoch_losses.append(epoch_loss)
     print(i,np.sqrt(epoch_loss/len(feeds)) * 627.0, 'kcal/mol')
-    training_losses.append(epoch_loss)
+    training_losses.append(np.sqrt(epoch_loss/len(feeds)) * 627.0)
     if (i % 10 == 0):
         # Update charges every 10 epochs
         for j in range(len(feeds)):
