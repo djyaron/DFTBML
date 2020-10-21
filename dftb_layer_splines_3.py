@@ -258,6 +258,29 @@ def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0
  
     return model
 
+def get_model_value_spline_2(model_spec, spline_dict, num_knots = 50, buffer = 0.1):
+    '''
+    A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
+    elements
+    '''
+    par_dict = ParDict()
+    noise_magnitude = 0.0
+    if len(model_spec.Zs) == 1:
+        model = Input_layer_value(model_spec)
+        model.initialize_to_dftb(par_dict, noise_magnitude)
+    elif len(model_spec.Zs) == 2:
+        minimum_value, maximum_value = spline_dict[model_spec]
+        minimum_value -= buffer
+        maximum_value += buffer
+        xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
+        config = {'xknots' : xknots,
+                  'deg'    : 3,
+                  'bconds' : 'vanishing'}  
+        spline = SplineModel(config)
+        model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
+    return model
+        
+
 def form_initial_layer(all_models, feeds, device = None, dtype = torch.double):
     '''
     Form the initial layer (the net_vals) for dftb layer from the data contained in the 
@@ -583,6 +606,8 @@ def find_config_range(data_dict_lst):
     '''
     Finds the range of distances for configuring the splines so that the models do 
     not behave crazily
+    
+    Too naive of an approach, best not to use this approach
     '''
     minimum, maximum = 0.0, 0.0
     for data_dict in data_dict_lst:
@@ -593,11 +618,35 @@ def find_config_range(data_dict_lst):
         if tempMin < minimum: minimum = tempMin
     return minimum, maximum
 
+def create_spline_config_dict(data_dict_lst):
+    '''
+    Finds the range of distances FOR EACH TYPE OF MODEL. Models that are not spline models
+    (i.e. len(Zs) == 1) are ignored. This is only for spline models
+    Here, data_dict_lst is a list of feeds
+    '''
+    model_range_dict = dict()
+    for feed in data_dict_lst:
+        models_for_feed = list(feed['mod_raw'].keys())
+        for model_spec in models_for_feed:
+            if len(model_spec.Zs) == 2:
+                raw_dat_for_mod = feed['mod_raw'][model_spec]
+                distances = [x.rdist for x in raw_dat_for_mod]
+                range_low, range_max = min(distances), max(distances)
+                if model_spec not in model_range_dict:
+                    model_range_dict[model_spec] = (range_low, range_max)
+                else:
+                    curr_min, curr_max = model_range_dict[model_spec]
+                    new_min = curr_min if curr_min < range_low else range_low
+                    new_max = curr_max if curr_max > range_max else range_max
+                    model_range_dict[model_spec] = (new_min, new_max)
+    return model_range_dict
+                
+
 
 #%%
 
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7]
+heavy_atoms = [1,2,3,4,5,6,7]
 max_config = 3
 target = 'dt'
 exclude = ['O3', 'N2O1']
@@ -657,15 +706,15 @@ all_models['Eref'] = Reference_energy(allowed_Zs)
 all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
-#Find the minimum and maximum value based on the mod_raw distance range
-_, max_val = find_config_range(feeds)
+#Need more nuanced construction of the configuration dictionary
+model_range_dict = create_spline_config_dict(feeds)
 
 #%%
 print('making feeds')
 for ibatch,feed in enumerate(feeds):
    for model_spec in feed['models']:
        if (model_spec not in all_models):
-           all_models[model_spec] = get_model_value_spline(model_spec, max_val = max_val, num_knots = num_knots)
+           all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict)
            #all_models[model_spec] = get_model_dftb(model_spec)
            model_variables[model_spec] = all_models[model_spec].get_variables()
        model = all_models[model_spec]
@@ -680,7 +729,8 @@ times['feeds'] = time.process_time()
 dftblayer = DFTB_Layer(device = None, dtype = torch.double)
 learning_rate = 1.0e-5
 optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad=True)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) #Experiment withb alternative schedulers?
+
 #%%
 nepochs = 300
 for i in range(nepochs):
