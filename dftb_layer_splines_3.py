@@ -14,6 +14,8 @@ TODO:
         1) linearly decrease training rate every 20 epochs (adaptive LR)
         2) Epsilon workaround https://stackoverflow.com/questions/42327543/adam-optimizer-goes-haywire-after-200k-batches-training-loss-grows
     4) Fix charge updating method (Update the correct field(s)) (X) 
+    5) Implement multi-molecular batches (X)
+    6) Verify correctness (IP)
 """
 import math
 import numpy as np
@@ -216,6 +218,70 @@ class Reference_energy:
     
 def get_model_dftb(model_spec): 
     return Input_layer_DFTB(model_spec)
+
+
+class data_loader:
+    '''
+    This is a new data loader class specifically designed for our use
+    '''
+    def __init__(self, dataset, batch_size, shuffle = True, shuffle_scheme = 'random'):
+        self.data = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.shuffle_method = shuffle_scheme
+        self.batch_creation()
+        self.batch_index = 0
+    
+    def create_batches(self, data):
+        '''
+        Implements sequential batching of the data
+        '''
+        batches = list()
+        for i in range(0, len(data), self.batch_size):
+            current_batch = data[i : i + self.batch_size]
+            batches.append(current_batch)
+        return batches
+    
+    def batch_creation(self):
+        '''
+        Creates all the batches so that they are accessible in the class
+        '''
+        self.batches = self.create_batches(self.data)
+        self.batch_index = 0
+        
+    def shuffle_batches(self):
+        '''
+        Takes the train and valid data, shuffles them, and then re-batches them
+        
+        Currently only takes in the random shuffling scheme
+        '''
+        random.shuffle(self.batches)
+        self.batch_index = 0
+        
+    def shuffle_total_data(self):
+        '''
+        This reshuffles all the original data to create new train and valid batch possibilities
+        
+        This will need to be manually called
+        '''
+        random.shuffle(self.data)
+        self.batch_creation()
+    
+    def __iter__(self):
+        '''
+        Treat this as our iterator
+        '''
+        return self
+    
+    def __next__(self):
+        if self.batch_index < len(self.batches):
+            return_batch = self.batches[self.batch_index]
+            self.batch_index += 1
+            return return_batch
+        else:
+            # Automatically shuffle the batches after a full iteration
+            self.shuffle_batches()
+            raise StopIteration
 
 '''
 The minimum and maximum should be determined dynamically each training session
@@ -426,7 +492,8 @@ class DFTB_Layer(nn.Module):
             ener2 = ener2.view(ener2.size()[0])
             calc['Eelec'][bsize] = ener1 + ener2
             ref_energy_variables = all_models['Eref'].get_variables()
-            calc['Eref'][bsize] = torch.dot(data_input['zcounts'][bsize].squeeze(0), ref_energy_variables)
+            ref_res = torch.matmul(data_input['zcounts'][bsize], ref_energy_variables.unsqueeze(1))
+            calc['Eref'][bsize] = ref_res.squeeze(1)
         return calc
 
 def loss_temp(output, data_dict, targets):
@@ -449,7 +516,7 @@ def loss_temp(output, data_dict, targets):
         #     target_tensor = torch.cat((target_tensor, current_target_tensor))
         #     computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
         computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] 
-        target_result = data_dict['Etot']
+        target_result = data_dict['Etot'][bsize]
         if len(computed_result.shape) == 0:
             computed_result = computed_result.unsqueeze(0)
         if len(target_result.shape) == 0:
@@ -653,6 +720,7 @@ exclude = ['O3', 'N2O1']
 # Parameters for configuring the spline
 num_knots = 50
 max_val = None
+num_per_batch = 4
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
 training_losses = list()
@@ -667,36 +735,66 @@ config = dict()
 config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
 
-print('making graphs')
-feeds = list()
-degeneracies = list()
+# print('making graphs')
+# feeds = list()
+# degeneracies = list()
+# degeneracy_tolerance = 1.0e-3
+# debug_Etarget = list()
+# debug_Ecalc = list()
+# dftblists  = list()
+# for batch in dataset:
+#     feed, batch_dftblist = create_graph_feed(config, batch, allowed_Zs)
+#     # TODO: will work only if 1 molecule in each batch
+#     eorb = list(feed['eorb'].values())[0]
+#     degeneracy = np.min(np.diff(np.sort(eorb)))
+#     if degeneracy < degeneracy_tolerance:
+#         continue
+#     degeneracies.append(degeneracy)
+#     feed['name'] = batch[0]['name']
+#     feed['iconfig'] = batch[0]['iconfig']
+#     for target in batch[0]['targets']:
+#         if target == 'Etot':
+#             Etot = list(feed['Eelec'].values())[0][0] + list(feed['Erep'].values())[0][0]
+#             feed[target] = np.array([Etot])
+#             debug_Etarget.append(batch[0]['targets']['Etot'])
+#             debug_Ecalc.append(Etot)
+#         else:
+#             feed[target] = np.array([x['targets'][target] for x in batch])
+#     feeds.append(feed)
+#     dftblists.append(batch_dftblist)
+# print('number of molecules after degeneracy rejection',len(feeds))
+# times['graph'] = time.process_time()
+
+print("Running degeneracy rejection")
 degeneracy_tolerance = 1.0e-3
-debug_Etarget = list()
-debug_Ecalc = list()
-dftblists  = list()
-for batch in dataset:
-    feed, batch_dftblist = create_graph_feed(config, batch, allowed_Zs)
-    # TODO: will work only if 1 molecule in each batch
+bad_indices = set()
+for index, batch in enumerate(dataset, 0):
+    feed, _ = create_graph_feed(config, batch, allowed_Zs)
     eorb = list(feed['eorb'].values())[0]
     degeneracy = np.min(np.diff(np.sort(eorb)))
     if degeneracy < degeneracy_tolerance:
-        continue
-    degeneracies.append(degeneracy)
-    feed['name'] = batch[0]['name']
-    feed['iconfig'] = batch[0]['iconfig']
-    for target in batch[0]['targets']:
-        if target == 'Etot':
-            Etot = list(feed['Eelec'].values())[0][0] + list(feed['Erep'].values())[0][0]
-            feed[target] = np.array([Etot])
-            debug_Etarget.append(batch[0]['targets']['Etot'])
-            debug_Ecalc.append(Etot)
-        else:
-            feed[target] = np.array([x['targets'][target] for x in batch])
-    feeds.append(feed)
-    dftblists.append(batch_dftblist)
-print('number of molecules after degeneracy rejection',len(feeds))
-times['graph'] = time.process_time()
+        bad_indices.add(index)
 
+cleaned_dataset = list()
+for index, item in enumerate(dataset, 0):
+    if index not in bad_indices:
+        cleaned_dataset.append(item[0])
+        
+print('number of molecules after degeneracy rejection', len(cleaned_dataset))
+print("Making Graphs")
+dat_set = data_loader(cleaned_dataset, batch_size = num_per_batch)
+feeds, dftb_lsts = list(), list()
+for index, batch in enumerate(dat_set):
+    feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
+    all_bsizes = list(feed['Eelec'].keys())
+    for target in batch[0]['targets']:
+        if target == 'Etot': #Only dealing with total energy right now
+            feed[target] = dict()
+            for bsize in all_bsizes:
+                feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
+    feeds.append(feed)
+    dftb_lsts.append(batch_dftb_lst)
+            
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
 
@@ -708,6 +806,7 @@ model_variables['Eref'] = all_models['Eref'].get_variables()
 
 #Need more nuanced construction of the configuration dictionary
 model_range_dict = create_spline_config_dict(feeds)
+
 
 #%%
 print('making feeds')
@@ -725,6 +824,17 @@ for feed in feeds:
     recursive_type_conversion(feed)
 times['feeds'] = time.process_time()
 
+# DEBUGGING
+# dat_set = data_loader(dataset, 4)
+# tst_batch = dat_set.batches[0]
+# tst_batch = list(map(lambda x : x[0], tst_batch))
+# feed, dftb_lst = create_graph_feed(config, tst_batch, allowed_Zs)
+# for model_spec in feed['models']:
+#     model = all_models[model_spec]
+#     feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
+# recursive_type_conversion(feed)
+# op_dict = assemble_ops_for_charges(feed, all_models)
+# update_charges(feed, op_dict, dftb_lst)
 
 dftblayer = DFTB_Layer(device = None, dtype = torch.double)
 learning_rate = 1.0e-5
@@ -744,10 +854,10 @@ for i in range(nepochs):
         optimizer.step()
     scheduler.step(epoch_loss) #Step on the epoch loss
     #Perform shuffling while keeping order b/w dftblsts and feeds consistent
-    temp = list(zip(feeds, dftblists))
+    temp = list(zip(feeds, dftb_lsts))
     random.shuffle(temp)
-    feeds, dftblists = zip(*temp)
-    feeds, dftblists = list(feeds), list(dftblists)
+    feeds, dftb_lsts = zip(*temp)
+    feeds, dftb_lsts = list(feeds), list(dftb_lsts)
     if (i == 0):
         print(f"First epoch loss is {epoch_loss}")
         first_epoch_losses.append(epoch_loss)
@@ -757,7 +867,7 @@ for i in range(nepochs):
         # Update charges every 10 epochs
         for j in range(len(feeds)):
             feed = feeds[j]
-            dftb_list = dftblists[j]
+            dftb_list = dftb_lsts[j]
             op_dict = assemble_ops_for_charges(feed, all_models)
             update_charges(feed, op_dict, dftb_list)
 print("Finished with 100 epochs")
