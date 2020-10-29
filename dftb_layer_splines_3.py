@@ -15,13 +15,16 @@ TODO:
         2) Epsilon workaround https://stackoverflow.com/questions/42327543/adam-optimizer-goes-haywire-after-200k-batches-training-loss-grows
     4) Fix charge updating method (Update the correct field(s)) (X) 
     5) Implement multi-molecular batches (X)
-    6) Verify correctness (IP)
+    6) Figure out h5py for saving dictionaries (IP)
+    7) Experiment with alternative learning rate schedulers (IP)
+    8) Incorporate eigenvalue broadening to side-step degeneracy filtering (X)
 """
 import math
 import numpy as np
 import os
 import random
 import pickle
+from datetime import datetime
 
 from collections import OrderedDict, Counter
 import collections
@@ -36,6 +39,7 @@ import time
 from geometry import Geometry, random_triatomics, to_cart
 from auorg_1_1 import ParDict
 from dftb import DFTB
+from eig import SymEigB
 from batch import create_batch, create_dataset, DFTBList
 #from modelval import Val_model
 # from modelspline import Spline_model
@@ -396,10 +400,11 @@ class loss_model:
         return self.loss_func(output, feed, self.targets)
 
 class DFTB_Layer(nn.Module):
-    def __init__(self, device, dtype):
+    def __init__(self, device, dtype, eig_method = 'old'):
         super(DFTB_Layer, self).__init__()
         self.device = device
         self.dtype = dtype
+        self.method = eig_method
     
     def forward(self, data_input, all_models):
         '''
@@ -463,22 +468,28 @@ class DFTB_Layer(nn.Module):
         calc['rho'] = {}
         calc['Eref'] = {}
         for bsize in data_input['basis_sizes']:
-            # ngeom = len(self.data['glabels'][bsize])
-            # calc['Eelec'][bsize] = torch.zeros([ngeom], device = self.device).double()
-            # calc['eorb'][bsize] = torch.zeros([ngeom,bsize], device = self.device).double()
-            # calc['rho'][bsize]  = torch.zeros([ngeom,bsize,bsize], device = self.device).double()
             S1 = calc['S'][bsize]
             fock = calc['F'][bsize]
             if 'phiS' not in list(data_input.keys()):
-                Svals, Svecs = torch.symeig(S1, eigenvectors = True) #The eigenvalues from torch.symeig are in ascending order, but Svecs remains orthogonal
+                # Eigenvalues in ascending order, eigenvectors are orthogonal, use conditional broadening
+                # Try first with default broadening factor of 1E-12
+                if self.method == 'new':
+                    symeig = SymEigB.apply
+                    Svals, Svecs = symeig(S1, 'cond')
+                elif self.method == 'old':
+                    Svals, Svecs = torch.symeig(S1, eigenvectors = True)
                 phiS = torch.matmul(Svecs, torch.diag(torch.pow(Svals, -0.5).view(-1)))
             else:
                 phiS = data_input['phiS'][bsize]
             fockp = torch.matmul(torch.transpose(phiS, -2, -1), torch.matmul(fock, phiS))
             try:
-                Eorb, temp2 = torch.symeig(fockp, eigenvectors = True)
+                if self.method == 'new':
+                    symeig = SymEigB.apply
+                    Eorb, temp2 = symeig(fockp, 'cond')
+                elif self.method == 'old':
+                    Eorb, temp2 = torch.symeig(fockp, eigenvectors = True)
             except:
-                print('diagonalization failed for ',data_input['name'],data_input['iconfig'])
+                print('diagonalization failed for batch ', data_input['name'])
             calc['eorb'][bsize] = Eorb
             orb = torch.matmul(phiS, temp2)
             occ_mask = data_input['occ_rho_mask'][bsize]
@@ -505,16 +516,6 @@ def loss_temp(output, data_dict, targets):
     loss_criterion = nn.MSELoss() #Compute MSE loss by the pytorch specification
     target_tensors, computed_tensors = list(), list()
     for bsize in all_bsizes:
-        # if (target_tensor == None) and (computed_tensor == None):
-        #     # computed_tensor = output['Eelec'][bsize] + output['Eref'][bsize]
-        #     computed_tensor = output['Eref'][bsize]
-        #     target_tensor = data_dict['Etot']
-        # else:
-        #     # current_computed_tensor = output['Eelec'][bsize] + output['Eref'][bsize]
-        #     current_computed_tensor = output['Eref'][bsize]
-        #     current_target_tensor = data_dict['Etot']
-        #     target_tensor = torch.cat((target_tensor, current_target_tensor))
-        #     computed_tensor = torch.cat((computed_tensor, current_computed_tensor))
         computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] 
         target_result = data_dict['Etot'][bsize]
         if len(computed_result.shape) == 0:
@@ -558,42 +559,6 @@ def recursive_type_conversion(data, device = None, dtype = torch.double):
             data[key] = torch.tensor(data[key], dtype = dtype, device = device)            
         elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
             recursive_type_conversion(data[key])
-
-# Leave this off for now because all data will be in the repo (small datasets)
-# Also going to ignore gammas_path
-# if os.getenv("USER") == "yaron":
-#     ani1_path = 'data/ANI-1ccx_clean_shifted.h5'
-#     gammas_path = 'data/gammas_50_5_extend.h5'
-# elif os.getenv("USER") == "francishe":
-#     ani1_path = "/home/francishe/Downloads/ANI-1ccx_clean_shifted.h5"
-#     gammas_path = "/home/francishe/Downloads/gammas_50_5_extend.h5"
-# else:
-#     raise ValueError("Invalid user")
-
-# Update charges based on method in dftb.py:
-    
-# def get_dQ_from_H(self, newH, newG = None):
-#     Hsave = self._coreH
-#     self._coreH = newH
-#     if newG is not None:
-#         Gsave = self._gamma
-#         self._gamma = self.FullBasisToShell(newG)
-#     E,Flist,rholist, occ_rho_mask = self.SCF(get_occ_rho_mask=True)                            
-#     S  = self.GetOverlap()
-#     rho = 2.0 * rholist[0]
-#     qBasis = (rho)*S
-#     GOP = np.sum(qBasis,axis=1)
-#     self._coreH = Hsave
-
-#     # Current hack to deal with smearing = None
-#     if self.smearing:
-#         entropy_term = self.entropy * self.smearing
-#     else:
-#         entropy_term = 0.0
-#     if newG is not None:
-#         self._gamma = Gsave
-#     return self._qN - GOP, occ_rho_mask, entropy_term
-
 
 def assemble_ops_for_charges(feed, all_models):
     '''
@@ -712,15 +677,19 @@ def create_spline_config_dict(data_dict_lst):
 
 #%%
 
-allowed_Zs = [1,6,7]
-heavy_atoms = [1,2,3,4,5,6,7]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
+#Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
-exclude = ['O3', 'N2O1']
+exclude = ['O3', 'N2O1', 'H1N1O3']
 # Parameters for configuring the spline
 num_knots = 50
 max_val = None
 num_per_batch = 4
+
+#Method for eigenvalue decomposition
+eig_method = 'old'
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
 training_losses = list()
@@ -768,24 +737,34 @@ targets_for_loss = ['Eelec', 'Eref']
 print("Running degeneracy rejection")
 degeneracy_tolerance = 1.0e-3
 bad_indices = set()
+# NOTE: uncomment this section if using torch.symeig; if using new symeig, 
+#       can leave this step out
 for index, batch in enumerate(dataset, 0):
-    feed, _ = create_graph_feed(config, batch, allowed_Zs)
-    eorb = list(feed['eorb'].values())[0]
-    degeneracy = np.min(np.diff(np.sort(eorb)))
-    if degeneracy < degeneracy_tolerance:
-        bad_indices.add(index)
+    try:
+        feed, _ = create_graph_feed(config, batch, allowed_Zs)
+        eorb = list(feed['eorb'].values())[0]
+        degeneracy = np.min(np.diff(np.sort(eorb)))
+        if degeneracy < degeneracy_tolerance:
+            bad_indices.add(index)
+    except:
+        print(batch[0]['name'])
 
 cleaned_dataset = list()
 for index, item in enumerate(dataset, 0):
     if index not in bad_indices:
         cleaned_dataset.append(item[0])
-        
+
+#Shuffle the dataset before feeding into data_loader
+random.shuffle(cleaned_dataset)
+total_num_molecs = len(cleaned_dataset)
+
 print('number of molecules after degeneracy rejection', len(cleaned_dataset))
 print("Making Graphs")
 dat_set = data_loader(cleaned_dataset, batch_size = num_per_batch)
 feeds, dftb_lsts = list(), list()
 for index, batch in enumerate(dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
+    feed['name'] = [elem['name'] for elem in batch]
     all_bsizes = list(feed['Eelec'].keys())
     for target in batch[0]['targets']:
         if target == 'Etot': #Only dealing with total energy right now
@@ -794,6 +773,14 @@ for index, batch in enumerate(dat_set):
                 feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
     feeds.append(feed)
     dftb_lsts.append(batch_dftb_lst)
+
+# Add saving to pickle here to side-step future pre-compute cycles
+# TODO: Want to move away from using pickle to using h5py, need to figure out
+#       storing large lists of large dictionaries in h5py format.
+# with open('datasets.p', 'wb') as handle:
+#     pickle.dump(cleaned_dataset, handle)
+#     pickle.dump(feeds, handle)
+#     pickle.dump(dftb_lsts, handle)
             
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
@@ -804,7 +791,7 @@ all_models['Eref'] = Reference_energy(allowed_Zs)
 all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
-#Need more nuanced construction of the configuration dictionary
+#More nuanced construction of config dictionary
 model_range_dict = create_spline_config_dict(feeds)
 
 
@@ -823,27 +810,30 @@ for ibatch,feed in enumerate(feeds):
 for feed in feeds:
     recursive_type_conversion(feed)
 times['feeds'] = time.process_time()
+'''
+Two different eig methods are available for the dftblayer now, and they are 
+denoted by flags 'new' and 'old'.
+    'new': Implemented eigenvalue broadening method to work around vanishing 
+    eigengaps, refer to eig.py for more details. Only using conditional broadening
+    to cut down on gradient errors. Broadening factor is 1E-12.
+    
+    'old': Implementation using torch.symeig, standard approach from before
 
-# DEBUGGING
-# dat_set = data_loader(dataset, 4)
-# tst_batch = dat_set.batches[0]
-# tst_batch = list(map(lambda x : x[0], tst_batch))
-# feed, dftb_lst = create_graph_feed(config, tst_batch, allowed_Zs)
-# for model_spec in feed['models']:
-#     model = all_models[model_spec]
-#     feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
-# recursive_type_conversion(feed)
-# op_dict = assemble_ops_for_charges(feed, all_models)
-# update_charges(feed, op_dict, dftb_lst)
-
-dftblayer = DFTB_Layer(device = None, dtype = torch.double)
+Note: If you are using the old method for symmetric eigenvalue decomp, make sure
+to uncomment the section that runs the degeneracy rejection! Diagonalization will fail for 
+degenerate molecules in the old method.
+'''
+dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = eig_method)
 learning_rate = 1.0e-5
 optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad=True)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) #Experiment withb alternative schedulers?
+#TODO: Experiment with alternative learning rate schedulers
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
 
+times_per_epoch = list()
 #%%
 nepochs = 300
 for i in range(nepochs):
+    start = time.time()
     epoch_loss = 0.0
     for feed in feeds:
         optimizer.zero_grad()
@@ -863,14 +853,16 @@ for i in range(nepochs):
         first_epoch_losses.append(epoch_loss)
     print(i,np.sqrt(epoch_loss/len(feeds)) * 627.0, 'kcal/mol')
     training_losses.append(np.sqrt(epoch_loss/len(feeds)) * 627.0)
-    if (i % 10 == 0):
-        # Update charges every 10 epochs
-        for j in range(len(feeds)):
-            feed = feeds[j]
-            dftb_list = dftb_lsts[j]
-            op_dict = assemble_ops_for_charges(feed, all_models)
-            update_charges(feed, op_dict, dftb_list)
-print("Finished with 100 epochs")
+    # if (i % 10 == 0):
+    #     # Update charges every 10 epochs
+    #     for j in range(len(feeds)):
+    #         feed = feeds[j]
+    #         dftb_list = dftb_lsts[j]
+    #         op_dict = assemble_ops_for_charges(feed, all_models)
+    #         update_charges(feed, op_dict, dftb_list)
+    times_per_epoch.append(time.time() - start)
+
+print(f"Finished with {nepochs} epochs")
 times['train'] = time.process_time()
 
 print('dataset with', len(feeds), 'batches')
@@ -885,5 +877,25 @@ for itime in range(1,len(time_names)):
 with open("losses.p", "wb") as handle:
     pickle.dump(training_losses, handle)
     pickle.dump(first_epoch_losses, handle)
-    pickle.dump([100, 100, 1], handle) #Plot configuration information for future use
+    #Plot configuration information for future use
+    pickle.dump([100, 100, 1], handle)
+
+print(f"total time taken (sum epoch times): {sum(times_per_epoch)}")
+print(f"average epoch time: {sum(times_per_epoch) / len(times_per_epoch)}")
+print(f"total number of molecules per epoch: {total_num_molecs}")
+
+with open("timing.txt", "a+") as handle:
+    handle.write(f"Current time: {datetime.now()}\n")
+    handle.write(f"Allowed Zs: {allowed_Zs}\n")
+    handle.write(f"Heavy Atoms: {heavy_atoms}\n")
+    handle.write(f"Molecules per batch: {num_per_batch}\n")
+    handle.write(f"Total molecules per epoch: {total_num_molecs}\n")
+    handle.write(f"Number of epochs: {nepochs}\n")
+    handle.write(f"Eigen decomp method: {eig_method}\n")
+    handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
+    handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
+    handle.write("No charge updating!\n")
+    handle.write("\n")
+
+
 
