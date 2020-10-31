@@ -18,6 +18,7 @@ TODO:
     6) Figure out h5py for saving dictionaries (IP)
     7) Experiment with alternative learning rate schedulers (IP)
     8) Incorporate eigenvalue broadening to side-step degeneracy filtering (X)
+    9) Try k-fold cross-validation with skorch (IP))
 """
 import math
 import numpy as np
@@ -50,7 +51,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 
 #Fix the ani1_path for now
-ani1_path = 'data/ANI-1ccx_clean_shifted.h5'
+ani1_path = 'data/ANI-1ccx_clean.h5'
 
 def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path) 
@@ -676,7 +677,7 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%%
-
+## TOP LEVEL VARIABLES ##
 allowed_Zs = [1,6,7,8]
 heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
@@ -686,14 +687,21 @@ exclude = ['O3', 'N2O1', 'H1N1O3']
 # Parameters for configuring the spline
 num_knots = 50
 max_val = None
-num_per_batch = 4
+num_per_batch = 10
 
 #Method for eigenvalue decomposition
-eig_method = 'old'
+eig_method = 'new'
+
+#Proportion for training and validation
+prop_train = 0.8
+prop_valid = 0.2
+
+#Fit to DFTB or fit to ani1-ccx target
+fit_to_DFTB = False
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
 training_losses = list()
-first_epoch_losses = list()
+validation_losses = list()
 times = collections.OrderedDict()
 times['init'] = time.process_time()
 dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
@@ -739,15 +747,15 @@ degeneracy_tolerance = 1.0e-3
 bad_indices = set()
 # NOTE: uncomment this section if using torch.symeig; if using new symeig, 
 #       can leave this step out
-for index, batch in enumerate(dataset, 0):
-    try:
-        feed, _ = create_graph_feed(config, batch, allowed_Zs)
-        eorb = list(feed['eorb'].values())[0]
-        degeneracy = np.min(np.diff(np.sort(eorb)))
-        if degeneracy < degeneracy_tolerance:
-            bad_indices.add(index)
-    except:
-        print(batch[0]['name'])
+# for index, batch in enumerate(dataset, 0):
+#     try:
+#         feed, _ = create_graph_feed(config, batch, allowed_Zs)
+#         eorb = list(feed['eorb'].values())[0]
+#         degeneracy = np.min(np.diff(np.sort(eorb)))
+#         if degeneracy < degeneracy_tolerance:
+#             bad_indices.add(index)
+#     except:
+#         print(batch[0]['name'])
 
 cleaned_dataset = list()
 for index, item in enumerate(dataset, 0):
@@ -756,23 +764,82 @@ for index, item in enumerate(dataset, 0):
 
 #Shuffle the dataset before feeding into data_loader
 random.shuffle(cleaned_dataset)
-total_num_molecs = len(cleaned_dataset)
 
-print('number of molecules after degeneracy rejection', len(cleaned_dataset))
-print("Making Graphs")
-dat_set = data_loader(cleaned_dataset, batch_size = num_per_batch)
-feeds, dftb_lsts = list(), list()
-for index, batch in enumerate(dat_set):
+#Sample the indices that will be used for the training dataset randomly from the shuffled data
+indices = [i for i in range(len(cleaned_dataset))]
+sampled_indices = set(random.sample(indices, int(len(cleaned_dataset) * prop_train)))
+
+#Separate into the training and validation sets
+training_molecs, validation_molecs = list(), list()
+for i in range(len(cleaned_dataset)):
+    if i in sampled_indices:
+        training_molecs.append(cleaned_dataset[i])
+    else:
+        validation_molecs.append(cleaned_dataset[i])
+
+#Logging data
+total_num_molecs = len(cleaned_dataset)
+total_num_train_molecs = len(training_molecs)
+total_num_valid_molecs = len(validation_molecs)
+
+#Now run through the graph and feed generation procedures for both the training
+#   and validation molecules
+
+#NOTE: The order of the geometries in feed corresponds to the order of the 
+# geometries in batch, i.e. the glabels match the indices of batch (everything
+# is added sequentially)
+
+# Can go based on the order of the 'glabels' key in feeds, which dictates the 
+# ordering for everything as a kvp with bsize -> values for each molecule, glabels are sorted
+
+print('Number of total molecules after degeneracy rejection', len(cleaned_dataset))
+
+print("Making Training Graphs")
+train_dat_set = data_loader(training_molecs, batch_size = num_per_batch)
+training_feeds, training_dftblsts = list(), list()
+for index, batch in enumerate(train_dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
     feed['name'] = [elem['name'] for elem in batch]
     all_bsizes = list(feed['Eelec'].keys())
     for target in batch[0]['targets']:
         if target == 'Etot': #Only dealing with total energy right now
             feed[target] = dict()
-            for bsize in all_bsizes:
-                feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
-    feeds.append(feed)
-    dftb_lsts.append(batch_dftb_lst)
+            
+            if fit_to_DFTB:
+                for bsize in all_bsizes:
+                    feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
+                    
+            else:
+                for bsize in all_bsizes:
+                    glabels = feed['glabels'][bsize]
+                    total_energies = [batch[x]['targets'][target] for x in glabels]
+                    feed[target][bsize] = np.array(total_energies)
+                    
+    training_feeds.append(feed)
+    training_dftblsts.append(batch_dftb_lst)
+
+print("Making Validation Graphs")
+validation_dat_set = data_loader(validation_molecs, batch_size = num_per_batch)
+validation_feeds = list()
+for index, batch in enumerate(validation_dat_set):
+    feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
+    feed['name'] = [elem['name'] for elem in batch]
+    all_bsizes = list(feed['Eelec'].keys())
+    for target in batch[0]['targets']:
+        if target == 'Etot': #Only dealing with total energy right now
+            feed[target] = dict()
+            
+            if fit_to_DFTB:
+                for bsize in all_bsizes:
+                    feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
+            
+            else:
+                for bsize in all_bsizes:
+                    glabels = feed['glabels'][bsize]
+                    total_energies = [batch[x]['targets'][target] for x in glabels]
+                    feed[target][bsize] = np.array(total_energies)
+
+    validation_feeds.append(feed)
 
 # Add saving to pickle here to side-step future pre-compute cycles
 # TODO: Want to move away from using pickle to using h5py, need to figure out
@@ -792,12 +859,12 @@ all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
 #More nuanced construction of config dictionary
-model_range_dict = create_spline_config_dict(feeds)
+model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 
 
 #%%
-print('making feeds')
-for ibatch,feed in enumerate(feeds):
+print('Making training feeds')
+for ibatch,feed in enumerate(training_feeds):
    for model_spec in feed['models']:
        if (model_spec not in all_models):
            all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict)
@@ -806,10 +873,23 @@ for ibatch,feed in enumerate(feeds):
        model = all_models[model_spec]
        feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
 
+print('Making validation feeds')
+for ibatch, feed in enumerate(validation_feeds):
+    for model_spec in feed['models']:
+        if (model_spec not in all_models):
+            all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict)
+            #all_models[model_spec] = get_model_dftb(model_spec)
+            model_variables[model_spec] = all_models[model_spec].get_variables()
+        model = all_models[model_spec]
+        feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
 
-for feed in feeds:
+
+for feed in training_feeds:
+    recursive_type_conversion(feed)
+for feed in validation_feeds:
     recursive_type_conversion(feed)
 times['feeds'] = time.process_time()
+
 '''
 Two different eig methods are available for the dftblayer now, and they are 
 denoted by flags 'new' and 'old'.
@@ -833,9 +913,24 @@ times_per_epoch = list()
 #%%
 nepochs = 300
 for i in range(nepochs):
+    #Initialize epoch timer
     start = time.time()
+    
+    #Validation routine
+    validation_loss = 0
+    for elem in validation_feeds:
+        output = dftblayer(elem, all_models)
+        loss = all_models['Loss'].compute_loss(output, elem)
+        validation_loss += loss.item()
+    print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
+    validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
+
+    #Shuffle the validation data
+    random.shuffle(validation_feeds)
+    
+    #Training routine
     epoch_loss = 0.0
-    for feed in feeds:
+    for feed in training_feeds:
         optimizer.zero_grad()
         output = dftblayer(feed, all_models)
         loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
@@ -843,29 +938,31 @@ for i in range(nepochs):
         loss.backward()
         optimizer.step()
     scheduler.step(epoch_loss) #Step on the epoch loss
+    
     #Perform shuffling while keeping order b/w dftblsts and feeds consistent
-    temp = list(zip(feeds, dftb_lsts))
+    temp = list(zip(training_feeds, training_dftblsts))
     random.shuffle(temp)
-    feeds, dftb_lsts = zip(*temp)
-    feeds, dftb_lsts = list(feeds), list(dftb_lsts)
-    if (i == 0):
-        print(f"First epoch loss is {epoch_loss}")
-        first_epoch_losses.append(epoch_loss)
-    print(i,np.sqrt(epoch_loss/len(feeds)) * 627.0, 'kcal/mol')
-    training_losses.append(np.sqrt(epoch_loss/len(feeds)) * 627.0)
+    training_feeds, training_dftblsts = zip(*temp)
+    training_feeds, training_dftblsts = list(training_feeds), list(training_dftblsts)
+    
+    print(i,np.sqrt(epoch_loss/len(training_feeds)) * 627.0, 'kcal/mol')
+    training_losses.append(np.sqrt(epoch_loss/len(training_feeds)) * 627.0)
+    
+    #Update charges at specified epoch intervals
     # if (i % 10 == 0):
-    #     # Update charges every 10 epochs
-    #     for j in range(len(feeds)):
-    #         feed = feeds[j]
-    #         dftb_list = dftb_lsts[j]
+    #     for j in range(len(training_feeds)):
+    #         feed = training_feeds[j]
+    #         dftb_list = training_dftblsts[j]
     #         op_dict = assemble_ops_for_charges(feed, all_models)
     #         update_charges(feed, op_dict, dftb_list)
+    
+    #Save timing information for diagnostics
     times_per_epoch.append(time.time() - start)
 
 print(f"Finished with {nepochs} epochs")
 times['train'] = time.process_time()
 
-print('dataset with', len(feeds), 'batches')
+print('dataset with', len(training_feeds), 'batches')
 time_names  = list(times.keys())
 time_vals  = list(times.values())
 for itime in range(1,len(time_names)):
@@ -874,27 +971,32 @@ for itime in range(1,len(time_names)):
     else:
         print(time_names[itime], time_vals[itime] - time_vals[itime-1])
 
+#Save the training and validation losses for visualization later
 with open("losses.p", "wb") as handle:
     pickle.dump(training_losses, handle)
-    pickle.dump(first_epoch_losses, handle)
-    #Plot configuration information for future use
-    pickle.dump([100, 100, 1], handle)
+    pickle.dump(validation_losses, handle)
 
 print(f"total time taken (sum epoch times): {sum(times_per_epoch)}")
 print(f"average epoch time: {sum(times_per_epoch) / len(times_per_epoch)}")
 print(f"total number of molecules per epoch: {total_num_molecs}")
+print(f"total number of training molecules: {total_num_train_molecs}")
+print(f"total number of validation molecules: {total_num_valid_molecs}")
 
+#Writing diagnostic information for later user
 with open("timing.txt", "a+") as handle:
     handle.write(f"Current time: {datetime.now()}\n")
     handle.write(f"Allowed Zs: {allowed_Zs}\n")
     handle.write(f"Heavy Atoms: {heavy_atoms}\n")
     handle.write(f"Molecules per batch: {num_per_batch}\n")
     handle.write(f"Total molecules per epoch: {total_num_molecs}\n")
+    handle.write(f"Total number of training molecules: {total_num_train_molecs}\n")
+    handle.write(f"Total number of validation molecules: {total_num_valid_molecs}\n")
     handle.write(f"Number of epochs: {nepochs}\n")
     handle.write(f"Eigen decomp method: {eig_method}\n")
     handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
     handle.write("No charge updating!\n")
+    handle.write("Switched over to using non-shifted dataset\n")
     handle.write("\n")
 
 

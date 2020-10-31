@@ -10,34 +10,30 @@ Visualizing the loss
 import pickle
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
+                               AutoMinorLocator)
 
 
 data_file = "losses.p"
-num_outer = 100
-num_inner = 1000
-num_inner_printed = 25
+hartree_to_kcal = 627.0
+
 
 if __name__ == "__main__":
-    train_losses, first_epoch_losses = None, None
+    train_losses, validation_losses = None, None
     config_info = None
     with open(data_file, "rb") as handle:
         train_losses = pickle.load(handle)
-        first_epoch_losses = pickle.load(handle)
-        try:
-            config_info = pickle.load(handle)
-        except:
-            config_info = [num_outer, num_inner, num_inner_printed]
-    num_out, num_in, num_print = config_info
-    total_points = num_out * num_in
-    xs_for_first = [x * num_in for x in range(num_out)]
-    xs_for_total = [i * num_print for i in range(len(train_losses))]
+        validation_losses = pickle.load(handle)
+    xs_for_train = [i for i in range(len(train_losses))]
+    xs_for_valid = [i for i in range(len(validation_losses))]
     
     fig, axs = plt.subplots()
-    axs.plot(xs_for_total[:1000], train_losses[:1000], label = 'Training loss')
-    # axs.plot(xs_for_first[:25], first_epoch_losses[:25], label = 'Reference energy loss')
-    axs.set_title("Training losses update charges standalone dftb")
+    axs.plot(xs_for_train, train_losses, label = 'Training loss')
+    axs.plot(xs_for_valid, validation_losses, label = 'Validation loss')
+    axs.set_title("Train and validation losses, Elems = 1, 6, 7, 8, Num heavy = 1 - 8")
     axs.set_xlabel("Epochs")
-    axs.set_ylabel("Total Epoch Loss (Energy)")
+    axs.set_ylabel("Average Epoch Loss (kcal / mol)")
+    axs.yaxis.set_minor_locator(AutoMinorLocator())
     axs.legend()
     plt.show()
     

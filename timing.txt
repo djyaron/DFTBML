@@ -60,3 +60,147 @@ Total training time, sum of epoch times (seconds): 5807.332581996918
 Average time per epoch (seconds): 19.35777527332306
 No charge updating!
 
+Current time: 2020-10-29 14:42:05.207337
+Allowed Zs: [1, 6, 7]
+Heavy Atoms: [1, 2, 3, 4]
+Molecules per batch: 4
+Total molecules per epoch: 26
+Number of epochs: 100
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 82.09905433654785
+Average time per epoch (seconds): 0.8209905433654785
+No charge updating!
+
+Current time: 2020-10-30 01:32:18.285821
+Allowed Zs: [1, 6, 7]
+Heavy Atoms: [1, 2, 3, 4]
+Molecules per batch: 4
+Total molecules per epoch: 129
+Total number of training molecules: 103
+Total number of validation molecules: 26
+Number of epochs: 100
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 256.2547605037689
+Average time per epoch (seconds): 2.562547605037689
+No charge updating!
+
+Current time: 2020-10-30 01:56:04.549423
+Allowed Zs: [1, 6, 7]
+Heavy Atoms: [1, 2, 3, 4]
+Molecules per batch: 4
+Total molecules per epoch: 129
+Total number of training molecules: 103
+Total number of validation molecules: 26
+Number of epochs: 100
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 216.99049878120422
+Average time per epoch (seconds): 2.169904987812042
+No charge updating!
+
+Current time: 2020-10-30 02:03:01.551356
+Allowed Zs: [1, 6, 7]
+Heavy Atoms: [1, 2, 3, 4]
+Molecules per batch: 4
+Total molecules per epoch: 129
+Total number of training molecules: 103
+Total number of validation molecules: 26
+Number of epochs: 100
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 160.80396389961243
+Average time per epoch (seconds): 1.6080396389961242
+No charge updating!
+
+Current time: 2020-10-30 02:17:40.229352
+Allowed Zs: [1, 6, 7]
+Heavy Atoms: [1, 2, 3, 4]
+Molecules per batch: 4
+Total molecules per epoch: 129
+Total number of training molecules: 103
+Total number of validation molecules: 26
+Number of epochs: 300
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 463.1870527267456
+Average time per epoch (seconds): 1.5439568424224854
+No charge updating!
+
+Current time: 2020-10-30 13:07:29.238659
+Allowed Zs: [1, 6, 7, 8]
+Heavy Atoms: [1, 2, 3, 4, 5, 6, 7, 8]
+Molecules per batch: 4
+Total molecules per epoch: 1552
+Total number of training molecules: 1241
+Total number of validation molecules: 311
+Number of epochs: 300
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 6405.418748855591
+Average time per epoch (seconds): 21.351395829518637
+No charge updating!
+
+Current time: 2020-10-30 15:08:06.425206
+Allowed Zs: [1, 6, 7, 8]
+Heavy Atoms: [1, 2, 3, 4, 5, 6, 7, 8]
+Molecules per batch: 4
+Total molecules per epoch: 1776
+Total number of training molecules: 1420
+Total number of validation molecules: 356
+Number of epochs: 300
+Eigen decomp method: new
+Total training time, sum of epoch times (seconds): 6236.336082696915
+Average time per epoch (seconds): 20.78778694232305
+No charge updating!
+
+Current time: 2020-10-30 21:36:58.272572
+Allowed Zs: [1, 6]
+Heavy Atoms: [1, 2, 3]
+Molecules per batch: 10
+Total molecules per epoch: 22
+Total number of training molecules: 17
+Total number of validation molecules: 5
+Number of epochs: 300
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 29.928597927093506
+Average time per epoch (seconds): 0.09976199309031168
+No charge updating!
+
+Current time: 2020-10-30 21:55:42.338272
+Allowed Zs: [1, 6]
+Heavy Atoms: [1, 2, 3]
+Molecules per batch: 10
+Total molecules per epoch: 22
+Total number of training molecules: 17
+Total number of validation molecules: 5
+Number of epochs: 300
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 26.660856008529663
+Average time per epoch (seconds): 0.08886952002843221
+No charge updating!
+Switched over to using non-shifted dataset
+
+Current time: 2020-10-30 23:51:28.995355
+Allowed Zs: [1, 6, 7, 8]
+Heavy Atoms: [1, 2, 3, 4, 5, 6, 7, 8]
+Molecules per batch: 10
+Total molecules per epoch: 1552
+Total number of training molecules: 1241
+Total number of validation molecules: 311
+Number of epochs: 300
+Eigen decomp method: old
+Total training time, sum of epoch times (seconds): 4992.152970314026
+Average time per epoch (seconds): 16.64050990104675
+No charge updating!
+Switched over to using non-shifted dataset
+
+Current time: 2020-10-31 02:07:19.752973
+Allowed Zs: [1, 6, 7, 8]
+Heavy Atoms: [1, 2, 3, 4, 5, 6, 7, 8]
+Molecules per batch: 10
+Total molecules per epoch: 1776
+Total number of training molecules: 1420
+Total number of validation molecules: 356
+Number of epochs: 300
+Eigen decomp method: new
+Total training time, sum of epoch times (seconds): 5374.427351951599
+Average time per epoch (seconds): 17.914757839838664
+No charge updating!
+Switched over to using non-shifted dataset
+
