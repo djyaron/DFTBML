@@ -6,19 +6,11 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Fix the losses, write it like a model (X)
-    2) Simplify some things (where applicable) (X)
-    3) Very stability of validation and training loss (X)
-        Managed to keep training losses relatively stable using learning rate scheduler
-        Random loss spikes / oscillations, unstable training (problym with Adam maybe?)
-        1) linearly decrease training rate every 20 epochs (adaptive LR)
-        2) Epsilon workaround https://stackoverflow.com/questions/42327543/adam-optimizer-goes-haywire-after-200k-batches-training-loss-grows
-    4) Fix charge updating method (Update the correct field(s)) (X) 
-    5) Implement multi-molecular batches (X)
-    6) Figure out h5py for saving dictionaries (IP)
-    7) Experiment with alternative learning rate schedulers (IP)
-    8) Incorporate eigenvalue broadening to side-step degeneracy filtering (X)
-    9) Try k-fold cross-validation with skorch (IP))
+    1) Incorporate regularization for all splines as additional weighted loss term (High priority)
+        See solver.py and lossspline.py in repulsive branch
+    2) Data management via h5 files (High priority)
+        1) Test and incorporate correct_loaded_feeds() (IP)
+    3) Revise loss functions to include weighting (High priority) 
 """
 import math
 import numpy as np
@@ -26,6 +18,7 @@ import os
 import random
 import pickle
 from datetime import datetime
+import h5py
 
 from collections import OrderedDict, Counter
 import collections
@@ -49,6 +42,8 @@ from SplineModel_v3 import SplineModel, fit_linear_model
 import pickle
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
+from h5handler import save_model_variables_h5, unpack_save_feed_h5, save_all_feeds_h5,\
+    extract_feeds_h5, reconstitute_molecs_from_h5
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -87,6 +82,9 @@ def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
             batches.append([batch])
     return batches
 
+# Fields that come from SCF:
+#    ['F','Eelec','rho','eorb','occ_rho_mask', 'entropy', 'fermi_energy']
+#    ['dQ','dQinit','dQcurr']
 def create_graph_feed(config, batch, allowed_Zs):
     '''
     Takes in a list of geometries and creates the graph and feed dictionaries for that batch
@@ -116,13 +114,89 @@ def create_graph_feed(config, batch, allowed_Zs):
     for molecule in batch:
         geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
         geom_batch.append(geom)
-    
+    x = time.time()
     batch = create_batch(geom_batch,FIXED_ZS=allowed_Zs)
+    print(f"batch creation: {time.time() - x}")
+    y = time.time()
     dftblist = DFTBList(batch)
+    print(f"dftblist creation: {time.time() - y}")
+    z = time.time()
     feed = create_dataset(batch,dftblist,needed_fields)
-
+    print(f"dataset (feed) creation: {time.time() - z}")
     return feed, dftblist
 
+def create_graph_feed_loaded (config, batch, allowed_Zs):
+    '''
+    Method to generate the feeds for the dftblayer from data loaded in from
+    h5 file. This requires running on a subset of the fields used in the 
+    original method
+    
+    Ideally, since this side-steps the SCF cycle, this should require less compute time
+    '''
+    fields_by_type = dict()
+    fields_by_type['graph'] = \
+      ['models','onames','basis_sizes','glabels',
+       'gather_for_rot', 'gather_for_oper',
+       'gather_for_rep','segsum_for_rep','atom_ids','norbs_atom']
+    
+    fields_by_type['feed_constant'] = \
+        ['geoms','mod_raw', 'rot_tensors']
+        
+    needed_fields = fields_by_type['feed_constant'] + fields_by_type['graph']
+    
+    geom_batch = []
+    for molecule in batch:
+        geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
+        geom_batch.append(geom)
+    
+    x = time.time()
+    batch = create_batch(geom_batch, FIXED_ZS = allowed_Zs)
+    print(f"batch creation: {time.time() - x}")
+    y = time.time()
+    dftblist = DFTBList(batch)
+    print(f"dftblist creation: {time.time() - y}")
+    z = time.time()
+    feed = create_dataset(batch, dftblist, needed_fields)
+    print(f"dataset (feed) creation: {time.time() - z}")
+    return feed, dftblist
+
+def correct_loaded_feeds(feeds, master_dict, ignore_keys = []):
+    # TODO: Test me!
+    '''
+    This adds the SCF information and everything else saved to the h5 file
+    back into the feed using the glabels, names, and iconfigs as guidance.
+    
+    Also, need to specify which keys to ignore from the master_dict
+    
+    The master_dict comes from the method reading from the h5 file
+    '''
+    
+    first_mol = list(master_dict.keys())[0]
+    first_mol_first_conf = list(master_dict[first_mol].keys())[0]
+    
+    # These are all the keys to add to each feed
+    # Coincidentally, they are also the fields that are indexed by bsize
+    
+    all_keys_to_add = list(master_dict[first_mol][first_mol_first_conf].keys())
+    for feed in feeds:
+        all_bsizes = list(feed['glabels'].keys())
+        for key in all_keys_to_add:
+            if (key not in feed) and (key not in ignore_keys):
+                feed[key] = dict()
+                for bsize in all_bsizes:
+                    # number of values = number of molecules in that bsize
+                    feed[key][bsize] = list()
+                    
+                    #Here, the configuration numbers and names match
+                    current_iconfs = feed['iconfigs'][bsize]
+                    current_names = feed['names'][bsize]
+                    assert (len(current_iconfs) == len(current_names))
+                    
+                    for i in range(len(current_iconfs)):
+                        name, conf = current_names[i], current_iconfs[i]
+                        feed[key][bsize].append(master_dict[name][conf][key][()])
+                    
+                    feed[key][bsize] = np.array(feed[key][bsize])
 
 class Input_layer_DFTB:
     '''
@@ -550,10 +624,12 @@ def loss_refactored(output, data_dict, targets):
     total_computed = torch.cat(computed_tensors)
     return loss_criterion(total_computed, total_targets)
 
-def recursive_type_conversion(data, device = None, dtype = torch.double):
+def recursive_type_conversion(data, device = None, dtype = torch.double, grad_requires = False):
     '''
     Transports all the tensors stored in data to a tensor with the correct dtype
     on the correct device
+    
+    Can also instantiate gradient requirements for the recursive type conversion
     '''
     for key in data:
         if isinstance(data[key], np.ndarray):
@@ -673,13 +749,13 @@ def create_spline_config_dict(data_dict_lst):
                     new_max = curr_max if curr_max > range_max else range_max
                     model_range_dict[model_spec] = (new_min, new_max)
     return model_range_dict
+    
                 
 
 
-#%%
-## TOP LEVEL VARIABLES ##
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6,7,8]
+#%% Top level variable declaration
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -707,10 +783,32 @@ times['init'] = time.process_time()
 dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
 times['dataset'] = time.process_time()
 print('number of molecules retrieved', len(dataset))
-#%%
+
 config = dict()
 config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
+
+#%% Degbugging h5 stuff
+master_dict = extract_feeds_h5('testfeeds.h5') #test file used locally 
+molec_lst = reconstitute_molecs_from_h5(master_dict)
+
+tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
+
+all_bsizes = list(tstfeed['glabels'].keys())
+
+tstfeed['names'] = dict()
+tstfeed['iconfigs'] = dict()
+for bsize in all_bsizes:
+    glabels = tstfeed['glabels'][bsize]
+    all_names = [molec_lst[x]['name'] for x in glabels]
+    all_configs = [molec_lst[x]['iconfig'] for x in glabels]
+    tstfeed['names'][bsize] = all_names
+    tstfeed['iconfigs'][bsize] = all_configs
+
+x = [tstfeed]
+correct_loaded_feeds(x, master_dict, ['Coords', 'Zs'])
+
+#%% Graph generation
 
 # print('making graphs')
 # feeds = list()
@@ -799,8 +897,18 @@ train_dat_set = data_loader(training_molecs, batch_size = num_per_batch)
 training_feeds, training_dftblsts = list(), list()
 for index, batch in enumerate(train_dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
-    feed['name'] = [elem['name'] for elem in batch]
     all_bsizes = list(feed['Eelec'].keys())
+    
+    # Better organization for saved names and config numbers
+    feed['names'] = dict()
+    feed['iconfigs'] = dict()
+    for bsize in all_bsizes:
+        glabels = feed['glabels'][bsize]
+        all_names = [batch[x]['name'] for x in glabels]
+        all_configs = [batch[x]['iconfig'] for x in glabels]
+        feed['names'][bsize] = all_names
+        feed['iconfigs'][bsize] = all_configs
+        
     for target in batch[0]['targets']:
         if target == 'Etot': #Only dealing with total energy right now
             feed[target] = dict()
@@ -823,8 +931,17 @@ validation_dat_set = data_loader(validation_molecs, batch_size = num_per_batch)
 validation_feeds = list()
 for index, batch in enumerate(validation_dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
-    feed['name'] = [elem['name'] for elem in batch]
     all_bsizes = list(feed['Eelec'].keys())
+    
+    feed['names'] = dict()
+    feed['iconfigs'] = dict()
+    for bsize in all_bsizes:
+        glabels = feed['glabels'][bsize]
+        all_names = [batch[x]['name'] for x in glabels]
+        all_configs = [batch[x]['iconfig'] for x in glabels]
+        feed['names'][bsize] = all_names
+        feed['iconfigs'][bsize] = all_configs
+    
     for target in batch[0]['targets']:
         if target == 'Etot': #Only dealing with total energy right now
             feed[target] = dict()
@@ -840,14 +957,6 @@ for index, batch in enumerate(validation_dat_set):
                     feed[target][bsize] = np.array(total_energies)
 
     validation_feeds.append(feed)
-
-# Add saving to pickle here to side-step future pre-compute cycles
-# TODO: Want to move away from using pickle to using h5py, need to figure out
-#       storing large lists of large dictionaries in h5py format.
-# with open('datasets.p', 'wb') as handle:
-#     pickle.dump(cleaned_dataset, handle)
-#     pickle.dump(feeds, handle)
-#     pickle.dump(dftb_lsts, handle)
             
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
@@ -861,8 +970,11 @@ model_variables['Eref'] = all_models['Eref'].get_variables()
 #More nuanced construction of config dictionary
 model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 
+# DEBUGGING FOR SAVING FEEDS
+save_all_feeds_h5(training_feeds, 'testfeeds_large.h5')
 
-#%%
+
+#%% Feed generation
 print('Making training feeds')
 for ibatch,feed in enumerate(training_feeds):
    for model_spec in feed['models']:
@@ -882,6 +994,9 @@ for ibatch, feed in enumerate(validation_feeds):
             model_variables[model_spec] = all_models[model_spec].get_variables()
         model = all_models[model_spec]
         feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
+
+# TEST LINE ONLY REMOVE LATER!
+save_model_variables_h5(model_variables, 'filename.h5')
 
 
 for feed in training_feeds:
@@ -910,7 +1025,7 @@ optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgr
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
 
 times_per_epoch = list()
-#%%
+#%% Training loop
 nepochs = 300
 for i in range(nepochs):
     #Initialize epoch timer
