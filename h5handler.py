@@ -222,9 +222,12 @@ class per_molec_h5handler:
         Master method for saving a list of feeds into the h5 format
         '''
         hf = h5py.File(filename, 'w')
-        for feed in feeds:
-            per_molec_h5handler.unpack_save_molec_feed_h5(feed, hf)
-        print("feeds saved successfully")
+        try:
+            for feed in feeds:
+                per_molec_h5handler.unpack_save_molec_feed_h5(feed, hf)
+            print("feeds saved successfully per molecule")
+        except:
+            print("something went wrong with saving feeds per molecule")
     
     """
     Extract and reconstitute the feed with the information provided on a per-molecule basis
@@ -294,7 +297,7 @@ class per_molec_h5handler:
         return molec_list
     
     @staticmethod
-    def add_per_molec_info(feeds, master_dict, ignore_keys = []):
+    def add_per_molec_info(feeds, master_dict, ignore_keys = ['Coords', 'Zs']):
         # TODO: FIX ME TO FIT!
         '''
         This adds the SCF information and everything else saved to the h5 file
@@ -375,16 +378,11 @@ class per_batch_h5handler:
             else:
                 rot_tensor_grp.create_dataset(str(shp), data = feed['rot_tensors'][shp])
         #Save the onames
-        oname_grp = curr_batch_grp.create_group('onames')
         onames = feed['onames']
-        oname_grp.create_dataset('onames', data = [x.encode('ascii', 'ignore') for x in onames])
+        onames = [x.encode('ascii', 'ignore') for x in onames]
+        curr_batch_grp.create_dataset('onames', data = onames)
         #Save the basis_sizes
-        bsize_grp = curr_batch_grp.create_group('basis_sizes')
-        bsize_grp.create_dataset('basis_sizes', data = feed['basis_sizes'])
-        #Save the glabels
-        glabel_grp = curr_batch_grp.create_group('glabels')
-        for bsize in feed['glabels']:
-            glabel_grp.create_dataset(str(bsize), data = feed['glabels'][bsize])
+        curr_batch_grp.create_dataset('basis_sizes', data = feed['basis_sizes'])
         #Save the gather_for_rot
         gthr_for_rot_grp = curr_batch_grp.create_group('gather_for_rot')
         for shp in feed['gather_for_rot']:
@@ -398,39 +396,155 @@ class per_batch_h5handler:
             oper_grp = gthr_for_oper_grp.create_group(oper)
             for bsize in feed['gather_for_oper'][oper]:
                 oper_grp.create_dataset(str(bsize), data = feed['gather_for_oper'][oper][bsize])
-        #Save the gather_for_rep
+        
+        #Following fields are all saved in one for loop because they have
+        # very similar structure
+        glabel_grp = curr_batch_grp.create_group('glabels')
         gthr_for_rep_grp = curr_batch_grp.create_group('gather_for_rep')
-        for bsize in feed['gather_for_rep']:
-            gthr_for_rep_grp.create_dataset(str(bsize), data = feed['gather_for_rep'][bsize])
-        #Save the segsum_for_rep
         sgsum_for_rep_grp = curr_batch_grp.create_group('segsum_for_rep')
-        for bsize in feed['segsum_for_rep']:
-            sgsum_for_rep_grp.create_dataset(str(bsize), data = feed['segsum_for_rep'][bsize])
-        #Save the atom_ids
         at_id_grp = curr_batch_grp.create_group('atom_ids')
-        for bsize in feed['atom_ids']:
-            at_id_grp.create_dataset(str(bsize), data = feed['atom_ids'][bsize])
-        #Save the norbs_atom (AND WE'RE DONE!)
         norbs_grp = curr_batch_grp.create_group('norbs_atom')
-        for bsize in feed['norbs_atom']:
-            norbs_grp.create_dataset(str(bsize), data = feed['norbs_atom'][bsize])
-        #Need to save names and iconfigs too
         name_grp = curr_batch_grp.create_group('names')
         iconfig_grp = curr_batch_grp.create_group('iconfigs')
-        for bsize in feed['names']:
+        for bsize in feed['glabels']:
+            glabel_grp.create_dataset(str(bsize), data = feed['glabels'][bsize])
+            gthr_for_rep_grp.create_dataset(str(bsize), data = feed['gather_for_rep'][bsize])
+            sgsum_for_rep_grp.create_dataset(str(bsize), data = feed['segsum_for_rep'][bsize])
+            at_id_grp.create_dataset(str(bsize), data = feed['atom_ids'][bsize])
+            norbs_grp.create_dataset(str(bsize), data = feed['norbs_atom'][bsize])
             name_grp.create_dataset(str(bsize), data = [x.encode('ascii', 'ignore') for x in feed['names'][bsize]])
             iconfig_grp.create_dataset(str(bsize), data = feed['iconfigs'][bsize])
     
+    @staticmethod
+    def save_multiple_batches_h5(batches, filename):
+        '''
+        Wrapper method for saving all the information
+        '''
+        save_file = h5py.File(filename, 'w')
+        try:
+            for i in range(len(batches)):
+                per_batch_h5handler.unpack_save_feed_batch_h5(batches[i], save_file, i)
+            print("batch info saved successfully")
+        except:
+            print("something went wrong with saving batch information")
+
     @staticmethod
     def extract_batch_info(filename):
         '''
         Creates a list of feeds from the informaiton saved in the given file
         represented by filename
         
-        IMPLEMENT ME!!
+        Will extract the feeds in the filename into a feeds list, which is the
+        same format as when the data was first encoded in h5
         '''
-        pass
+        simple_keys = ['glabels', 'gather_for_rep', 'segsum_for_rep', 
+                       'atom_ids', 'norbs_atom', 'iconfigs', 
+                       'basis_sizes', 'names']
+        #These keys require more more processing in the extraction process
+        complex_keys = ['mod_raw', 'rot_tensors', 'gather_for_rot', 'gather_for_oper',
+                        'models', 'onames', 'names']
+        feeds_lst = list()
+        feed_file = h5py.File(filename, 'r')
+        #The top level keys should just be the numbers of each batch
+        feed_ids = list(feed_file.keys())
+        feed_ids = [int(x) for x in feed_ids]
+        feed_ids.sort()
+        for feed in feed_ids:
+            #Construct each feed
+            feed_dict = dict()
+            all_keys = list(feed_file[str(feed)].keys())
+            for key in all_keys:
+                #Debugging, can remove this later
+                assert((key in simple_keys) or (key in complex_keys))
+                #Simple keys either have a level of bsize index or direct kvp
+                if key in simple_keys:
+                    try:
+                        #All integers should be in string form due to encoding into h5
+                        bsizes = list(feed_file[str(feed)][key].keys())
+                        feed_dict[key] = dict()
+                        for bsize in bsizes:
+                            full_data = feed_file[str(feed)][key][bsize][()]
+                            try:
+                                full_data = [x.decode('UTF-8') for x in full_data]
+                                feed_dict[key][int(bsize)] = full_data
+                            except:
+                                feed_dict[key][int(bsize)] = full_data
+                    except:
+                        feed_dict[key] = feed_file[str(feed)][key][()]
+                #Complex keys have some trickery going on
+                #For example, any information that is stored as a string has to be decoded
+                elif key in complex_keys:
+                    #Handle the mod_raw case
+                    if key == 'mod_raw':
+                        all_models = list(feed_file[str(feed)][key].keys())
+                        feed_dict[key] = dict()
+                        for model in all_models:
+                            model_mod_raw = feed_file[str(feed)][key][model][()]
+                            model_mod_raw = [get_model_from_string(x) for x in model_mod_raw]
+                            model_key = eval(model) #Since the keys are valid python string, no need to decode byte string
+                            feed_dict[key][model_key] = model_mod_raw
+                    
+                    #Handle the rot_tensors case
+                    elif key == 'rot_tensors':
+                        all_shps = list(feed_file[str(feed)][key].keys())
+                        feed_dict[key] = dict()
+                        for shp in all_shps:
+                            shp_rot_tensors = feed_file[str(feed)][key][shp][()]
+                            try:
+                                #Saved an array of "None" if there was no rotational tensor
+                                # for that shape. Use try-except block to test that out
+                                nonetest = eval(shp_rot_tensors[0].decode('UTF-8')) is None
+                                feed_dict[key][eval(shp)] = None
+                            except:
+                                feed_dict[key][eval(shp)] = shp_rot_tensors
+                    
+                    elif key == 'gather_for_rot':
+                        all_shps = list(feed_file[str(feed)][key].keys())
+                        feed_dict[key] = dict()
+                        for shp in all_shps:
+                            shp_rot_gthr = feed_file[str(feed)][key][shp][()]
+                            try:
+                                nonetes = eval(shp_rot_gthr[0].decode('UTF-8')) is None
+                                feed_dict[key][eval(shp)] = None
+                            except:
+                                feed_dict[key][eval(shp)] = shp_rot_gthr
+                    
+                    elif key == 'gather_for_oper':
+                        all_opers = list(feed_file[str(feed)][key].keys())
+                        feed_dict[key] = dict()
+                        for oper in all_opers:
+                            feed_dict[key][oper] = dict()
+                            all_bsizes = list(feed_file[str(feed)][key][oper].keys())
+                            for bsize in all_bsizes:
+                                feed_dict[key][oper][int(bsize)] = feed_file[str(feed)][key][oper][bsize][()]
+                    
+                    elif key == 'models':
+                        all_models = feed_file[str(feed)][key][()]
+                        all_models = [get_model_from_string(x) for x in all_models]
+                        feed_dict[key] = all_models
+                    
+                    elif key == 'onames':
+                        all_onames = feed_file[str(feed)][key][()]
+                        all_onames = [x.decode('UTF-8') for x in all_onames]
+                        feed_dict[key] = all_onames
+                        
+            #Add the completed feed to the feeds_lst
+            feeds_lst.append(feed_dict)
+        assert (len(feeds_lst) == len(feed_ids))
+        return feeds_lst
     
+
+#%% Combinator class
+class total_feed_combinator:
+    '''
+    This class contains methods to join together per-molec information
+    with batch information to formulate the original feeds that go into the 
+    dftblayer. Will draw upon the methods of other classes defined so far in the code
+    
+    As an aside, we probably don't need the geometries of the molecules in there anymore. 
+    Try to implement without including the 'geoms' key and see what happens!
+    '''
+    pass
 
 
 #%% Testing
@@ -438,3 +552,4 @@ if __name__ == "__main__":
     filename = 'testfeeds.h5'
     resulting_dict = per_molec_h5handler.extract_molec_feeds_h5(filename)
     molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(resulting_dict)
+    feeds_lst = per_batch_h5handler.extract_batch_info('graph_save_tst.h5')
