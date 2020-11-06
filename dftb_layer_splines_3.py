@@ -42,8 +42,7 @@ from SplineModel_v3 import SplineModel, fit_linear_model
 import pickle
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
-from h5handler import save_model_variables_h5, unpack_save_feed_h5, save_all_feeds_h5,\
-    extract_feeds_h5, reconstitute_molecs_from_h5
+from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -114,15 +113,11 @@ def create_graph_feed(config, batch, allowed_Zs):
     for molecule in batch:
         geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
         geom_batch.append(geom)
-    x = time.time()
+        
     batch = create_batch(geom_batch,FIXED_ZS=allowed_Zs)
-    print(f"batch creation: {time.time() - x}")
-    y = time.time()
     dftblist = DFTBList(batch)
-    print(f"dftblist creation: {time.time() - y}")
-    z = time.time()
     feed = create_dataset(batch,dftblist,needed_fields)
-    print(f"dataset (feed) creation: {time.time() - z}")
+
     return feed, dftblist
 
 def create_graph_feed_loaded (config, batch, allowed_Zs):
@@ -149,54 +144,12 @@ def create_graph_feed_loaded (config, batch, allowed_Zs):
         geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
         geom_batch.append(geom)
     
-    x = time.time()
-    batch = create_batch(geom_batch, FIXED_ZS = allowed_Zs)
-    print(f"batch creation: {time.time() - x}")
-    y = time.time()
-    dftblist = DFTBList(batch)
-    print(f"dftblist creation: {time.time() - y}")
-    z = time.time()
-    feed = create_dataset(batch, dftblist, needed_fields)
-    print(f"dataset (feed) creation: {time.time() - z}")
-    return feed, dftblist
 
-def correct_loaded_feeds(feeds, master_dict, ignore_keys = []):
-    # TODO: Test me!
-    '''
-    This adds the SCF information and everything else saved to the h5 file
-    back into the feed using the glabels, names, and iconfigs as guidance.
-    
-    Also, need to specify which keys to ignore from the master_dict
-    
-    The master_dict comes from the method reading from the h5 file
-    '''
-    
-    first_mol = list(master_dict.keys())[0]
-    first_mol_first_conf = list(master_dict[first_mol].keys())[0]
-    
-    # These are all the keys to add to each feed
-    # Coincidentally, they are also the fields that are indexed by bsize
-    
-    all_keys_to_add = list(master_dict[first_mol][first_mol_first_conf].keys())
-    for feed in feeds:
-        all_bsizes = list(feed['glabels'].keys())
-        for key in all_keys_to_add:
-            if (key not in feed) and (key not in ignore_keys):
-                feed[key] = dict()
-                for bsize in all_bsizes:
-                    # number of values = number of molecules in that bsize
-                    feed[key][bsize] = list()
-                    
-                    #Here, the configuration numbers and names match
-                    current_iconfs = feed['iconfigs'][bsize]
-                    current_names = feed['names'][bsize]
-                    assert (len(current_iconfs) == len(current_names))
-                    
-                    for i in range(len(current_iconfs)):
-                        name, conf = current_names[i], current_iconfs[i]
-                        feed[key][bsize].append(master_dict[name][conf][key][()])
-                    
-                    feed[key][bsize] = np.array(feed[key][bsize])
+    batch = create_batch(geom_batch, FIXED_ZS = allowed_Zs)
+    dftblist = DFTBList(batch)
+    feed = create_dataset(batch, dftblist, needed_fields)
+
+    return feed, dftblist
 
 class Input_layer_DFTB:
     '''
@@ -789,8 +742,8 @@ config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
 
 #%% Degbugging h5 stuff
-master_dict = extract_feeds_h5('testfeeds.h5') #test file used locally 
-molec_lst = reconstitute_molecs_from_h5(master_dict)
+master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
+molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
 
 tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
 
@@ -805,8 +758,16 @@ for bsize in all_bsizes:
     tstfeed['names'][bsize] = all_names
     tstfeed['iconfigs'][bsize] = all_configs
 
+
+# As part of tests for saving the parts of the feeds that depend on the composition
+# of the batch
+new_hf = h5py.File("graph_save_tst.h5", 'w')
+per_batch_h5handler.unpack_save_feed_batch_h5(tstfeed, new_hf, 0)
+
 x = [tstfeed]
-correct_loaded_feeds(x, master_dict, ['Coords', 'Zs'])
+per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
+
+
 
 #%% Graph generation
 
@@ -971,7 +932,7 @@ model_variables['Eref'] = all_models['Eref'].get_variables()
 model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 
 # DEBUGGING FOR SAVING FEEDS
-save_all_feeds_h5(training_feeds, 'testfeeds_large.h5')
+# per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'testfeeds2.h5')
 
 
 #%% Feed generation
@@ -996,7 +957,7 @@ for ibatch, feed in enumerate(validation_feeds):
         feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
 
 # TEST LINE ONLY REMOVE LATER!
-save_model_variables_h5(model_variables, 'filename.h5')
+# save_model_variables_h5(model_variables, 'filename.h5')
 
 
 for feed in training_feeds:
