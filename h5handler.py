@@ -25,6 +25,7 @@ import h5py
 from batch import Model, RawData
 import collections
 from geometry import Geometry
+import pickle
 
 #%% Model variables h5
 
@@ -124,6 +125,7 @@ class model_variable_h5handler:
                 mod_vars = var_lst[i]
                 model_variables_np[spec] = mod_vars
         
+        hf.close()
         return model_variables_np
 
 #%% Per molecule information for feeds
@@ -227,6 +229,8 @@ class per_molec_h5handler:
             for feed in feeds:
                 per_molec_h5handler.unpack_save_molec_feed_h5(feed, hf)
             print("feeds saved successfully per molecule")
+            hf.flush()
+            hf.close()
         except:
             print("something went wrong with saving feeds per molecule")
     
@@ -261,7 +265,9 @@ class per_molec_h5handler:
                 
                 for category in hf[molec][config_num].keys():
                     master_molec_dict[molec][int(config_num)][category] = \
-                        hf[molec][config_num][category]
+                        hf[molec][config_num][category][()]
+        
+        hf.close()
         
         return master_molec_dict
     
@@ -290,10 +296,10 @@ class per_molec_h5handler:
                 curr_molec_dict = dict()
                 curr_molec_dict['name'] = molec
                 curr_molec_dict['iconfig'] = config
-                curr_molec_dict['coordinates'] = master_dict[molec][config]['Coords'][()].T
-                curr_molec_dict['atomic_numbers'] = master_dict[molec][config]['Zs'][()]
+                curr_molec_dict['coordinates'] = master_dict[molec][config]['Coords'].T
+                curr_molec_dict['atomic_numbers'] = master_dict[molec][config]['Zs']
                 curr_molec_dict['targets'] = dict()
-                curr_molec_dict['targets']['Etot'] = master_dict[molec][config]['Etot'][()]
+                curr_molec_dict['targets']['Etot'] = master_dict[molec][config]['Etot']
                 molec_list.append(curr_molec_dict)
         return molec_list
     
@@ -575,6 +581,99 @@ class total_feed_combinator:
         #Now just use the master correction function in the per_molec_h5handler
         per_molec_h5handler.add_per_molec_info(extracted_feeds, master_molec_dict)
         return extracted_feeds
+
+#%% Testing utilities 
+def compare_feeds(reference_file, reconstituted_feeds):
+    '''
+    reference_file: pickle file name to load in the reference data
+    reconstituted_feeds: list of reconstituted feeds
+    
+    Compares the values between each key between each feed of the reference_file
+    feeds and the reconstituted feeds
+    
+    The reconstituted feeds and reference file feeds should have the same order in terms of their feeds
+    '''
+    reference_file_feeds = pickle.load(open(reference_file, 'rb'))
+    assert(len(reconstituted_feeds) == len(reference_file_feeds))
+    for i in range(len(reference_file_feeds)):
+        curr_ref_fd = reference_file_feeds[i]
+        feedi = reconstituted_feeds[i]
+        #Assert same basis sizes
+        assert( set(curr_ref_fd['basis_sizes']).difference(set(feedi['basis_sizes'])) == set() )
+        assert( curr_ref_fd['onames'] == feedi['onames'] )
+        
+        assert( set(curr_ref_fd['models']).difference(set(feedi['models'])) == set() )
+        
+        #Need to check mod_raw
+        for mod_spec in curr_ref_fd['mod_raw']:
+            assert( curr_ref_fd['mod_raw'][mod_spec] == feedi['mod_raw'][mod_spec] )
+        
+        assert( set(curr_ref_fd['gather_for_rot'].keys()).difference(set(feedi['gather_for_rot'].keys())) == set() )
+        
+        for shp in curr_ref_fd['gather_for_rot']:
+            assert( np.allclose (curr_ref_fd['gather_for_rot'][shp], feedi['gather_for_rot'][shp]) )
+        
+        for shp in curr_ref_fd['rot_tensors']:
+            assert( 
+                ((feedi['rot_tensors'][shp] is None) and (curr_ref_fd['rot_tensors'][shp] is None)) or\
+                    np.allclose(curr_ref_fd['rot_tensors'][shp], feedi['rot_tensors'][shp])
+                )
+        #Assert the same for all things indexed by basis sizes
+        for bsize in curr_ref_fd['glabels'].keys():
+            assert( len(curr_ref_fd['glabels'][bsize]) == len(feedi['glabels'][bsize]) )
+            assert( list(curr_ref_fd['glabels'][bsize]) == list(feedi['glabels'][bsize]) )
+            
+            assert( len(curr_ref_fd['names'][bsize]) == len(feedi['names'][bsize]) )
+            assert( list(curr_ref_fd['names'][bsize]) == list(feedi['names'][bsize]) )
+            
+            assert( len(curr_ref_fd['iconfigs'][bsize]) == len(feedi['iconfigs'][bsize]) )
+            assert( list(curr_ref_fd['iconfigs'][bsize]) == list(feedi['iconfigs'][bsize]) )
+            
+            assert( np.allclose(curr_ref_fd['gather_for_rep'][bsize], feedi['gather_for_rep'][bsize]))
+            assert( np.allclose(curr_ref_fd['segsum_for_rep'][bsize], feedi['segsum_for_rep'][bsize]))
+            
+            assert( np.allclose(curr_ref_fd['norbs_atom'][bsize], feedi['norbs_atom'][bsize]) )
+            
+            assert( np.allclose(curr_ref_fd['atom_ids'][bsize], feedi['atom_ids'][bsize]) )
+            
+            assert( np.allclose (curr_ref_fd['S'][bsize], feedi['S'][bsize]) )
+
+            assert( np.allclose (curr_ref_fd['G'][bsize], feedi['G'][bsize]) )
+            
+            assert( np.allclose (curr_ref_fd['Etot'][bsize], feedi['Etot'][bsize]) )      
+
+            assert( np.allclose (curr_ref_fd['Eelec'][bsize], feedi['Eelec'][bsize]) )
+
+            assert( np.allclose (curr_ref_fd['Erep'][bsize], feedi['Erep'][bsize]) ) 
+            
+            assert( np.allclose (curr_ref_fd['Sevals'][bsize], feedi['Sevals'][bsize]) ) 
+            
+            assert( np.allclose (curr_ref_fd['dQ'][bsize], feedi['dQ'][bsize]) ) 
+
+            assert( np.allclose (curr_ref_fd['eorb'][bsize], feedi['eorb'][bsize]) ) 
+            
+            assert( np.allclose (curr_ref_fd['occ_rho_mask'][bsize], feedi['occ_rho_mask'][bsize]) )
+            
+            assert( np.allclose (curr_ref_fd['occ_eorb_mask'][bsize], feedi['occ_eorb_mask'][bsize]) )
+            
+            assert( np.allclose (curr_ref_fd['phiS'][bsize], feedi['phiS'][bsize]) )
+            
+            assert( np.allclose (curr_ref_fd['rho'][bsize], feedi['rho'][bsize]) ) 
+            
+            assert( np.allclose (curr_ref_fd['zcounts'][bsize], feedi['zcounts'][bsize]) ) 
+            
+            assert( np.allclose (curr_ref_fd['qneutral'][bsize], feedi['qneutral'][bsize]) )
+            
+            for oper in curr_ref_fd['gather_for_oper'].keys():
+                assert(np.allclose(curr_ref_fd['gather_for_oper'][oper][bsize], feedi['gather_for_oper'][oper][bsize] ))
+            
+            for oper in curr_ref_fd['onames']:
+                if oper != 'H':
+                    assert(np.allclose(curr_ref_fd[oper][bsize], feedi[oper][bsize]))
+                    
+    print("Tests passed!")
+
+            
 
 #%% Testing
 if __name__ == "__main__":

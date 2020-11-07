@@ -43,7 +43,7 @@ import pickle
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
-    total_feed_combinator
+    total_feed_combinator, compare_feeds
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -743,36 +743,35 @@ config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
 
 #%% Degbugging h5 stuff
-# master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
-# molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
+master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
+molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
 
-# tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
+tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
 
-# all_bsizes = list(tstfeed['glabels'].keys())
+all_bsizes = list(tstfeed['glabels'].keys())
 
-# tstfeed['names'] = dict()
-# tstfeed['iconfigs'] = dict()
-# for bsize in all_bsizes:
-#     glabels = tstfeed['glabels'][bsize]
-#     all_names = [molec_lst[x]['name'] for x in glabels]
-#     all_configs = [molec_lst[x]['iconfig'] for x in glabels]
-#     tstfeed['names'][bsize] = all_names
-#     tstfeed['iconfigs'][bsize] = all_configs
+tstfeed['names'] = dict()
+tstfeed['iconfigs'] = dict()
+for bsize in all_bsizes:
+    glabels = tstfeed['glabels'][bsize]
+    all_names = [molec_lst[x]['name'] for x in glabels]
+    all_configs = [molec_lst[x]['iconfig'] for x in glabels]
+    tstfeed['names'][bsize] = all_names
+    tstfeed['iconfigs'][bsize] = all_configs
 
 
-# # As part of tests for saving the parts of the feeds that depend on the composition
-# # of the batch
-# new_hf = h5py.File("graph_save_tst.h5", 'w')
-# per_batch_h5handler.unpack_save_feed_batch_h5(tstfeed, new_hf, 0)
+# As part of tests for saving the parts of the feeds that depend on the composition
+# of the batch
+new_hf = h5py.File("graph_save_tst.h5", 'w')
+per_batch_h5handler.unpack_save_feed_batch_h5(tstfeed, new_hf, 0)
 
-# x = [tstfeed]
-# per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
+x = [tstfeed]
+per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
 
 #Testing loading and combination
-final_feeds = total_feed_combinator.create_all_feeds('final_batch_test.h5', 'final_molec_tst.h5')
+final_feeds = total_feed_combinator.create_all_feeds('final_batch_test.h5', 'final_molec_test.h5')
+compare_feeds('reference_data.p', final_feeds)
 print("Check me!")
-
-
 
 #%% Graph generation
 
@@ -939,10 +938,14 @@ model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 #%% Debugging h5 part 2
 
 #Save all the molecular information
-# per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_tst.h5')
-# per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
+per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
+per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
 
-# print("molecular and batch information successfully saved!")
+with open('reference_data.p', 'wb') as handle:
+    pickle.dump(training_feeds, handle)
+
+print("molecular and batch information successfully saved!")
+print("reference solution also saved")
 
 
 
