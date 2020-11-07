@@ -24,6 +24,7 @@ import numpy as np
 import h5py
 from batch import Model, RawData
 import collections
+from geometry import Geometry
 
 #%% Model variables h5
 
@@ -298,7 +299,6 @@ class per_molec_h5handler:
     
     @staticmethod
     def add_per_molec_info(feeds, master_dict, ignore_keys = ['Coords', 'Zs']):
-        # TODO: FIX ME TO FIT!
         '''
         This adds the SCF information and everything else saved to the h5 file
         back into the feed using the glabels, names, and iconfigs as guidance.
@@ -541,11 +541,40 @@ class total_feed_combinator:
     with batch information to formulate the original feeds that go into the 
     dftblayer. Will draw upon the methods of other classes defined so far in the code
     
-    As an aside, we probably don't need the geometries of the molecules in there anymore. 
-    Try to implement without including the 'geoms' key and see what happens!
+    As an aside, we probably don't need the geometries of the molecules in there anymore,
+    but will implement adding them in just in case
     '''
-    pass
-
+    
+    @staticmethod
+    def create_all_feeds(batch_filename, molec_filename):
+        '''
+        batch_filename: h5 file containing batch information
+        molec_filename: h5 file containing molecule information
+        
+        Pulls all the molecules and feeds out of their respective files and 
+        then assembles them into the list of complete feeds that is commonly used
+        '''
+        extracted_feeds = per_batch_h5handler.extract_batch_info(batch_filename)
+        master_molec_dict = per_molec_h5handler.extract_molec_feeds_h5(molec_filename)
+        
+        #One of the things that needs to be manually added back in is the geoms category, which
+        # has to be recreated
+        for feed in extracted_feeds:
+            feed['geoms'] = dict()
+            all_bsizes = feed['glabels'].keys()
+            for bsize in all_bsizes:
+                curr_glabels = feed['glabels'][bsize]
+                curr_names = feed['names'][bsize]
+                curr_iconfigs = feed['iconfigs'][bsize]
+                assert(len(curr_glabels) == len(curr_names) == len(curr_iconfigs))
+                for i in range(len(curr_glabels)):
+                    coordinates = master_molec_dict[curr_names[i]][curr_iconfigs[i]]['Coords'][()]
+                    Zs = master_molec_dict[curr_names[i]][curr_iconfigs[i]]['Zs'][()]
+                    feed['geoms'][curr_glabels[i]] = Geometry(Zs, coordinates) #No need to transpose
+        
+        #Now just use the master correction function in the per_molec_h5handler
+        per_molec_h5handler.add_per_molec_info(extracted_feeds, master_molec_dict)
+        return extracted_feeds
 
 #%% Testing
 if __name__ == "__main__":
