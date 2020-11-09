@@ -668,7 +668,7 @@ def create_spline_config_dict(data_dict_lst):
 
 #%% Top level variable declaration
 allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6,7,8]
+heavy_atoms = [1,2,3,4,5]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -728,11 +728,11 @@ targets_for_loss = ['Eelec', 'Eref']
 # per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
 
 # #Testing loading and combination
-x = time.time()
-final_feeds = total_feed_combinator.create_all_feeds('final_batch_test.h5', 'final_molec_test.h5')
-print(f"Feed constitution time: {time.time() - x}")
-compare_feeds('reference_data.p', final_feeds)
-print("Check me!")
+# x = time.time()
+# final_feeds = total_feed_combinator.create_all_feeds('final_batch_test.h5', 'final_molec_test.h5')
+# print(f"Feed constitution time: {time.time() - x}")
+# compare_feeds('reference_data.p', final_feeds)
+# print("Check me!")
 
 #%% Graph generation
 
@@ -898,15 +898,15 @@ model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 
 #%% Debugging h5 part 2
 
-#Save all the molecular information
-per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
-per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
+# #Save all the molecular information
+# per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
+# per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
 
-with open('reference_data.p', 'wb') as handle:
-    pickle.dump(training_feeds, handle)
+# with open('reference_data.p', 'wb') as handle:
+#     pickle.dump(training_feeds, handle)
 
-print("molecular and batch information successfully saved!")
-print("reference solution also saved")
+# print("molecular and batch information successfully saved!")
+# print("reference solution also saved")
 
 
 
