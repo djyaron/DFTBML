@@ -44,6 +44,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
+from loss_methods import loss_refactored, loss_temp
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -536,48 +537,6 @@ class DFTB_Layer(nn.Module):
             calc['Eref'][bsize] = ref_res.squeeze(1)
         return calc
 
-def loss_temp(output, data_dict, targets):
-    '''
-    Calculates the MSE loss for a given minibatch using the torch implementation of 
-    MSELoss
-    '''
-    all_bsizes = list(output['Eelec'].keys())
-    loss_criterion = nn.MSELoss() #Compute MSE loss by the pytorch specification
-    target_tensors, computed_tensors = list(), list()
-    for bsize in all_bsizes:
-        computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] 
-        target_result = data_dict['Etot'][bsize]
-        if len(computed_result.shape) == 0:
-            computed_result = computed_result.unsqueeze(0)
-        if len(target_result.shape) == 0:
-            target_result = target_result.unsqueeze(0)
-        computed_tensors.append(computed_result)
-        target_tensors.append(target_result)
-    total_targets = torch.cat(target_tensors)
-    total_computed = torch.cat(computed_tensors)
-    return loss_criterion(total_computed, total_targets) 
-
-def loss_refactored(output, data_dict, targets):
-    '''
-    Slightly refactored loss, will be used within the objet oriented handler
-    '''
-    all_bsizes = list(output[targets[0]].keys())
-    loss_criterion = nn.MSELoss()
-    target_tensors, computed_tensors = list(), list()
-    for bsize in all_bsizes:
-        for target in targets:
-            computed_tensors.append(output[target][bsize])
-            target_tensors.append(output[target][bsize])
-    assert(len(target_tensors) == len(computed_tensors))
-    for i in range(len(target_tensors)):
-        if len(target_tensors[i].shape) == 0:
-            target_tensors[i] = target_tensors[i].unsqueeze(0)
-        if len(computed_tensors[i].shape) == 0:
-            computed_tensors[i] = computed_tensors[i].unsqueeze(0)
-    total_targets = torch.cat(target_tensors)
-    total_computed = torch.cat(computed_tensors)
-    return loss_criterion(total_computed, total_targets)
-
 def recursive_type_conversion(data, device = None, dtype = torch.double, grad_requires = False):
     '''
     Transports all the tensors stored in data to a tensor with the correct dtype
@@ -708,8 +667,8 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -743,33 +702,35 @@ config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
 
 #%% Degbugging h5 stuff
-master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
-molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
+# master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
+# molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
 
-tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
+# tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
 
-all_bsizes = list(tstfeed['glabels'].keys())
+# all_bsizes = list(tstfeed['glabels'].keys())
 
-tstfeed['names'] = dict()
-tstfeed['iconfigs'] = dict()
-for bsize in all_bsizes:
-    glabels = tstfeed['glabels'][bsize]
-    all_names = [molec_lst[x]['name'] for x in glabels]
-    all_configs = [molec_lst[x]['iconfig'] for x in glabels]
-    tstfeed['names'][bsize] = all_names
-    tstfeed['iconfigs'][bsize] = all_configs
+# tstfeed['names'] = dict()
+# tstfeed['iconfigs'] = dict()
+# for bsize in all_bsizes:
+#     glabels = tstfeed['glabels'][bsize]
+#     all_names = [molec_lst[x]['name'] for x in glabels]
+#     all_configs = [molec_lst[x]['iconfig'] for x in glabels]
+#     tstfeed['names'][bsize] = all_names
+#     tstfeed['iconfigs'][bsize] = all_configs
 
 
-# As part of tests for saving the parts of the feeds that depend on the composition
-# of the batch
-new_hf = h5py.File("graph_save_tst.h5", 'w')
-per_batch_h5handler.unpack_save_feed_batch_h5(tstfeed, new_hf, 0)
+# # As part of tests for saving the parts of the feeds that depend on the composition
+# # of the batch
+# new_hf = h5py.File("graph_save_tst.h5", 'w')
+# per_batch_h5handler.unpack_save_feed_batch_h5(tstfeed, new_hf, 0)
 
-x = [tstfeed]
-per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
+# x = [tstfeed]
+# per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
 
-#Testing loading and combination
+# #Testing loading and combination
+x = time.time()
 final_feeds = total_feed_combinator.create_all_feeds('final_batch_test.h5', 'final_molec_test.h5')
+print(f"Feed constitution time: {time.time() - x}")
 compare_feeds('reference_data.p', final_feeds)
 print("Check me!")
 
@@ -1036,6 +997,7 @@ for i in range(nepochs):
     training_losses.append(np.sqrt(epoch_loss/len(training_feeds)) * 627.0)
     
     #Update charges at specified epoch intervals
+    # Uncomment later, not working with charge updates right now
     # if (i % 10 == 0):
     #     for j in range(len(training_feeds)):
     #         feed = training_feeds[j]
