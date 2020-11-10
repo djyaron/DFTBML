@@ -98,29 +98,32 @@ class ModelPenalty:
         self.neg_integral = neg_integral
         
         #Compute the x-grid
-        r_low, r_high = self.input_pairwise_lin.r_range()
+        r_low, r_high = self.input_pairwise_lin.pairwise_linear_model.r_range()
         self.xgrid = np.linspace(r_low, r_high, n_grid)
         
         #Compute the derivative_grid for 0th, 1st, and 2nd order
         self.dgrid = dict()
         for i in range(3):
-            self.dgrid[i] = self.input_pairwise_lin.linear_model(self.xgrid, i)[0]
+            self.dgrid[i] = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, i)[0]
         
         #Do a mini penalty check for the weights of each penalty
         self.monotonic_enabled = False
         self.convex_enabled = False
         self.smooth_enabled = False
+        
+        self.penalty_check()
     
     def penalty_check(self):
         '''
         Checks the penalties and toggle the flags
         '''
-        if "monotonic" in self.penalties:
-            self.monotonic_enabled = True
-        if "convex" in self.penalties:
-            self.convex_enabled = True
-        if "smooth" in self.penalties:
-            self.smooth_enabled = True
+        if self.penalties is not None:
+            if "monotonic" in self.penalties:
+                self.monotonic_enabled = True
+            if "convex" in self.penalties:
+                self.convex_enabled = True
+            if "smooth" in self.penalties:
+                self.smooth_enabled = True
     
     # Now some methods for computing the different penalties
     def get_monotonic_penalty(self):
@@ -133,6 +136,7 @@ class ModelPenalty:
         monotonic_penalty = 0
         c = self.input_pairwise_lin.get_variables()
         deriv = self.dgrid[1]
+        deriv = torch.tensor(deriv)
         p_monotonic = torch.einsum('j,ij->i', c, deriv)
         p_monotonic [p_monotonic > 0] = 0 #Care only about the negative terms
         monotonic_penalty = torch.einsum('i,i->', p_monotonic, p_monotonic)
@@ -147,6 +151,7 @@ class ModelPenalty:
         convex_penalty = 0
         c = self.input_pairwise_lin.get_variables()
         deriv = self.dgrid[2]
+        deriv = torch.tensor(deriv)
         p_convex = torch.einsum('j,ij->i', c, deriv)
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
@@ -165,6 +170,7 @@ class ModelPenalty:
         smooth_penalty = 0
         c = self.input_pairwise_lin.get_variables()
         deriv = self.dgrid[2]
+        deriv = torch.tensor(deriv)
         p_smooth = torch.einsum('j,ij->i',c,deriv)
         smooth_penalty = torch.einsum('i,i->', p_smooth, p_smooth)
         smooth_penalty *= lambda_smooth
@@ -226,8 +232,7 @@ def find_concavity_H(model_spec, par_dict, r_max = 9, threshold = 0.75):
     
     By the same reasoning, the core-core repulsions should also be concave up
     
-    This is a really hacky way of determining concave up or down, so
-    TODO: revisit this! Find more robust way
+    TODO: This needs work, you need to check if the first derivative is monotonically increasing or decreasing!
     '''
     #Extract the relevant information from the model_spec
     assert(len(model_spec.Zs) == 2)
@@ -276,7 +281,10 @@ def find_concavity_H(model_spec, par_dict, r_max = 9, threshold = 0.75):
             break
     
     data_subset = data[start_index : end_index + 1]
-    diff = np.diff(data_subset)
+    diff = np.diff(data_subset) 
+    #Compute slope (first derivative) from differences (differences divided by grid step)
+    #Compute differences for slope and use that to determine concave up or down
+    #   more positive means that concave up, more negative means concave down
     
     num_negative = np.sum(diff < 0)
     num_positive = np.sum(diff > 0)
@@ -288,29 +296,33 @@ def find_concavity_H(model_spec, par_dict, r_max = 9, threshold = 0.75):
     elif num_positive / total >= threshold:
         return True
 
-def compute_model_deviation(all_models, thresholds, penalties, scheme = 'MSE'):
+def compute_model_deviation(all_models, penalties, par_dict):
     '''
     all_models (dict): dictionary of all models mapping the model_spec to the object 
                 instance of that model
-    threshold (dict): value to be used as a comparison for deviations for each type of 
-                      penalty. Number of elements in threshold should match penalties
     penalties (dict): The different penalties to use and their relative weights
-    scheme (string): The method for computing the loss. Default is torch.MSE
+    par_dict (dict) : Dictionary containing information from the skf files necessary for 
+                      deciding a model's concavity
     
-    Computes the penalties using the ModelPenalty class and translates those penalties
-    into losses by the weights
+    Computes the losses using the ModelPenalty class
+    
+    Only the models doing 2-body potentials for the H operator should have to have their
+    concavity figured out. For now, only regularize the splines for the hamiltonian elements
     '''
-    loss_criterion = None
-    if scheme == 'MSE':
-        loss_criterion  = nn.MSELoss()
+    deviation_loss = 0
     for model_spec in all_models:
-        # Only compute deviation for the off-diagonal elements
-        if len(model_spec.Zs) == 2:
-            #Compute the refactored loss for the
+        # Only compute deviation for the off-diagonal H elements for now, 
+        # include other matrix elements later!
+        try:
+            if len(model_spec.Zs) == 2 and model_spec.oper == 'H':
+                curr_model = all_models[model_spec]
+                # False -> concave up, True -> concave down
+                neg_integral = find_concavity_H(model_spec, par_dict)
+                mod_penalty = ModelPenalty(curr_model, neg_integral = neg_integral, penalties = penalties)
+                deviation_loss += mod_penalty.get_loss()
+        except:
             pass
-            
-            
-    pass
+    return deviation_loss
 
 def compute_variable_loss(output, data_dict, targets, scheme = 'MSE'):
     '''
@@ -321,15 +333,18 @@ def compute_variable_loss(output, data_dict, targets, scheme = 'MSE'):
     '''
     return loss_temp(output, data_dict, targets)
 
-def compute_total_loss(output, data_dict, targets, all_models, thresholds, penalties, scheme = 'MSE'):
+def compute_total_loss(output, data_dict, targets, all_models, par_dict, penalties, weights):
     '''
     Computes the total loss as the sum of penalty losses and the property losses. This final loss
     should be a PyTorch object with a backward() method, i.e. able to backpropagate
+    
+    Weights is a new dictionary with two keys, 'targets' and 'deviations'. They map to the weights 
+    that should be used for the target loss and 
     '''
-    pass
-    
-    
-    
+    target_loss = loss_temp(output, data_dict, targets)
+    deviation_loss = compute_model_deviation(all_models, penalties, par_dict)
+    return weights['targets'] * target_loss + weights['deviations'] * deviation_loss
+
 
 #%% Some testing
 H_mods = [Model(oper='H', Zs=(1,), orb='s'), Model(oper='H', Zs=(6,), orb='p'), 

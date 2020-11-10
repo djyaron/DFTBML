@@ -44,7 +44,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_methods import loss_refactored, loss_temp
+from loss_methods import loss_refactored, loss_temp, compute_total_loss
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -667,8 +667,8 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5]
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -957,6 +957,10 @@ optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgr
 #TODO: Experiment with alternative learning rate schedulers
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
 
+#Variables for experimenting with new loss
+penalties = {'convex' : 1}
+weights = {'targets' : 1, 'deviations' : 1}
+
 times_per_epoch = list()
 #%% Training loop
 nepochs = 300
@@ -965,13 +969,14 @@ for i in range(nepochs):
     start = time.time()
     
     #Validation routine
-    validation_loss = 0
-    for elem in validation_feeds:
-        output = dftblayer(elem, all_models)
-        loss = all_models['Loss'].compute_loss(output, elem)
-        validation_loss += loss.item()
-    print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
-    validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
+    #Comment out, testing new loss
+    # validation_loss = 0
+    # for elem in validation_feeds:
+    #     output = dftblayer(elem, all_models)
+    #     loss = all_models['Loss'].compute_loss(output, elem)
+    #     validation_loss += loss.item()
+    # print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
+    # validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
 
     #Shuffle the validation data
     random.shuffle(validation_feeds)
@@ -981,7 +986,9 @@ for i in range(nepochs):
     for feed in training_feeds:
         optimizer.zero_grad()
         output = dftblayer(feed, all_models)
-        loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
+        #Comment out, testing new loss
+        # loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
+        loss = compute_total_loss(output, feed, [], all_models, ParDict(), penalties, weights)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
