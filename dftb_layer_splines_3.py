@@ -29,6 +29,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset
 import time
+from tfspline import Bcond
 
 from geometry import Geometry, random_triatomics, to_cart
 from auorg_1_1 import ParDict
@@ -44,7 +45,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_methods import loss_refactored, loss_temp, compute_total_loss
+from loss_methods import loss_refactored, loss_temp, compute_total_loss, generate_concavity_dict, compute_mod_vals_derivs
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -667,8 +668,8 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -960,6 +961,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 #Variables for experimenting with new loss
 penalties = {'convex' : 1}
 weights = {'targets' : 1, 'deviations' : 1}
+concav_dict = generate_concavity_dict(compute_mod_vals_derivs(all_models, ParDict()))
 
 times_per_epoch = list()
 #%% Training loop
@@ -988,7 +990,7 @@ for i in range(nepochs):
         output = dftblayer(feed, all_models)
         #Comment out, testing new loss
         # loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
-        loss = compute_total_loss(output, feed, [], all_models, ParDict(), penalties, weights)
+        loss = compute_total_loss(output, feed, [], all_models, concav_dict, penalties, weights)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()

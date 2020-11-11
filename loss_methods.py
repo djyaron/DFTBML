@@ -16,6 +16,8 @@ import torch.nn as nn
 import numpy as np
 from batch import Model
 from auorg_1_1 import ParDict
+from tfspline import Bcond,spline_linear_model
+from modelspline import get_dftb_vals
 
 #%% Previous loss methods 
 def loss_refactored(output, data_dict, targets):
@@ -232,7 +234,7 @@ def find_concavity_H(model_spec, par_dict, r_max = 9, threshold = 0.75):
     
     By the same reasoning, the core-core repulsions should also be concave up
     
-    TODO: This needs work, you need to check if the first derivative is monotonically increasing or decreasing!
+    TODO: This needs work
     '''
     #Extract the relevant information from the model_spec
     assert(len(model_spec.Zs) == 2)
@@ -282,9 +284,6 @@ def find_concavity_H(model_spec, par_dict, r_max = 9, threshold = 0.75):
     
     data_subset = data[start_index : end_index + 1]
     diff = np.diff(data_subset) 
-    #Compute slope (first derivative) from differences (differences divided by grid step)
-    #Compute differences for slope and use that to determine concave up or down
-    #   more positive means that concave up, more negative means concave down
     
     num_negative = np.sum(diff < 0)
     num_positive = np.sum(diff > 0)
@@ -296,14 +295,98 @@ def find_concavity_H(model_spec, par_dict, r_max = 9, threshold = 0.75):
     elif num_positive / total >= threshold:
         return True
 
-def compute_model_deviation(all_models, penalties, par_dict):
+def concavity_test(concavity_dict):
+    '''
+    Test method for the concavity dictionary, at least for the 'H' models
+    '''
+    H_double_mods_only = [Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
+                 Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
+                 Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
+                 Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
+                 Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
+                 Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
+                 Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
+                 Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
+                 Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
+                 Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
+                 Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
+                 Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
+                 Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
+                 Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
+                 Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
+                 Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
+                 Model(oper='H', Zs=(8, 8), orb='ss')]
+    result_keys = list(concavity_dict.keys())
+    ss_keys = [mod for mod in result_keys if mod.orb == 'ss' and mod in H_double_mods_only]
+    sp_keys = [mod for mod in result_keys if mod.orb == 'sp' and mod in H_double_mods_only]
+    pp_sig = [mod for mod in result_keys if mod.orb == 'pp_sigma' and mod in H_double_mods_only]
+    pp_pi = [mod for mod in result_keys if mod.orb == 'pp_pi' and mod in H_double_mods_only]
+
+    for k in ss_keys:
+        assert(concavity_dict[k])
+    for k in sp_keys:
+        assert(not concavity_dict[k])
+    for k in pp_sig:
+        assert(not concavity_dict[k])
+    for k in pp_pi:
+        assert(concavity_dict[k])
+    
+    print("Tests passed!")
+    pass
+
+def generate_concavity_dict(model_spline_dict):
+    '''
+    Takes in a dictionary containing spline information for all the dftb models and
+    returns a dictionary mapping each model to whether it's concave up (False) or concave down (True)
+    '''
+    concavity_dict = dict()
+    for model_spec in model_spline_dict:
+        mod_dict = model_spline_dict[model_spec]
+        y_vals = np.dot(mod_dict['X'][2], mod_dict['coefs']) + mod_dict['const'][2]
+        #Assume also that the mean will take care of it, and that the mean should not be 0
+        concavity = np.sign(np.mean(y_vals))
+        #Positive mean value means it should be concave up
+        if concavity == 1:
+            concavity_dict[model_spec] = False
+        #Negative mean value means it should be concave down
+        elif concavity == -1:
+            concavity_dict[model_spec] = True
+        elif concavity == 0:
+            raise ValueError("Concavity should be non-zero for two-body splines!")
+    concavity_test(concavity_dict)
+    return concavity_dict
+
+def compute_mod_vals_derivs(all_models, par_dict, ngrid = 100, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = ['R']):
+    '''
+    Takes in all_models and creates a dictionary mapping each model to the original dftb equivalent
+    
+    Default boundary conditions is 'natural', and default number of gridpoints is 100.
+    
+    This is just used so that first and second derivative information are all stored and easily accessible, cuts down
+    on computation time. The dictionary is only for two-body potentials for either the H or G operator. Right now,
+    ignore the 'G' operator
+    '''
+    model_spline_dict = dict()
+    for model in all_models:
+        try:
+            #Only two-body G and H models rn
+            if (model.oper not in op_ignore) and (len(model.Zs) == 2):
+                pairwise_lin = all_models[model]
+                r_low, r_high = pairwise_lin.pairwise_linear_model.r_range()
+                rgrid = np.linspace(r_low, r_high, ngrid)
+                ygrid = get_dftb_vals(model, par_dict, rgrid)
+                model_spline_dict[model] = spline_linear_model(rgrid, None, (rgrid, ygrid), bcond)
+        except:
+            pass
+    return model_spline_dict
+
+def compute_model_deviation(all_models, penalties, concavity_dict):
     '''
     all_models (dict): dictionary of all models mapping the model_spec to the object 
                 instance of that model
     penalties (dict): The different penalties to use and their relative weights
-    par_dict (dict) : Dictionary containing information from the skf files necessary for 
-                      deciding a model's concavity
-    
+    concavity_dict (dict): Dictionary saying which two-body splines should be concave up (False) or concave down (True)
+
     Computes the losses using the ModelPenalty class
     
     Only the models doing 2-body potentials for the H operator should have to have their
@@ -317,7 +400,7 @@ def compute_model_deviation(all_models, penalties, par_dict):
             if len(model_spec.Zs) == 2 and model_spec.oper == 'H':
                 curr_model = all_models[model_spec]
                 # False -> concave up, True -> concave down
-                neg_integral = find_concavity_H(model_spec, par_dict)
+                neg_integral = concavity_dict[model_spec]
                 mod_penalty = ModelPenalty(curr_model, neg_integral = neg_integral, penalties = penalties)
                 deviation_loss += mod_penalty.get_loss()
         except:
@@ -333,7 +416,7 @@ def compute_variable_loss(output, data_dict, targets, scheme = 'MSE'):
     '''
     return loss_temp(output, data_dict, targets)
 
-def compute_total_loss(output, data_dict, targets, all_models, par_dict, penalties, weights):
+def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, penalties, weights):
     '''
     Computes the total loss as the sum of penalty losses and the property losses. This final loss
     should be a PyTorch object with a backward() method, i.e. able to backpropagate
@@ -342,71 +425,72 @@ def compute_total_loss(output, data_dict, targets, all_models, par_dict, penalti
     that should be used for the target loss and 
     '''
     target_loss = loss_temp(output, data_dict, targets)
-    deviation_loss = compute_model_deviation(all_models, penalties, par_dict)
+    deviation_loss = compute_model_deviation(all_models, penalties, concavity_dict)
     return weights['targets'] * target_loss + weights['deviations'] * deviation_loss
 
 
 #%% Some testing
-H_mods = [Model(oper='H', Zs=(1,), orb='s'), Model(oper='H', Zs=(6,), orb='p'), 
-                 Model(oper='H', Zs=(6,), orb='s'), Model(oper='H', Zs=(7,), orb='p'), 
-                 Model(oper='H', Zs=(7,), orb='s'), Model(oper='H', Zs=(8,), orb='p'), 
-                 Model(oper='H', Zs=(8,), orb='s'), Model(oper='H', Zs=(1, 1), orb='ss'),
-                 Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
-                 Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
-                 Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
-                 Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
-                 Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
-                 Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
-                 Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
-                 Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
-                 Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
-                 Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
-                 Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
-                 Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
-                 Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
-                 Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
-                 Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
-                 Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
-                 Model(oper='H', Zs=(8, 8), orb='ss')]
-
-H_double_mods_only = [Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
-                 Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
-                 Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
-                 Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
-                 Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
-                 Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
-                 Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
-                 Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
-                 Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
-                 Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
-                 Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
-                 Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
-                 Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
-                 Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
-                 Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
-                 Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
-                 Model(oper='H', Zs=(8, 8), orb='ss')]
-
-par_dict = ParDict()
-results = [find_concavity_H(model_spec, par_dict) for model_spec in H_double_mods_only]
-result_dict = {key : val for key, val in zip(H_double_mods_only, results)}
-
-result_keys = list(result_dict.keys())
-ss_keys = [mod for mod in result_keys if mod.orb == 'ss']
-sp_keys = [mod for mod in result_keys if mod.orb == 'sp']
-pp_sig = [mod for mod in result_keys if mod.orb == 'pp_sigma']
-pp_pi = [mod for mod in result_keys if mod.orb == 'pp_pi']
-
-for k in ss_keys:
-    assert(result_dict[k])
-for k in sp_keys:
-    assert(not result_dict[k])
-for k in pp_sig:
-    assert(not result_dict[k])
-for k in pp_pi:
-    assert(result_dict[k])
+if __name__ == "__main__":
+    H_mods = [Model(oper='H', Zs=(1,), orb='s'), Model(oper='H', Zs=(6,), orb='p'), 
+                     Model(oper='H', Zs=(6,), orb='s'), Model(oper='H', Zs=(7,), orb='p'), 
+                     Model(oper='H', Zs=(7,), orb='s'), Model(oper='H', Zs=(8,), orb='p'), 
+                     Model(oper='H', Zs=(8,), orb='s'), Model(oper='H', Zs=(1, 1), orb='ss'),
+                     Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
+                     Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
+                     Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
+                     Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
+                     Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
+                     Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
+                     Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
+                     Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
+                     Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
+                     Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
+                     Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
+                     Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
+                     Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
+                     Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
+                     Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
+                     Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
+                     Model(oper='H', Zs=(8, 8), orb='ss')]
     
-print("Tests passed")
+    H_double_mods_only = [Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
+                     Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
+                     Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
+                     Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
+                     Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
+                     Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
+                     Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
+                     Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
+                     Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
+                     Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
+                     Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
+                     Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
+                     Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
+                     Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
+                     Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
+                     Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
+                     Model(oper='H', Zs=(8, 8), orb='ss')]
+    
+    par_dict = ParDict()
+    results = [find_concavity_H(model_spec, par_dict) for model_spec in H_double_mods_only]
+    result_dict = {key : val for key, val in zip(H_double_mods_only, results)}
+    
+    result_keys = list(result_dict.keys())
+    ss_keys = [mod for mod in result_keys if mod.orb == 'ss']
+    sp_keys = [mod for mod in result_keys if mod.orb == 'sp']
+    pp_sig = [mod for mod in result_keys if mod.orb == 'pp_sigma']
+    pp_pi = [mod for mod in result_keys if mod.orb == 'pp_pi']
+    
+    for k in ss_keys:
+        assert(result_dict[k])
+    for k in sp_keys:
+        assert(not result_dict[k])
+    for k in pp_sig:
+        assert(not result_dict[k])
+    for k in pp_pi:
+        assert(result_dict[k])
+        
+    print("Tests passed")
 
 
         
