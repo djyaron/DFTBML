@@ -18,6 +18,7 @@ from batch import Model
 from auorg_1_1 import ParDict
 from tfspline import Bcond,spline_linear_model
 from modelspline import get_dftb_vals
+import matplotlib.pyplot as plt
 
 #%% Previous loss methods 
 def loss_refactored(output, data_dict, targets):
@@ -140,7 +141,13 @@ class ModelPenalty:
         deriv = self.dgrid[1]
         deriv = torch.tensor(deriv)
         p_monotonic = torch.einsum('j,ij->i', c, deriv)
-        p_monotonic [p_monotonic > 0] = 0 #Care only about the negative terms
+        #For a monotonically increasing potential (i.e. concave down integral), the
+        # First derivative should be positive, so penalize the negative terms. Otherwise,
+        # penalize the positive terms for concave up
+        if self.neg_integral:
+            p_monotonic [p_monotonic > 0] = 0
+        else:
+            p_monotonic [p_monotonic < 0] = 0 
         monotonic_penalty = torch.einsum('i,i->', p_monotonic, p_monotonic)
         monotonic_penalty *= lambda_monotonic
         return monotonic_penalty
@@ -167,6 +174,8 @@ class ModelPenalty:
     def get_smooth_penalty(self):
         '''
         Computes the smooth penalty similar to that done in solver.py
+        
+        Pretty sure this is going ot have to change
         '''
         lambda_smooth = self.penalties['smooth']
         smooth_penalty = 0
@@ -426,71 +435,36 @@ def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, p
     '''
     target_loss = loss_temp(output, data_dict, targets)
     deviation_loss = compute_model_deviation(all_models, penalties, concavity_dict)
-    return weights['targets'] * target_loss + weights['deviations'] * deviation_loss
+    if weights is not None:
+        return weights['targets'] * target_loss + weights['deviations'] * deviation_loss
+    else:
+        return target_loss + deviation_loss
 
+#%% Miscellaneous functions
+def plot_spline(spline_model, ngrid = 500):
+    '''
+    Takes an instance of the input_pairwise_linear model and plots it using present variable vectors.
+    Draws on the linear_model() method for the spline class and matplotlib
+    
+    Use this function to plot graphs of splines throughout the debugging process
+    '''
+    rlow, rhigh = spline_model.pairwise_linear_model.r_range()
+    rgrid = np.linspace(rlow, rhigh, ngrid)
+    dgrids_consts = [spline_model.pairwise_linear_model.linear_model(rgrid, 0),
+                     spline_model.pairwise_linear_model.linear_model(rgrid, 1),
+                     spline_model.pairwise_linear_model.linear_model(rgrid, 2)]
+    model_variables = spline_model.get_variables().detach().numpy()
+    model = spline_model.model
+    for i in range(3):
+        fig, ax = plt.subplots()
+        y_vals = np.dot(dgrids_consts[i][0], model_variables) + dgrids_consts[i][1]
+        ax.plot(rgrid, y_vals)
+        ax.set_title(f"{model} deriv {i}")
+        plt.show()
 
 #%% Some testing
 if __name__ == "__main__":
-    H_mods = [Model(oper='H', Zs=(1,), orb='s'), Model(oper='H', Zs=(6,), orb='p'), 
-                     Model(oper='H', Zs=(6,), orb='s'), Model(oper='H', Zs=(7,), orb='p'), 
-                     Model(oper='H', Zs=(7,), orb='s'), Model(oper='H', Zs=(8,), orb='p'), 
-                     Model(oper='H', Zs=(8,), orb='s'), Model(oper='H', Zs=(1, 1), orb='ss'),
-                     Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
-                     Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
-                     Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
-                     Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
-                     Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
-                     Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
-                     Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
-                     Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
-                     Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
-                     Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
-                     Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
-                     Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
-                     Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
-                     Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
-                     Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
-                     Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
-                     Model(oper='H', Zs=(8, 8), orb='ss')]
-    
-    H_double_mods_only = [Model(oper='H', Zs=(1, 6), orb='sp'), Model(oper='H', Zs=(1, 7), orb='sp'), 
-                     Model(oper='H', Zs=(1, 8), orb='sp'), Model(oper='H', Zs=(6, 1), orb='ss'), 
-                     Model(oper='H', Zs=(6, 6), orb='pp_pi'), Model(oper='H', Zs=(6, 6), orb='pp_sigma'), 
-                     Model(oper='H', Zs=(6, 6), orb='sp'), Model(oper='H', Zs=(6, 6), orb='ss'), 
-                     Model(oper='H', Zs=(6, 7), orb='sp'), Model(oper='H', Zs=(6, 8), orb='sp'), 
-                     Model(oper='H', Zs=(7, 1), orb='ss'), Model(oper='H', Zs=(7, 6), orb='pp_pi'), 
-                     Model(oper='H', Zs=(7, 6), orb='pp_sigma'), Model(oper='H', Zs=(7, 6), orb='sp'), 
-                     Model(oper='H', Zs=(7, 6), orb='ss'), Model(oper='H', Zs=(7, 7), orb='pp_pi'), 
-                     Model(oper='H', Zs=(7, 7), orb='pp_sigma'), Model(oper='H', Zs=(7, 7), orb='sp'), 
-                     Model(oper='H', Zs=(7, 7), orb='ss'), Model(oper='H', Zs=(7, 8), orb='sp'),
-                     Model(oper='H', Zs=(8, 1), orb='ss'), Model(oper='H', Zs=(8, 6), orb='pp_pi'), 
-                     Model(oper='H', Zs=(8, 6), orb='pp_sigma'), Model(oper='H', Zs=(8, 6), orb='sp'),
-                     Model(oper='H', Zs=(8, 6), orb='ss'), Model(oper='H', Zs=(8, 7), orb='pp_pi'),
-                     Model(oper='H', Zs=(8, 7), orb='pp_sigma'), Model(oper='H', Zs=(8, 7), orb='sp'),
-                     Model(oper='H', Zs=(8, 7), orb='ss'), Model(oper='H', Zs=(8, 8), orb='pp_pi'), 
-                     Model(oper='H', Zs=(8, 8), orb='pp_sigma'), Model(oper='H', Zs=(8, 8), orb='sp'), 
-                     Model(oper='H', Zs=(8, 8), orb='ss')]
-    
-    par_dict = ParDict()
-    results = [find_concavity_H(model_spec, par_dict) for model_spec in H_double_mods_only]
-    result_dict = {key : val for key, val in zip(H_double_mods_only, results)}
-    
-    result_keys = list(result_dict.keys())
-    ss_keys = [mod for mod in result_keys if mod.orb == 'ss']
-    sp_keys = [mod for mod in result_keys if mod.orb == 'sp']
-    pp_sig = [mod for mod in result_keys if mod.orb == 'pp_sigma']
-    pp_pi = [mod for mod in result_keys if mod.orb == 'pp_pi']
-    
-    for k in ss_keys:
-        assert(result_dict[k])
-    for k in sp_keys:
-        assert(not result_dict[k])
-    for k in pp_sig:
-        assert(not result_dict[k])
-    for k in pp_pi:
-        assert(result_dict[k])
-        
-    print("Tests passed")
+    pass
 
 
         

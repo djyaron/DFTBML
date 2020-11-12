@@ -99,7 +99,7 @@ def create_graph_feed(config, batch, allowed_Zs):
        'occ_eorb_mask','qneutral','atom_ids','norbs_atom','zcounts']
     
     fields_by_type['feed_constant'] = \
-        ['geoms','mod_raw', 'rot_tensors', 'dftb_elements', 'dftb_r','Erep', 'rho']
+        ['geoms','mod_raw', 'rot_tensors', 'dftb_elements', 'dftb_r','Erep', 'rho', 'dipole_mat']
     
     if 'S' not in config['opers_to_model']:
         fields_by_type['feed_constant'].extend(['S','phiS','Sevals'])
@@ -430,6 +430,44 @@ class loss_model:
         '''
         return self.loss_func(output, feed, self.targets)
 
+class loss_model_alt:
+    
+    '''
+    Take 2 on class for handling losses
+    
+    This time, incorporate penalties and weights for overall loss. Penalties and
+    weights are optional, but all_models is not
+    
+    Also required to pass in concavity information. To save computational time, 
+    do this as a pre-compute for all the models and toss it in. In fact, the 
+    concavity can be determined for all models independently since it only 
+    depends on the Model named tuple and the slater-koster files
+    '''
+    def __init__ (self, targets, loss_function, all_models, concavity, penalties = None, weights = None):
+        self.targets = targets
+        self.loss_func = loss_function
+        self.penalties = penalties
+        self.weights = weights
+        self.all_models = all_models
+        self.concavity = concavity
+    
+    '''
+    This loss model does not need anything added to the feed
+    '''
+    def get_feed(self):
+        return {}
+    
+    '''
+    Method to compute the loss, taking in the output and the original feed to 
+    compare the values against
+    
+    Since everything is aliased, we can be sure that references are properly maintained to all the dictionaries
+    we are passing in.
+    '''
+    def get_loss(self, output, feed):
+        return self.loss_func(output, feed, self.targets, self.all_models, self.concavity, self.penalties,
+                              self.weights)
+
 class DFTB_Layer(nn.Module):
     def __init__(self, device, dtype, eig_method = 'old'):
         super(DFTB_Layer, self).__init__()
@@ -669,7 +707,7 @@ def create_spline_config_dict(data_dict_lst):
 
 #%% Top level variable declaration
 allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4]
+heavy_atoms = [1,2,3,4,5,6]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -888,10 +926,9 @@ for index, batch in enumerate(validation_dat_set):
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
 
-loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
+# loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
 
 all_models['Eref'] = Reference_energy(allowed_Zs)
-all_models['Loss'] = loss_mod
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
 #More nuanced construction of config dictionary
@@ -959,26 +996,28 @@ optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgr
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
 
 #Variables for experimenting with new loss
-penalties = {'convex' : 1}
-weights = {'targets' : 1, 'deviations' : 1}
+penalties = {'convex' : 1, 'monotonic' : 1}
+weights = {'targets' : 1, 'deviations' : 0.01}
 concav_dict = generate_concavity_dict(compute_mod_vals_derivs(all_models, ParDict()))
+#Instantiate the loss layer here
+loss_layer = loss_model_alt([], compute_total_loss, all_models, concav_dict, penalties, weights)
 
 times_per_epoch = list()
 #%% Training loop
-nepochs = 300
+nepochs = 100
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
     
     #Validation routine
     #Comment out, testing new loss
-    # validation_loss = 0
-    # for elem in validation_feeds:
-    #     output = dftblayer(elem, all_models)
-    #     loss = all_models['Loss'].compute_loss(output, elem)
-    #     validation_loss += loss.item()
-    # print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
-    # validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
+    validation_loss = 0
+    for elem in validation_feeds:
+        output = dftblayer(elem, all_models)
+        loss = loss_layer.get_loss(output, elem)
+        validation_loss += loss.item()
+    print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
+    validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
 
     #Shuffle the validation data
     random.shuffle(validation_feeds)
@@ -990,7 +1029,7 @@ for i in range(nepochs):
         output = dftblayer(feed, all_models)
         #Comment out, testing new loss
         # loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
-        loss = compute_total_loss(output, feed, [], all_models, concav_dict, penalties, weights)
+        loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
@@ -1055,6 +1094,7 @@ with open("timing.txt", "a+") as handle:
     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
     handle.write("No charge updating!\n")
     handle.write("Switched over to using non-shifted dataset\n")
+    handle.write("Implemented additional losses/penalties")
     handle.write("\n")
 
 
