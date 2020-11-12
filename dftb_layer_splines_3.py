@@ -45,7 +45,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_methods import loss_refactored, loss_temp, compute_total_loss, generate_concavity_dict, compute_mod_vals_derivs
+from loss_methods import compute_total_loss, generate_concavity_dict, compute_mod_vals_derivs
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -96,10 +96,10 @@ def create_graph_feed(config, batch, allowed_Zs):
       ['models','onames','basis_sizes','glabels',
        'gather_for_rot', 'gather_for_oper',
        'gather_for_rep','segsum_for_rep', 'occ_rho_mask',
-       'occ_eorb_mask','qneutral','atom_ids','norbs_atom','zcounts']
+       'occ_eorb_mask','qneutral','atom_ids','norbs_atom','zcounts', 'dipole_mat']
     
     fields_by_type['feed_constant'] = \
-        ['geoms','mod_raw', 'rot_tensors', 'dftb_elements', 'dftb_r','Erep', 'rho', 'dipole_mat']
+        ['geoms','mod_raw', 'rot_tensors', 'dftb_elements', 'dftb_r','Erep', 'rho']
     
     if 'S' not in config['opers_to_model']:
         fields_by_type['feed_constant'].extend(['S','phiS','Sevals'])
@@ -130,6 +130,8 @@ def create_graph_feed_loaded (config, batch, allowed_Zs):
     original method
     
     Ideally, since this side-steps the SCF cycle, this should require less compute time
+    
+    Defunct method, not necessary anymore.
     '''
     fields_by_type = dict()
     fields_by_type['graph'] = \
@@ -706,8 +708,8 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6]
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -1000,7 +1002,7 @@ penalties = {'convex' : 1, 'monotonic' : 1}
 weights = {'targets' : 1, 'deviations' : 0.01}
 concav_dict = generate_concavity_dict(compute_mod_vals_derivs(all_models, ParDict()))
 #Instantiate the loss layer here
-loss_layer = loss_model_alt([], compute_total_loss, all_models, concav_dict, penalties, weights)
+loss_layer = loss_model_alt(["Etot", "dipvec"], compute_total_loss, all_models, concav_dict, penalties, weights)
 
 times_per_epoch = list()
 #%% Training loop

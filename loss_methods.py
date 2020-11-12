@@ -43,7 +43,7 @@ def loss_refactored(output, data_dict, targets):
     total_computed = torch.cat(computed_tensors)
     return loss_criterion(total_computed, total_targets)
 
-def loss_temp(output, data_dict, targets):
+def total_energy_loss (output, data_dict, targets):
     '''
     Calculates the MSE loss for a given minibatch using the torch implementation of 
     MSELoss
@@ -421,9 +421,74 @@ def compute_variable_loss(output, data_dict, targets, scheme = 'MSE'):
     Similar to previous loss method, computes the loss between the output and the
     data_dict reference
     
-    Fill in later, for now use loss_temp
+    Fill in later, for now use loss based on total energy
     '''
-    return loss_temp(output, data_dict, targets)
+    return total_energy_loss(output, data_dict, targets)
+
+def compute_all_dipoles(output, data_dict, dipole_mats):
+    '''
+    Computes the dipoles for all molecules, similar to what is done in losschemtools.py
+    
+    The data_dict must store the dQ's by basis size, and the dipole_mats must also be a dict
+    with the basis sizes as keys.
+    
+    To compute the dipoles for all molecules of a given basis size, we do the following:
+        np.dot(A, dQ)
+        A : (ngeom, 3, nbasis)
+        dQ: (ngeom, nbasis, 1)
+    The batch dimension (ngeom) is broadcast for this multiplication.
+    
+    The result will be a (ngeom, 3, 1), which will be squeezed to (ngeom, 3)
+    '''
+    all_bsizes = list(dipole_mats.keys())
+    computed_dipoles = list()
+    true_dipoles = list()
+    for bsize in all_bsizes:
+        comp_dQ = output['dQ'][bsize]
+        true_dQ = data_dict['dQ'][bsize]
+        curr_mat = dipole_mats[bsize]
+        comp_dip = torch.matmul(curr_mat, comp_dQ).squeeze(2)
+        true_dip = torch.matmul(curr_mat, true_dQ).squeeze(2)
+        for i in range(comp_dip.shape[0]): #Save all the dipoles together
+            computed_dipoles.append(comp_dip[i])
+            true_dipoles.append(true_dip[i])
+    return torch.cat(computed_dipoles), torch.cat(true_dipoles)
+
+def dimension_correction(all_tensors):
+    '''
+    Makes sure scalars have at least one dimension
+    '''
+    for tensor in all_tensors:
+        if len(tensor.shape) == 0:
+            tensor = tensor.unsqueeze(0)
+        
+def compute_variable_loss_alt(output, data_dict, targets, scheme = 'MSE'):
+    '''
+    Variant for computing total loss, this time with an actual list of targets rather than 
+    only computing the electonic energy. This will require casing on the targets and applying the correct
+    loss calculation
+    '''
+    if targets == []:
+        raise ValueError("Need at least one target for computing loss!")
+    all_bsizes = data_dict['basis_sizes']
+    loss_criterion = nn.MSELoss()
+    target_tensors, computed_tensors = list(), list()
+    for target in targets:
+        for bsize in all_bsizes:
+            if target == "Etot":
+                computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
+                target_result = data_dict['Etot'][bsize]
+                dimension_correction([computed_result, target_result])
+                computed_tensors.append(computed_result)
+                target_tensors.append(target_result)
+            elif target == 'dipvec':
+                computed_dipoles, target_dipoles = compute_all_dipoles(output, data_dict, data_dict['dipole_mat'])
+                computed_tensors.append(computed_dipoles)
+                target_tensors.append(target_dipoles)
+    total_targets = torch.cat(target_tensors)
+    total_computed = torch.cat(computed_tensors)
+    return loss_criterion(total_computed, total_targets)
+    
 
 def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, penalties, weights):
     '''
@@ -433,7 +498,7 @@ def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, p
     Weights is a new dictionary with two keys, 'targets' and 'deviations'. They map to the weights 
     that should be used for the target loss and 
     '''
-    target_loss = loss_temp(output, data_dict, targets)
+    target_loss = compute_variable_loss_alt(output, data_dict, targets)
     deviation_loss = compute_model_deviation(all_models, penalties, concavity_dict)
     if weights is not None:
         return weights['targets'] * target_loss + weights['deviations'] * deviation_loss
