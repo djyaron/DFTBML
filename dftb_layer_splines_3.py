@@ -862,6 +862,7 @@ print('Number of total molecules after degeneracy rejection', len(cleaned_datase
 print("Making Training Graphs")
 train_dat_set = data_loader(training_molecs, batch_size = num_per_batch)
 training_feeds, training_dftblsts = list(), list()
+training_molec_batches = list()
 for index, batch in enumerate(train_dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
     all_bsizes = list(feed['Eelec'].keys())
@@ -892,10 +893,12 @@ for index, batch in enumerate(train_dat_set):
                     
     training_feeds.append(feed)
     training_dftblsts.append(batch_dftb_lst)
+    training_molec_batches.append(batch) #Save the molecules to be used later for generating feeds
 
 print("Making Validation Graphs")
 validation_dat_set = data_loader(validation_molecs, batch_size = num_per_batch)
 validation_feeds = list()
+validation_molec_batches = list()
 for index, batch in enumerate(validation_dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
     all_bsizes = list(feed['Eelec'].keys())
@@ -924,6 +927,7 @@ for index, batch in enumerate(validation_dat_set):
                     feed[target][bsize] = np.array(total_energies)
 
     validation_feeds.append(feed)
+    validation_molec_batches.append(batch)
             
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
@@ -947,8 +951,6 @@ model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 
 # print("molecular and batch information successfully saved!")
 # print("reference solution also saved")
-
-
 
 #%% Feed generation
 print('Making training feeds')
