@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """
+Created on Sat Nov 14 14:05:22 2020
+
+@author: Frank
+"""
+# -*- coding: utf-8 -*-
+"""
 Created on Tue Sep  8 23:03:05 2020
 
 @author: Frank
@@ -45,7 +51,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_methods import compute_total_loss, generate_concavity_dict, compute_mod_vals_derivs, total_energy_loss
+from loss_models import TotalEnergyLoss, FormPenaltyLoss
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
@@ -96,7 +102,7 @@ def create_graph_feed(config, batch, allowed_Zs):
       ['models','onames','basis_sizes','glabels',
        'gather_for_rot', 'gather_for_oper',
        'gather_for_rep','segsum_for_rep', 'occ_rho_mask',
-       'occ_eorb_mask','qneutral','atom_ids','norbs_atom','zcounts', 'dipole_mat']
+       'occ_eorb_mask','qneutral','atom_ids','norbs_atom','zcounts']
     
     fields_by_type['feed_constant'] = \
         ['geoms','mod_raw', 'rot_tensors', 'dftb_elements', 'dftb_r','Erep', 'rho']
@@ -361,12 +367,11 @@ def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0
  
     return model
 
-def get_model_value_spline_2(model_spec, spline_dict, num_knots = 50, buffer = 0.1):
+def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, buffer = 0.1):
     '''
     A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
     elements
     '''
-    par_dict = ParDict()
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
         model = Input_layer_value(model_spec)
@@ -742,6 +747,23 @@ config = dict()
 config['opers_to_model'] = ['H', 'R']
 targets_for_loss = ['Eelec', 'Eref']
 
+#loss weights
+losses = dict()
+target_accuracy_energy = 1.0/627.0
+target_accuracy_dipole = 0.2 # debye
+target_accuracy_charges = 0.02 # e
+target_accuracy_convex = 1
+target_accuracy_monotonic = 1
+
+losses['Etot'] = target_accuracy_energy
+# losses['dipole'] = target_accuracy_dipole #Not working on dipole loss just yet
+# losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
+# losses['convex'] = target_accuracy_convex
+# losses['monotonic' ] = target_accuracy_monotonic
+
+#Initialize the parameter dictionary
+par_dict = ParDict()
+
 #%% Degbugging h5 stuff
 # master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
 # molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
@@ -776,36 +798,6 @@ targets_for_loss = ['Eelec', 'Eref']
 # print("Check me!")
 
 #%% Graph generation
-
-# print('making graphs')
-# feeds = list()
-# degeneracies = list()
-# degeneracy_tolerance = 1.0e-3
-# debug_Etarget = list()
-# debug_Ecalc = list()
-# dftblists  = list()
-# for batch in dataset:
-#     feed, batch_dftblist = create_graph_feed(config, batch, allowed_Zs)
-#     # TODO: will work only if 1 molecule in each batch
-#     eorb = list(feed['eorb'].values())[0]
-#     degeneracy = np.min(np.diff(np.sort(eorb)))
-#     if degeneracy < degeneracy_tolerance:
-#         continue
-#     degeneracies.append(degeneracy)
-#     feed['name'] = batch[0]['name']
-#     feed['iconfig'] = batch[0]['iconfig']
-#     for target in batch[0]['targets']:
-#         if target == 'Etot':
-#             Etot = list(feed['Eelec'].values())[0][0] + list(feed['Erep'].values())[0][0]
-#             feed[target] = np.array([Etot])
-#             debug_Etarget.append(batch[0]['targets']['Etot'])
-#             debug_Ecalc.append(Etot)
-#         else:
-#             feed[target] = np.array([x['targets'][target] for x in batch])
-#     feeds.append(feed)
-#     dftblists.append(batch_dftblist)
-# print('number of molecules after degeneracy rejection',len(feeds))
-# times['graph'] = time.process_time()
 
 print("Running degeneracy rejection")
 degeneracy_tolerance = 1.0e-3
@@ -876,20 +868,6 @@ for index, batch in enumerate(train_dat_set):
         all_configs = [batch[x]['iconfig'] for x in glabels]
         feed['names'][bsize] = all_names
         feed['iconfigs'][bsize] = all_configs
-        
-    for target in batch[0]['targets']:
-        if target == 'Etot': #Only dealing with total energy right now
-            feed[target] = dict()
-            
-            if fit_to_DFTB:
-                for bsize in all_bsizes:
-                    feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
-                    
-            else:
-                for bsize in all_bsizes:
-                    glabels = feed['glabels'][bsize]
-                    total_energies = [batch[x]['targets'][target] for x in glabels]
-                    feed[target][bsize] = np.array(total_energies)
                     
     training_feeds.append(feed)
     training_dftblsts.append(batch_dftb_lst)
@@ -911,20 +889,6 @@ for index, batch in enumerate(validation_dat_set):
         all_configs = [batch[x]['iconfig'] for x in glabels]
         feed['names'][bsize] = all_names
         feed['iconfigs'][bsize] = all_configs
-    
-    for target in batch[0]['targets']:
-        if target == 'Etot': #Only dealing with total energy right now
-            feed[target] = dict()
-            
-            if fit_to_DFTB:
-                for bsize in all_bsizes:
-                    feed[target][bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
-            
-            else:
-                for bsize in all_bsizes:
-                    glabels = feed['glabels'][bsize]
-                    total_energies = [batch[x]['targets'][target] for x in glabels]
-                    feed[target][bsize] = np.array(total_energies)
 
     validation_feeds.append(feed)
     validation_molec_batches.append(batch)
@@ -932,13 +896,20 @@ for index, batch in enumerate(validation_dat_set):
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
 
-# loss_mod = loss_model(targets_for_loss, loss_temp) # Add this to the model dictionary
-
 all_models['Eref'] = Reference_energy(allowed_Zs)
 model_variables['Eref'] = all_models['Eref'].get_variables()
 
 #More nuanced construction of config dictionary
 model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
+
+#Constructing the losses using the models implemented in loss_models
+all_losses = dict()
+
+for loss in losses:
+    if loss == "Etot":
+        all_losses['Etot'] = TotalEnergyLoss()
+    elif loss in ["convex", "monotonic", "smooth"]:
+        all_losses[loss] = FormPenaltyLoss(loss)
 
 #%% Debugging h5 part 2
 
@@ -957,11 +928,19 @@ print('Making training feeds')
 for ibatch,feed in enumerate(training_feeds):
    for model_spec in feed['models']:
        if (model_spec not in all_models):
-           all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict)
+           all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
            #all_models[model_spec] = get_model_dftb(model_spec)
            model_variables[model_spec] = all_models[model_spec].get_variables()
        model = all_models[model_spec]
        feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
+   
+   for loss in all_losses:
+       try:
+           key, value = all_losses[loss].get_feed(feed, training_molec_batches[ibatch], all_models, par_dict, False)
+           feed[key] = value
+       except:
+           pass
+
 
 print('Making validation feeds')
 for ibatch, feed in enumerate(validation_feeds):
@@ -972,7 +951,13 @@ for ibatch, feed in enumerate(validation_feeds):
             model_variables[model_spec] = all_models[model_spec].get_variables()
         model = all_models[model_spec]
         feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
-
+    
+    for loss in all_losses:
+        try:
+            key, value = all_losses[loss].get_feed(feed, validation_molec_batches[ibatch], all_models, par_dict, False)
+            feed[key] = value
+        except:
+            pass
 
 for feed in training_feeds:
     recursive_type_conversion(feed)
@@ -999,12 +984,7 @@ optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgr
 #TODO: Experiment with alternative learning rate schedulers
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
 
-#Variables for experimenting with new loss
-penalties = {'convex' : 1, 'monotonic' : 1}
-weights = {'targets' : 1, 'deviations' : 0.01}
-concav_dict = generate_concavity_dict(compute_mod_vals_derivs(all_models, ParDict()))
 #Instantiate the loss layer here
-loss_layer = loss_model_alt(["Etot"], compute_total_loss, all_models, concav_dict, penalties, weights)
 
 times_per_epoch = list()
 #%% Training loop
@@ -1018,8 +998,11 @@ for i in range(nepochs):
     validation_loss = 0
     for elem in validation_feeds:
         output = dftblayer(elem, all_models)
-        loss = total_energy_loss(output, elem, [])
-        validation_loss += loss.item()
+        # loss = loss_layer.get_loss(output, elem)
+        tot_loss = 0
+        for loss in all_losses:
+            tot_loss += all_losses[loss].get_value(output, elem)
+        validation_loss += tot_loss.item()
     print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
     validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
 
@@ -1032,10 +1015,12 @@ for i in range(nepochs):
         optimizer.zero_grad()
         output = dftblayer(feed, all_models)
         #Comment out, testing new loss
-        # loss = all_models['Loss'].compute_loss(output, feed) #Loss in units of Ha^2
-        loss = total_energy_loss(output, feed, []) #Loss still in units of Ha^2 ?
-        epoch_loss += loss.item()
-        loss.backward()
+        # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
+        tot_loss = 0
+        for loss in all_losses:
+            tot_loss += all_losses[loss].get_value(output, feed)
+        epoch_loss += tot_loss.item()
+        tot_loss.backward()
         optimizer.step()
     scheduler.step(epoch_loss) #Step on the epoch loss
     
@@ -1098,7 +1083,7 @@ with open("timing.txt", "a+") as handle:
     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
     handle.write("No charge updating!\n")
     handle.write("Switched over to using non-shifted dataset\n")
-    handle.write("Implemented additional losses/penalties")
+    handle.write("Testing with new loss framework")
     handle.write("\n")
 
 

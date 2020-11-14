@@ -499,7 +499,7 @@ def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, p
     that should be used for the target loss and 
     '''
     target_loss = compute_variable_loss_alt(output, data_dict, targets)
-    deviation_loss = compute_model_deviation(all_models, penalties, concavity_dict)
+    deviation_loss = 0
     if weights is not None:
         return weights['targets'] * target_loss + weights['deviations'] * deviation_loss
     else:

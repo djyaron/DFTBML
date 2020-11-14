@@ -263,7 +263,7 @@ class FormPenaltyLoss(LossModel):
             
             #Save both a dictionary pointing to the actual model and the concavity info
             final_dict = dict()
-            for model_spec in model_subset:
+            for model_spec in concavity_dict:
                 # Dictionary of the actual model and the concavity of said model
                 final_dict[model_spec] = (model_subset[model_spec], concavity_dict[model_spec])
             return "form_penalty", final_dict
