@@ -19,6 +19,7 @@ from modelspline import get_dftb_vals
 import matplotlib.pyplot as plt
 from geometry import Geometry
 from batch import create_batch, create_dataset, DFTBList
+from loss_methods import plot_spline
 
 #%% External Functions
 def compute_mod_vals_derivs(all_models, par_dict, ngrid = 100, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = ['R']):
@@ -117,6 +118,7 @@ class ModelPenalty:
         TODO: Come back to this and consider how monotonic penalty changes given spline sign
         '''
         monotonic_penalty = 0
+        m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
         deriv = self.dgrid[1]
         deriv = torch.tensor(deriv)
@@ -125,10 +127,13 @@ class ModelPenalty:
         # First derivative should be positive, so penalize the negative terms. Otherwise,
         # penalize the positive terms for concave up
         if self.neg_integral:
-            p_monotonic [p_monotonic > 0] = 0
+            p_monotonic = -1 * p_monotonic
+            p_monotonic = m(p_monotonic)
+            # p_monotonic [p_monotonic > 0] = 0
         else:
-            p_monotonic [p_monotonic < 0] = 0 
-        monotonic_penalty = torch.einsum('i,i->', p_monotonic, p_monotonic)
+            # p_monotonic [p_monotonic < 0] = 0 
+            p_monotonic = m(p_monotonic)
+        monotonic_penalty = torch.sqrt(torch.einsum('i,i->', p_monotonic, p_monotonic) / len(p_monotonic))
         return monotonic_penalty
         
     def get_convex_penalty(self):
@@ -136,16 +141,19 @@ class ModelPenalty:
         Computes the convex penalty similar to that done in solver.py
         '''
         convex_penalty = 0
+        m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
         deriv = self.dgrid[2]
         deriv = torch.tensor(deriv)
         p_convex = torch.einsum('j,ij->i', c, deriv)
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
-            p_convex [p_convex < 0] = 0
+            p_convex = m(p_convex)
         else:
-            p_convex [p_convex > 0] = 0
-        convex_penalty = torch.einsum('i,i->', p_convex, p_convex)
+            p_convex = -1 * p_convex
+            p_convex = m(p_convex)
+        # Equivalent of RMS penalty
+        convex_penalty = torch.sqrt(torch.einsum('i,i->', p_convex, p_convex) / len(p_convex))
         return convex_penalty
     
     def get_smooth_penalty(self):
@@ -271,7 +279,9 @@ class FormPenaltyLoss(LossModel):
     def get_value(self, output, feed):
         form_penalty_dict = feed["form_penalty"]
         total_loss = 0
-        for pairwise_lin_mod, concavity in form_penalty_dict:
+        for model_spec in form_penalty_dict:
+            # if model_spec.oper != 'G':
+            pairwise_lin_mod, concavity = form_penalty_dict[model_spec]
             penalty_model = ModelPenalty(pairwise_lin_mod, self.type, neg_integral = concavity)
             total_loss += penalty_model.get_loss()
         return total_loss

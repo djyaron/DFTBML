@@ -18,6 +18,8 @@ TODO:
         1) Test and incorporate correct_loaded_feeds() (IP)
     3) Revise loss functions to include weighting (High priority) 
 """
+import pdb, traceback, sys, code
+
 import math
 import numpy as np
 import os
@@ -367,7 +369,7 @@ def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0
  
     return model
 
-def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, buffer = 0.1):
+def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, buffer = 0.0):
     '''
     A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
     elements
@@ -383,7 +385,7 @@ def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, 
         xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
         config = {'xknots' : xknots,
                   'deg'    : 3,
-                  'bconds' : 'vanishing'}  
+                  'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
         spline = SplineModel(config)
         model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
     return model
@@ -564,8 +566,12 @@ class DFTB_Layer(nn.Module):
                     Eorb, temp2 = symeig(fockp, 'cond')
                 elif self.method == 'old':
                     Eorb, temp2 = torch.symeig(fockp, eigenvectors = True)
-            except:
-                print('diagonalization failed for batch ', data_input['name'])
+            except Exception as e:
+                print('diagonalization failed for batch ', data_input['names'])
+                print(e)
+                extype, value, tb = sys.exc_info()
+                traceback.print_exc()
+                pdb.post_mortem(tb)
             calc['eorb'][bsize] = Eorb
             orb = torch.matmul(phiS, temp2)
             occ_mask = data_input['occ_rho_mask'][bsize]
@@ -713,8 +719,8 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5]
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 3
 target = 'dt'
@@ -755,11 +761,11 @@ target_accuracy_charges = 0.02 # e
 target_accuracy_convex = 1
 target_accuracy_monotonic = 1
 
-losses['Etot'] = target_accuracy_energy
+# losses['Etot'] = target_accuracy_energy
 # losses['dipole'] = target_accuracy_dipole #Not working on dipole loss just yet
 # losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
-# losses['convex'] = target_accuracy_convex
-# losses['monotonic' ] = target_accuracy_monotonic
+losses['convex'] = target_accuracy_convex
+losses['monotonic' ] = target_accuracy_monotonic
 
 #Initialize the parameter dictionary
 par_dict = ParDict()
@@ -988,7 +994,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 #%% Training loop
-nepochs = 100
+nepochs = 600
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -1081,7 +1087,7 @@ with open("timing.txt", "a+") as handle:
     handle.write(f"Eigen decomp method: {eig_method}\n")
     handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
-    handle.write("No charge updating!\n")
+    handle.write("Charge updating!\n")
     handle.write("Switched over to using non-shifted dataset\n")
     handle.write("Testing with new loss framework")
     handle.write("\n")
