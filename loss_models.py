@@ -133,7 +133,7 @@ class ModelPenalty:
         else:
             # p_monotonic [p_monotonic < 0] = 0 
             p_monotonic = m(p_monotonic)
-        monotonic_penalty = torch.sqrt(torch.einsum('i,i->', p_monotonic, p_monotonic) / len(p_monotonic))
+        monotonic_penalty = torch.einsum('i,i->', p_monotonic, p_monotonic) / len(p_monotonic)
         return monotonic_penalty
         
     def get_convex_penalty(self):
@@ -153,7 +153,7 @@ class ModelPenalty:
             p_convex = -1 * p_convex
             p_convex = m(p_convex)
         # Equivalent of RMS penalty
-        convex_penalty = torch.sqrt(torch.einsum('i,i->', p_convex, p_convex) / len(p_convex))
+        convex_penalty = torch.einsum('i,i->', p_convex, p_convex) / len(p_convex)
         return convex_penalty
     
     def get_smooth_penalty(self):
@@ -161,6 +161,8 @@ class ModelPenalty:
         Computes the smooth penalty similar to that done in solver.py
         
         Pretty sure this is going ot have to change
+        
+        Not sure what the smooth penalty means here
         '''
         smooth_penalty = 0
         c = self.input_pairwise_lin.get_variables()
@@ -244,7 +246,8 @@ class TotalEnergyLoss(LossModel):
             target_tensors.append(target_result)
         total_targets = torch.cat(target_tensors)
         total_computed = torch.cat(computed_tensors)
-        return loss_criterion(total_computed, total_targets) 
+        # RMS loss for total energy
+        return torch.sqrt(loss_criterion(total_computed, total_targets))
     
 class FormPenaltyLoss(LossModel):
     '''
@@ -284,7 +287,7 @@ class FormPenaltyLoss(LossModel):
             pairwise_lin_mod, concavity = form_penalty_dict[model_spec]
             penalty_model = ModelPenalty(pairwise_lin_mod, self.type, neg_integral = concavity)
             total_loss += penalty_model.get_loss()
-        return total_loss
+        return torch.sqrt(total_loss / len(form_penalty_dict))
     
 class DipoleLoss(LossModel):
     '''

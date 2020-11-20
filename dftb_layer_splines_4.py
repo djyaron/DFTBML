@@ -719,10 +719,10 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-max_config = 3
+max_config = 25
 target = 'dt'
 exclude = ['O3', 'N2O1', 'H1N1O3']
 # Parameters for configuring the spline
@@ -755,13 +755,13 @@ targets_for_loss = ['Eelec', 'Eref']
 
 #loss weights
 losses = dict()
-target_accuracy_energy = 1.0/627.0
+target_accuracy_energy = 6270 #Ha^-1
 target_accuracy_dipole = 0.2 # debye
 target_accuracy_charges = 0.02 # e
 target_accuracy_convex = 1
 target_accuracy_monotonic = 1
 
-# losses['Etot'] = target_accuracy_energy
+losses['Etot'] = target_accuracy_energy
 # losses['dipole'] = target_accuracy_dipole #Not working on dipole loss just yet
 # losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
@@ -994,7 +994,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 #%% Training loop
-nepochs = 600
+nepochs = 300
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -1009,8 +1009,8 @@ for i in range(nepochs):
         for loss in all_losses:
             tot_loss += all_losses[loss].get_value(output, elem)
         validation_loss += tot_loss.item()
-    print("Validation loss:",i, np.sqrt(validation_loss/len(validation_feeds)) * 627.0, 'kcal/mol')
-    validation_losses.append(np.sqrt(validation_loss/len(validation_feeds)) * 627.0)
+    print("Validation loss:",i, (validation_loss/len(validation_feeds)))
+    validation_losses.append((validation_loss/len(validation_feeds)))
 
     #Shuffle the validation data
     random.shuffle(validation_feeds)
@@ -1036,17 +1036,26 @@ for i in range(nepochs):
     training_feeds, training_dftblsts = zip(*temp)
     training_feeds, training_dftblsts = list(training_feeds), list(training_dftblsts)
     
-    print(i,np.sqrt(epoch_loss/len(training_feeds)) * 627.0, 'kcal/mol')
-    training_losses.append(np.sqrt(epoch_loss/len(training_feeds)) * 627.0)
+    print(i, (epoch_loss/len(training_feeds)))
+    training_losses.append((epoch_loss/len(training_feeds)))
     
-    #Update charges at specified epoch intervals
-    # Uncomment later, not working with charge updates right now
-    # if (i % 10 == 0):
-    #     for j in range(len(training_feeds)):
-    #         feed = training_feeds[j]
-    #         dftb_list = training_dftblsts[j]
-    #         op_dict = assemble_ops_for_charges(feed, all_models)
-    #         update_charges(feed, op_dict, dftb_list)
+    # Update charges every 10 epochs
+    if (i % 10 == 0):
+        for j in range(len(training_feeds)):
+            feed = training_feeds[j]
+            dftb_list = training_dftblsts[j]
+            op_dict = assemble_ops_for_charges(feed, all_models)
+            try:
+                update_charges(feed, op_dict, dftb_list)
+            except Exception as e:
+                print(e)
+                glabels = feed['glabels']
+                basis_sizes = feed['basis_sizes']
+                result_lst = []
+                for bsize in basis_sizes:
+                    result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
+                print("Charge update failed for")
+                print(result_lst)
     
     #Save timing information for diagnostics
     times_per_epoch.append(time.time() - start)
