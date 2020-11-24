@@ -19,6 +19,7 @@ from auorg_1_1 import ParDict
 from tfspline import Bcond,spline_linear_model
 from modelspline import get_dftb_vals
 import matplotlib.pyplot as plt
+import os, os.path
 
 #%% Previous loss methods 
 def loss_refactored(output, data_dict, targets):
@@ -526,6 +527,49 @@ def plot_spline(spline_model, ngrid = 500):
         ax.plot(rgrid, y_vals)
         ax.set_title(f"{model} deriv {i}")
         plt.show()
+
+def get_x_y_vals (spline_model, ngrid):
+    rlow, rhigh = spline_model.pairwise_linear_model.r_range()
+    rgrid = np.linspace(rlow, rhigh, ngrid)
+    dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
+    model_variables = spline_model.get_variables().detach().numpy()
+    model = spline_model.model
+    y_vals = np.dot(dgrids_consts[0], model_variables) + dgrids_consts[1]
+    oper, Zs, orb = model
+    title = f"{oper, Zs, orb}"
+    return (rgrid, y_vals, title)
+
+def plot_multi_splines(target_models, all_models, ngrid = 500, max_per_plot = 4):
+    '''
+    Takes in a list of the target models and a dictionary mapping all the model_specs
+    to their respective Input_pairwise_linear model and plots them in square plots. 4x4 is the default.
+    '''
+    total_mods = len(target_models)
+    total_figs_needed = total_mods // max_per_plot if total_mods % max_per_plot == 0 else (total_mods // max_per_plot) + 1
+    # max per plot should always be a square number
+    num_row = num_col = int(max_per_plot**0.5)
+    fig_subsections = list()
+    for i in range(0, len(target_models), max_per_plot):
+        fig_subsections.append(target_models[i : i + max_per_plot])
+    assert(len(fig_subsections) == total_figs_needed)
+    for i in range(total_figs_needed):
+        curr_subsection = fig_subsections[i]
+        curr_pos = 0
+        fig, axs = plt.subplots(num_row, num_col)
+        for row in range(num_row):
+            for col in range(num_col):
+                if curr_pos != len(curr_subsection):
+                    x_vals, y_vals, title = get_x_y_vals(all_models[curr_subsection[curr_pos]], ngrid)
+                    axs[row, col].plot(x_vals, y_vals)
+                    axs[row, col].set_title(title)
+                    curr_pos += 1
+        fig.tight_layout()
+        fig.savefig(os.path.join(os.getcwd(), "Splines", f"RSplineGraph{i}.png"))
+        plt.show()
+        
+        
+        
+        
 
 #%% Some testing
 if __name__ == "__main__":

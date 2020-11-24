@@ -12,11 +12,18 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Incorporate regularization for all splines as additional weighted loss term (High priority)
-        See solver.py and lossspline.py in repulsive branch
-    2) Data management via h5 files (High priority)
-        1) Test and incorporate correct_loaded_feeds() (IP)
-    3) Revise loss functions to include weighting (High priority) 
+    1) Workaround for the R operator, since the H-H repulsion at longer range is 0 (basically, handle cases where splines are flat)
+        Don't optimize models with 0 concavity and a value of 0! (X)
+    1) Need more work on the H-H repulsion model for the spline
+    2) General optimizations for the code throughout, work based on profiler
+        To actually use the initial_results, run the file with a small molec batch and compare the results. Find the largest differences,
+        focus on those not in the pre-compute stages of the model!
+        
+        Keep in mind, initial results were computed for 1,6,7,8 and heavy 1-8, 1193 total molecules, 
+        max_config num = 2
+        300 epochs
+        
+    3) Revise h5 file to store dipole information (store dipole_mat per molec)
 """
 import pdb, traceback, sys, code
 
@@ -57,6 +64,9 @@ from loss_models import TotalEnergyLoss, FormPenaltyLoss
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean.h5'
+
+def apx_equal(x, y, tol = 1e-12):
+    return abs(x - y) < tol
 
 def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path) 
@@ -369,15 +379,19 @@ def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0
  
     return model
 
-def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, buffer = 0.0):
+def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, num_grid = 200, buffer = 0.0):
     '''
     A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
     elements
+    
+    Will also need to check that the spline is not already flat at 0 (e.g. long range H-H repulsion). If the
+    spline is already 0, don't change it!
     '''
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
         model = Input_layer_value(model_spec)
         model.initialize_to_dftb(par_dict, noise_magnitude)
+        return (model, 'vol')
     elif len(model_spec.Zs) == 2:
         minimum_value, maximum_value = spline_dict[model_spec]
         minimum_value -= buffer
@@ -388,7 +402,24 @@ def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, 
                   'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
         spline = SplineModel(config)
         model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
-    return model
+        variables = model.get_variables().detach().numpy()
+        if apx_equal(np.sum(variables), 0):
+            return (model, 'noopt')
+        return (model, 'opt')
+        # Check that the model is not already flat at 0
+        # More thorough check but probably unnecessary
+        # rlow, rhigh = model.pairwise_linear_model.r_range()
+        # rgrid = np.linspace(rlow, rhigh, num_grid)
+        # dgrids_consts = [model.pairwise_linear_model.linear_model(rgrid, 0),
+        #              model.pairwise_linear_model.linear_model(rgrid, 2)]
+        # y_vals_0 = np.dot(dgrids_consts[0][0], variables) + dgrids_consts[0][1]
+        # y_vals_2 = np.dot(dgrids_consts[1][0], variables) + dgrids_consts[1][1]
+        # sum_res = np.sum(y_vals_0) #values
+        # sum_res2 = np.sum(y_vals_2) #2nd deriv
+        # if apx_equal(sum_res, 0) and apx_equal(sum_res2, 0):
+        #     return (model, 'noopt')
+        # else:
+        #     return (model, 'opt')
         
 
 def form_initial_layer(all_models, feeds, device = None, dtype = torch.double):
@@ -714,15 +745,15 @@ def create_spline_config_dict(data_dict_lst):
                     new_max = curr_max if curr_max > range_max else range_max
                     model_range_dict[model_spec] = (new_min, new_max)
     return model_range_dict
-    
-                
+
+
 
 
 #%% Top level variable declaration
 allowed_Zs = [1,6,7,8]
 heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-max_config = 25
+max_config = 2
 target = 'dt'
 exclude = ['O3', 'N2O1', 'H1N1O3']
 # Parameters for configuring the spline
@@ -758,14 +789,14 @@ losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
 target_accuracy_dipole = 0.2 # debye
 target_accuracy_charges = 0.02 # e
-target_accuracy_convex = 1
-target_accuracy_monotonic = 1
+target_accuracy_convex = 1000
+target_accuracy_monotonic = 1000
 
-losses['Etot'] = target_accuracy_energy
+# losses['Etot'] = target_accuracy_energy
 # losses['dipole'] = target_accuracy_dipole #Not working on dipole loss just yet
 # losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
-losses['monotonic' ] = target_accuracy_monotonic
+losses['monotonic'] = target_accuracy_monotonic
 
 #Initialize the parameter dictionary
 par_dict = ParDict()
@@ -934,9 +965,14 @@ print('Making training feeds')
 for ibatch,feed in enumerate(training_feeds):
    for model_spec in feed['models']:
        if (model_spec not in all_models):
-           all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
+           mod_res, tag = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
+           all_models[model_spec] = mod_res
            #all_models[model_spec] = get_model_dftb(model_spec)
-           model_variables[model_spec] = all_models[model_spec].get_variables()
+           if tag != 'noopt':
+               model_variables[model_spec] = all_models[model_spec].get_variables()
+           # Detach it from the computational graph (unnecessary)
+           elif tag == 'noopt':
+               all_models[model_spec].variables.requires_grad = False
        model = all_models[model_spec]
        feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
    
@@ -952,9 +988,13 @@ print('Making validation feeds')
 for ibatch, feed in enumerate(validation_feeds):
     for model_spec in feed['models']:
         if (model_spec not in all_models):
-            all_models[model_spec] = get_model_value_spline_2(model_spec, model_range_dict)
+            mod_res, tag = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
+            all_models[model_spec] = mod_res
             #all_models[model_spec] = get_model_dftb(model_spec)
-            model_variables[model_spec] = all_models[model_spec].get_variables()
+            if tag != 'noopt':
+                model_variables[model_spec] = all_models[model_spec].get_variables()
+            elif tag == 'noopt':
+                all_models[model_spec].variables.requires_grad = False
         model = all_models[model_spec]
         feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
     
@@ -1003,12 +1043,13 @@ for i in range(nepochs):
     #Comment out, testing new loss
     validation_loss = 0
     for elem in validation_feeds:
-        output = dftblayer(elem, all_models)
-        # loss = loss_layer.get_loss(output, elem)
-        tot_loss = 0
-        for loss in all_losses:
-            tot_loss += all_losses[loss].get_value(output, elem)
-        validation_loss += tot_loss.item()
+        with torch.no_grad():
+            output = dftblayer(elem, all_models)
+            # loss = loss_layer.get_loss(output, elem)
+            tot_loss = 0
+            for loss in all_losses:
+                tot_loss += all_losses[loss].get_value(output, elem)
+            validation_loss += tot_loss.item()
     print("Validation loss:",i, (validation_loss/len(validation_feeds)))
     validation_losses.append((validation_loss/len(validation_feeds)))
 
@@ -1098,7 +1139,8 @@ with open("timing.txt", "a+") as handle:
     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
     handle.write("Charge updating!\n")
     handle.write("Switched over to using non-shifted dataset\n")
-    handle.write("Testing with new loss framework")
+    handle.write("Testing with new loss framework\n")
+    handle.write("Timing run\n")
     handle.write("\n")
 
 

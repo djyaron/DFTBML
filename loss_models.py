@@ -22,20 +22,20 @@ from batch import create_batch, create_dataset, DFTBList
 from loss_methods import plot_spline
 
 #%% External Functions
-def compute_mod_vals_derivs(all_models, par_dict, ngrid = 100, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = ['R']):
+def compute_mod_vals_derivs(all_models, par_dict, ngrid = 200, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = []):
     '''
-    Takes in all_models and creates a dictionary mapping each model to the original dftb equivalent
+    Takes in all_models and creates a dictionary mapping each model to the original dftb equivalent since
+    we want to be sure that the concavity is based on the dftb data
     
     Default boundary conditions is 'natural', and default number of gridpoints is 100.
     
     This is just used so that first and second derivative information are all stored and easily accessible, cuts down
-    on computation time. The dictionary is only for two-body potentials for either the H or G operator. Right now,
-    ignore the 'G' operator
+    on computation time.
     '''
     model_spline_dict = dict()
     for model in all_models:
         try:
-            #Only two-body G and H models rn
+            #Only two-body H, G, R
             if (model.oper not in op_ignore) and (len(model.Zs) == 2):
                 pairwise_lin = all_models[model]
                 r_low, r_high = pairwise_lin.pairwise_linear_model.r_range()
@@ -63,8 +63,8 @@ def generate_concavity_dict(model_spline_dict):
         #Negative mean value means it should be concave down
         elif concavity == -1:
             concavity_dict[model_spec] = True
-        elif concavity == 0:
-            raise ValueError("Concavity should be non-zero for two-body splines!")
+        else:
+            print(f"Zero concavity detected for {model_spec}")
     return concavity_dict
 
 #%% Adaptation of spline penalties
@@ -91,12 +91,13 @@ class ModelPenalty:
     This class takes in two things:
         input_pairwise_linear: model conforming to the input_pairwise_linear interface
                                defined in dftb_layer_splines_3.py
+        penalty (str): Indicates the type of penalty to apply
+        dgrid (array): The derivative grid to use for the given penalty. 
         n_grid (int): number of points to use when evaluating the second derivative and the penalty. Default = 500
         neg_integral (bool): Indicates whether the spline represented by this model should be concave up (v''(r) > 0) or
                              concave down (v''(r) < 0). If True, then concave down; otherwise, concave up
-        penalties (dict): Should map the penalty with the weight that that penalty should have
     '''
-    def __init__ (self, input_pairwise_linear, penalty, n_grid = 500, neg_integral = False):
+    def __init__ (self, input_pairwise_linear, penalty, dgrid, n_grid = 500, neg_integral = False):
         self.input_pairwise_lin = input_pairwise_linear
         self.penalty = penalty
         self.neg_integral = neg_integral
@@ -105,10 +106,15 @@ class ModelPenalty:
         r_low, r_high = self.input_pairwise_lin.pairwise_linear_model.r_range()
         self.xgrid = np.linspace(r_low, r_high, n_grid)
         
-        #Compute the derivative_grid for 0th, 1st, and 2nd order
-        self.dgrid = dict()
-        for i in range(3):
-            self.dgrid[i] = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, i)[0]
+        #Compute the derivative_grid for the necessary derivative given the penalty
+        self.dgrid = None
+        if dgrid is None:
+            if self.penalty == "convex" or self.penalty == "smooth":
+                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 2)[0]
+            elif self.penalty == "monotonic":
+                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 1)[0]
+        else:
+            self.dgrid = dgrid
     
     # Now some methods for computing the different penalties
     def get_monotonic_penalty(self):
@@ -120,7 +126,7 @@ class ModelPenalty:
         monotonic_penalty = 0
         m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
-        deriv = self.dgrid[1]
+        deriv = self.dgrid
         deriv = torch.tensor(deriv)
         p_monotonic = torch.einsum('j,ij->i', c, deriv)
         #For a monotonically increasing potential (i.e. concave down integral), the
@@ -143,7 +149,7 @@ class ModelPenalty:
         convex_penalty = 0
         m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
-        deriv = self.dgrid[2]
+        deriv = self.dgrid
         deriv = torch.tensor(deriv)
         p_convex = torch.einsum('j,ij->i', c, deriv)
         # Case on whether the spline should be concave up or down
@@ -166,7 +172,7 @@ class ModelPenalty:
         '''
         smooth_penalty = 0
         c = self.input_pairwise_lin.get_variables()
-        deriv = self.dgrid[2]
+        deriv = self.dgrid
         deriv = torch.tensor(deriv)
         p_smooth = torch.einsum('j,ij->i',c,deriv)
         smooth_penalty = torch.einsum('i,i->', p_smooth, p_smooth)
@@ -253,9 +259,17 @@ class FormPenaltyLoss(LossModel):
     '''
     Takes in a penalty_type string that determines what kind of form penalty to compute, 
     i.e. monotonic, convex, smooth, etc.
+    
+    Can specify the grid density, but the default is 500
     '''
-    def __init__(self, penalty_type):
+    # DEBUGGING CODE
+    # tst_mod = Model(oper='G', Zs=(1, 1), orb='ss')
+    # tst_penalty = "convex"
+    # tst_dgrid = None
+    
+    def __init__(self, penalty_type, grid_density = 500):
         self.type = penalty_type
+        self.density = grid_density
         
     def get_feed(self, feed, molecs, all_models, par_dict, debug):
         '''
@@ -272,21 +286,41 @@ class FormPenaltyLoss(LossModel):
             mod_spline_dict = compute_mod_vals_derivs(model_subset, par_dict)
             concavity_dict = generate_concavity_dict(mod_spline_dict)
             
-            #Save both a dictionary pointing to the actual model and the concavity info
+            #Optimization (push onto pre-compute), save the dgrid for the model as well
             final_dict = dict()
             for model_spec in concavity_dict:
-                # Dictionary of the actual model and the concavity of said model
-                final_dict[model_spec] = (model_subset[model_spec], concavity_dict[model_spec])
-            return "form_penalty", final_dict
+                current_model = model_subset[model_spec]
+                rlow, rhigh = current_model.pairwise_linear_model.r_range()
+                xgrid = np.linspace(rlow, rhigh, self.density)
+                #We only need the first and second derivative for the dgrids
+                dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1)[0],
+                          current_model.pairwise_linear_model.linear_model(xgrid, 2)[0]]
+                final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids)
+        
+        return "form_penalty", final_dict
     
     def get_value(self, output, feed):
         form_penalty_dict = feed["form_penalty"]
         total_loss = 0
         for model_spec in form_penalty_dict:
             # if model_spec.oper != 'G':
-            pairwise_lin_mod, concavity = form_penalty_dict[model_spec]
-            penalty_model = ModelPenalty(pairwise_lin_mod, self.type, neg_integral = concavity)
+            pairwise_lin_mod, concavity, dgrids = form_penalty_dict[model_spec]
+            penalty_model = None
+            if self.type == "convex" or self.type == "smooth":
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], n_grid = self.density, neg_integral = concavity)
+            elif self.type == "monotonic":
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], n_grid = self.density, neg_integral = concavity)
             total_loss += penalty_model.get_loss()
+            # DEBUGGING CODE
+            # if (model_spec == FormPenaltyLoss.tst_mod) and (self.type == FormPenaltyLoss.tst_penalty):
+            #     if FormPenaltyLoss.tst_dgrid is None:
+            #         FormPenaltyLoss.tst_dgrid = penalty_model.dgrid
+            #     else:
+            #         result = (penalty_model.dgrid == FormPenaltyLoss.tst_dgrid).all()
+            #         if result:
+            #             print("Arrays hold up over iterations")
+            #         else:
+            #             print("Arrays change over time")
         return torch.sqrt(total_loss / len(form_penalty_dict))
     
 class DipoleLoss(LossModel):
