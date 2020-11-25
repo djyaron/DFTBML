@@ -202,9 +202,7 @@ class LossModel:
         The debug flag is set to true or false depending on whether or not to fit to DFTB.
         If performing a fit to DFTB, then the debug flag is set to true. Otherwise, it is False
         
-        For consistency, the method should return a dictionary containing all relevant
-        information for this loss and the key under which that dictionary should be saved
-        in the feed dictionary
+        For consistency, the method adds things directly to the feed wihtout returning any values.
         '''
         raise NotImplementedError
     
@@ -232,7 +230,7 @@ class TotalEnergyLoss(LossModel):
                 glabels = feed['glabels'][bsize]
                 total_energies = [molecs[x]['targets']['Etot'] for x in glabels]
                 result_dict[bsize] = np.array(total_energies)
-        return key, result_dict
+        feed[key] = result_dict
     
     def get_value(self, output, feed):
         '''
@@ -297,7 +295,7 @@ class FormPenaltyLoss(LossModel):
                           current_model.pairwise_linear_model.linear_model(xgrid, 2)[0]]
                 final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids)
         
-        return "form_penalty", final_dict
+            feed['form_penalty'] = final_dict
     
     def get_value(self, output, feed):
         form_penalty_dict = feed["form_penalty"]
@@ -345,15 +343,27 @@ class DipoleLoss(LossModel):
         dftblist = DFTBList(batch)
         result = create_dataset(batch,dftblist,needed_fields)
         dipole_mats = result['dipole_mat']
-        
-        real_dipvecs = dict()
-        #Also need to pull the dipoles from the molecules for comparison
-        for bsize in feed['basis_sizes']:
-            glabels = feed['glabels'][bsize]
-            total_energies = [molecs[x]['targets']['dipole'] for x in glabels]
-            real_dipvecs[bsize] = np.array(total_energies)
-        return 'dipoles', (dipole_mats, real_dipvecs)
-    
+        # In debugging case, we are just getting the dipole vectors computed from DFTB
+        if debug:
+            #Assert that the glabels and the dipole_mats have the same keys
+            assert(set(feed['basis_sizes']).difference(set(dipole_mats.keys())) == set())
+            dipvec_dict = dict()
+            for bsize in feed['basis_sizes']:
+                dipoles = np.matmul(dipole_mats[bsize], feed['dQ'][bsize])
+                dipvec_dict[bsize] = dipoles
+            feed['dipole_mat'] = dipole_mats
+            feed['dipoles'] = dipvec_dict
+        # If not debugging, we pull the real dipole vectors 
+        else:
+            real_dipvecs = dict()
+            #Also need to pull the dipoles from the molecules for comparison
+            for bsize in feed['basis_sizes']:
+                glabels = feed['glabels'][bsize]
+                total_dipoles = [molecs[x]['targets']['dipole'] for x in glabels]
+                real_dipvecs[bsize] = np.array(total_dipoles)
+            feed['dipole_mat'] = dipole_mats
+            feed['dipoles'] = real_dipvecs
+            
     def get_value(self, output, feed):
         '''
         Computes the dipoles for all molecules, similar to what is done in losschemtools.py
@@ -371,7 +381,7 @@ class DipoleLoss(LossModel):
         
         The real dipoles will have shape (ngeom, 3) as well
         '''
-        dipole_mats, real_dipoles = feed['dipoles']
+        dipole_mats, real_dipoles = feed['dipole_mat'], feed['dipoles']
         loss_criterion = nn.MSELoss()
         computed_dips = list()
         real_dips = list()
@@ -382,7 +392,18 @@ class DipoleLoss(LossModel):
             assert(comp_result.shape[0] == real_dipoles[bsize].shape[0])
             for i in range(comp_result.shape[0]):
                 computed_dips.append(comp_result[i])
-                real_dips.append(real_dipoles[bsize][i])
+                real_dips.append(real_dipoles[bsize][i].squeeze(1))
         total_comp_dips = torch.cat(computed_dips)
         total_real_dips = torch.cat(real_dips)
         return loss_criterion(total_comp_dips, total_real_dips)
+
+class ChargeLoss(LossModel):
+    '''
+    Class for handling training loss associated with charges
+    '''
+    def __init__(self):
+        pass
+    def get_feed(self, feed, molecs, all_models, par_dict, debug):
+        pass
+    def get_value(self, output, feed):
+        pass
