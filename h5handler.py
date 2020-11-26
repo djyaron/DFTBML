@@ -17,8 +17,10 @@ TODO:
        to use the functions in this module 
        
 With this method of working with h5 files, the only certain pieces of information
-still need to be computed in the pre-computation stage. Since most of the SCF
-parameters are 
+still need to be computed in the pre-computation stage. 
+
+Pleast note that saving to the h5 files should happen before any type conversions to
+torch tensors. h5 works best with numpy arrays and should be treated as such
 '''
 import numpy as np
 import h5py
@@ -200,7 +202,15 @@ class per_molec_h5handler:
                 #No norbs_atom, easy to reget
                 curr_zcount = feed['zcounts'][bsize][i]
                 curr_Etot = feed['Etot'][bsize][i]
-                
+                #Try to get the dipole information saved in there too
+                try:
+                    curr_dipole_mats = feed['dipole_mat'][bsize][i]
+                    curr_dipoles = feed['dipoles'][bsize][i]
+                    iconf_group.create_dataset('dipole_mat', data = curr_dipole_mats)
+                    iconf_group.create_dataset('dipoles', data = curr_dipoles)
+                except Exception as e:
+                    print(e)
+                    print("Could not save dipole information!")
                 #Now save all this information to the created iconf group
                 iconf_group.create_dataset('Erep', data = curr_Erep)
                 iconf_group.create_dataset('rho', data = curr_rho)
@@ -272,7 +282,7 @@ class per_molec_h5handler:
         return master_molec_dict
     
     @staticmethod
-    def reconstitute_molecs_from_h5 (master_dict):
+    def reconstitute_molecs_from_h5 (master_dict, targets):
         '''
         Generates the list of dictionaries that is commonly used in
         dftb_layer_splines_3.py. 
@@ -282,7 +292,7 @@ class per_molec_h5handler:
             iconfig: configuration number
             atomic_numbers : Zs
             coordinates : Natom x 3 (will have to do a transpose from h5)
-            targets : Etot : total energy 
+            targets : list of targets (e.g. Etot, dipoles, etc)
         
         Current dictionary configuration, likely to change in the future
         
@@ -299,7 +309,11 @@ class per_molec_h5handler:
                 curr_molec_dict['coordinates'] = master_dict[molec][config]['Coords'].T
                 curr_molec_dict['atomic_numbers'] = master_dict[molec][config]['Zs']
                 curr_molec_dict['targets'] = dict()
-                curr_molec_dict['targets']['Etot'] = master_dict[molec][config]['Etot']
+                for target in targets:
+                    try:
+                        curr_molec_dict['targets'][target] = master_dict[molec][config][target]
+                    except:
+                        pass
                 molec_list.append(curr_molec_dict)
         return molec_list
     
@@ -341,6 +355,42 @@ class per_molec_h5handler:
                             feed[key][bsize].append(master_dict[name][conf][key][()])
                         
                         feed[key][bsize] = np.array(feed[key][bsize])
+        
+    @staticmethod
+    def create_molec_batches_from_feeds_h5(master_molec_dict, feeds, targets):
+        '''
+        Takes a master molecule dictionary (generated from extract_molec_feeds_h5)
+        and a list of feeds and creates a list of batches (lists of single-molecule dictionaries)
+        where the ith batch corresponds to the ith feed in the feeds list.
+        '''
+        master_batch_list = list()
+        for feed in feeds:
+            num_geoms = len(feed['geoms'].keys())
+            all_bsizes = feed['basis_sizes']
+            #Placeholder for the batch
+            batch = [None] * num_geoms
+            for bsize in all_bsizes:
+                curr_names = feed['names'][bsize]
+                curr_iconfigs = feed['iconfigs'][bsize]
+                curr_glabels = feed['glabels'][bsize]
+                name_conf_zip = list(zip(curr_names, curr_iconfigs))
+                assert(len(name_conf_zip) == len(curr_glabels))
+                for i in range(len(name_conf_zip)):
+                    name, config = name_conf_zip[i]
+                    curr_molec = dict()
+                    curr_molec['name'] = name
+                    curr_molec['iconfig'] = config
+                    curr_molec['coordinates'] = master_molec_dict[name][config]['Coords'].T
+                    curr_molec['atomic_numbers'] = master_molec_dict[name][config]['Zs']
+                    curr_molec['targets'] = dict()
+                    for target in targets:
+                        try:
+                            curr_molec['targets'][target] = master_molec_dict[name][config][target]
+                        except:
+                            pass
+                    batch[curr_glabels[i]] = curr_molec
+            master_batch_list.append(batch)
+        return master_batch_list
 
 #%% Handling batch information
 class per_batch_h5handler:
@@ -453,7 +503,8 @@ class per_batch_h5handler:
         feed_file = h5py.File(filename, 'r')
         #The top level keys should just be the numbers of each batch
         feed_ids = list(feed_file.keys())
-        feed_ids = [int(x) for x in feed_ids]
+        #Sort to make sure we are pulling things out in the correct order
+        feed_ids = sorted([int(x) for x in feed_ids])
         feed_ids.sort()
         for feed in feed_ids:
             #Construct each feed
@@ -600,15 +651,19 @@ def compare_feeds(reference_file, reconstituted_feeds):
         feedi = reconstituted_feeds[i]
         #Assert same basis sizes
         assert( set(curr_ref_fd['basis_sizes']).difference(set(feedi['basis_sizes'])) == set() )
+        assert( set(feedi['basis_sizes']).difference(set(curr_ref_fd['basis_sizes'])) == set() )
+        
         assert( curr_ref_fd['onames'] == feedi['onames'] )
         
         assert( set(curr_ref_fd['models']).difference(set(feedi['models'])) == set() )
+        assert( set(feedi['models']).difference(set(curr_ref_fd['models'])) == set() )
         
         #Need to check mod_raw
         for mod_spec in curr_ref_fd['mod_raw']:
             assert( curr_ref_fd['mod_raw'][mod_spec] == feedi['mod_raw'][mod_spec] )
         
         assert( set(curr_ref_fd['gather_for_rot'].keys()).difference(set(feedi['gather_for_rot'].keys())) == set() )
+        assert( set(feedi['gather_for_rot'].keys()).difference(set(curr_ref_fd['gather_for_rot'].keys())) == set() )
         
         for shp in curr_ref_fd['gather_for_rot']:
             assert( np.allclose (curr_ref_fd['gather_for_rot'][shp], feedi['gather_for_rot'][shp]) )
@@ -651,6 +706,10 @@ def compare_feeds(reference_file, reconstituted_feeds):
             assert( np.allclose (curr_ref_fd['dQ'][bsize], feedi['dQ'][bsize]) ) 
 
             assert( np.allclose (curr_ref_fd['eorb'][bsize], feedi['eorb'][bsize]) ) 
+            
+            assert( np.allclose (curr_ref_fd['dipole_mat'][bsize], feedi['dipole_mat'][bsize]))
+            
+            assert( np.allclose (curr_ref_fd['dipoles'][bsize], feedi['dipoles'][bsize]))
             
             assert( np.allclose (curr_ref_fd['occ_rho_mask'][bsize], feedi['occ_rho_mask'][bsize]) )
             

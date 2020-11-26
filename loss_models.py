@@ -258,12 +258,18 @@ class FormPenaltyLoss(LossModel):
     Takes in a penalty_type string that determines what kind of form penalty to compute, 
     i.e. monotonic, convex, smooth, etc.
     
-    Can specify the grid density, but the default is 500
+    Can specify the grid density, but the default is 500. Form penalty only applies
+    to two-body potentials
     '''
     # DEBUGGING CODE
     # tst_mod = Model(oper='G', Zs=(1, 1), orb='ss')
     # tst_penalty = "convex"
     # tst_dgrid = None
+    
+    #Additional optimization: Keep track of the models and dgrid sets we've seen so far.
+    # Also, keep track of the spline_dicts that we've seen so far for future use
+    seen_dgrid_dict = dict()
+    seen_concavity_dict = dict()
     
     def __init__(self, penalty_type, grid_density = 500):
         self.type = penalty_type
@@ -278,23 +284,36 @@ class FormPenaltyLoss(LossModel):
         # no need to duplicate that computation
         
         if 'form_penalty' not in feed: 
+            # First, check to see what's already done
+            concavity_dict = dict()
+            # Models that have not had their concavity computed need to have that done and the results saved
             model_subset = dict()
-            for model_spec in feed['models']:
-                model_subset[model_spec] = all_models[model_spec]
+            for mod_spec in feed['models']:
+                if mod_spec in FormPenaltyLoss.seen_concavity_dict:
+                    concavity_dict[mod_spec] = FormPenaltyLoss.seen_concavity_dict[mod_spec]
+                elif (mod_spec not in FormPenaltyLoss.seen_concavity_dict) and (len(mod_spec.Zs) == 2):
+                    model_subset[mod_spec] = all_models[mod_spec]
             mod_spline_dict = compute_mod_vals_derivs(model_subset, par_dict)
-            concavity_dict = generate_concavity_dict(mod_spline_dict)
+            temp_concav_dict = generate_concavity_dict(mod_spline_dict)
+            # non-empty dictionaries evaluate to true in python
+            if temp_concav_dict:
+                concavity_dict.update(temp_concav_dict)
+                FormPenaltyLoss.seen_concavity_dict.update(temp_concav_dict)
             
             #Optimization (push onto pre-compute), save the dgrid for the model as well
             final_dict = dict()
             for model_spec in concavity_dict:
-                current_model = model_subset[model_spec]
-                rlow, rhigh = current_model.pairwise_linear_model.r_range()
-                xgrid = np.linspace(rlow, rhigh, self.density)
-                #We only need the first and second derivative for the dgrids
-                dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1)[0],
-                          current_model.pairwise_linear_model.linear_model(xgrid, 2)[0]]
-                final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids)
-        
+                current_model = all_models[model_spec]
+                if model_spec in FormPenaltyLoss.seen_dgrid_dict:
+                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], FormPenaltyLoss.seen_dgrid_dict[model_spec])
+                else:
+                    rlow, rhigh = current_model.pairwise_linear_model.r_range()
+                    xgrid = np.linspace(rlow, rhigh, self.density)
+                    #We only need the first and second derivative for the dgrids
+                    dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1)[0],
+                              current_model.pairwise_linear_model.linear_model(xgrid, 2)[0]]
+                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids)
+                    FormPenaltyLoss.seen_dgrid_dict[model_spec] = dgrids
             feed['form_penalty'] = final_dict
     
     def get_value(self, output, feed):
@@ -333,36 +352,38 @@ class DipoleLoss(LossModel):
         
         Returns a tuple of dictionaries
         '''
-        needed_fields = ['dipole_mat']
-        geom_batch = list()
-        for molecule in molecs:
-            geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
-            geom_batch.append(geom)
-                
-        batch = create_batch(geom_batch)
-        dftblist = DFTBList(batch)
-        result = create_dataset(batch,dftblist,needed_fields)
-        dipole_mats = result['dipole_mat']
-        # In debugging case, we are just getting the dipole vectors computed from DFTB
-        if debug:
-            #Assert that the glabels and the dipole_mats have the same keys
-            assert(set(feed['basis_sizes']).difference(set(dipole_mats.keys())) == set())
-            dipvec_dict = dict()
-            for bsize in feed['basis_sizes']:
-                dipoles = np.matmul(dipole_mats[bsize], feed['dQ'][bsize])
-                dipvec_dict[bsize] = dipoles
-            feed['dipole_mat'] = dipole_mats
-            feed['dipoles'] = dipvec_dict
-        # If not debugging, we pull the real dipole vectors 
-        else:
-            real_dipvecs = dict()
-            #Also need to pull the dipoles from the molecules for comparison
-            for bsize in feed['basis_sizes']:
-                glabels = feed['glabels'][bsize]
-                total_dipoles = [molecs[x]['targets']['dipole'] for x in glabels]
-                real_dipvecs[bsize] = np.array(total_dipoles)
-            feed['dipole_mat'] = dipole_mats
-            feed['dipoles'] = real_dipvecs
+        if ('dipole_mat' not in feed) and ('dipoles' not in feed):
+            needed_fields = ['dipole_mat']
+            geom_batch = list()
+            for molecule in molecs:
+                geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
+                geom_batch.append(geom)
+                    
+            batch = create_batch(geom_batch)
+            dftblist = DFTBList(batch)
+            result = create_dataset(batch,dftblist,needed_fields)
+            dipole_mats = result['dipole_mat']
+            # In debugging case, we are just getting the dipole vectors computed from DFTB
+            if debug:
+                #Assert that the glabels and the dipole_mats have the same keys
+                assert(set(feed['basis_sizes']).difference(set(dipole_mats.keys())) == set())
+                dipvec_dict = dict()
+                for bsize in feed['basis_sizes']:
+                    dipoles = np.matmul(dipole_mats[bsize], feed['dQ'][bsize])
+                    dipoles = np.squeeze(dipoles, 2) #Reduce to shape (ngeom, 3)
+                    dipvec_dict[bsize] = dipoles
+                feed['dipole_mat'] = dipole_mats
+                feed['dipoles'] = dipvec_dict
+            # If not debugging, we pull the real dipole vectors 
+            else:
+                real_dipvecs = dict()
+                #Also need to pull the dipoles from the molecules for comparison
+                for bsize in feed['basis_sizes']:
+                    glabels = feed['glabels'][bsize]
+                    total_dipoles = [molecs[x]['targets']['dipole'] for x in glabels]
+                    real_dipvecs[bsize] = np.array(total_dipoles)
+                feed['dipole_mat'] = dipole_mats
+                feed['dipoles'] = real_dipvecs
             
     def get_value(self, output, feed):
         '''
@@ -379,7 +400,7 @@ class DipoleLoss(LossModel):
         
         The result will be a (ngeom, 3, 1), which will be squeezed to (ngeom, 3)
         
-        The real dipoles will have shape (ngeom, 3) as well
+        The real dipoles will have shape (ngeom, 3) as well, so everything matches
         '''
         dipole_mats, real_dipoles = feed['dipole_mat'], feed['dipoles']
         loss_criterion = nn.MSELoss()
@@ -392,7 +413,7 @@ class DipoleLoss(LossModel):
             assert(comp_result.shape[0] == real_dipoles[bsize].shape[0])
             for i in range(comp_result.shape[0]):
                 computed_dips.append(comp_result[i])
-                real_dips.append(real_dipoles[bsize][i].squeeze(1))
+                real_dips.append(real_dipoles[bsize][i])
         total_comp_dips = torch.cat(computed_dips)
         total_real_dips = torch.cat(real_dips)
         return loss_criterion(total_comp_dips, total_real_dips)
@@ -400,6 +421,9 @@ class DipoleLoss(LossModel):
 class ChargeLoss(LossModel):
     '''
     Class for handling training loss associated with charges
+    
+    The charges are computed as dQ + qneutral for a given species, since the charge 
+    fluctuation is defined as dQ = Q_i + Q_0, where Q_0 is the neutral charge
     '''
     def __init__(self):
         pass

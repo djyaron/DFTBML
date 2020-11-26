@@ -620,18 +620,21 @@ class DFTB_Layer(nn.Module):
             calc['Eref'][bsize] = ref_res.squeeze(1)
         return calc
 
-def recursive_type_conversion(data, device = None, dtype = torch.double, grad_requires = False):
+def recursive_type_conversion(data, ignore_keys, device = None, dtype = torch.double, grad_requires = False):
     '''
     Transports all the tensors stored in data to a tensor with the correct dtype
     on the correct device
     
+    list_keys specifies those keys whose values should be a list rather than an np array
+    
     Can also instantiate gradient requirements for the recursive type conversion
     '''
     for key in data:
-        if isinstance(data[key], np.ndarray):
-            data[key] = torch.tensor(data[key], dtype = dtype, device = device)            
-        elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
-            recursive_type_conversion(data[key])
+        if key not in ignore_keys:
+            if isinstance(data[key], np.ndarray):
+                data[key] = torch.tensor(data[key], dtype = dtype, device = device)            
+            elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
+                recursive_type_conversion(data[key], ignore_keys)
 
 def assemble_ops_for_charges(feed, all_models):
     '''
@@ -747,11 +750,9 @@ def create_spline_config_dict(data_dict_lst):
     return model_range_dict
 
 
-
-
 #%% Top level variable declaration
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 2
 target = 'dt'
@@ -803,38 +804,26 @@ losses['monotonic'] = target_accuracy_monotonic
 #Initialize the parameter dictionary
 par_dict = ParDict()
 
-#%% Degbugging h5 stuff
-# master_dict = per_molec_h5handler.extract_molec_feeds_h5('testfeeds.h5') #test file used locally 
-# molec_lst = per_molec_h5handler.reconstitute_molecs_from_h5(master_dict)
+#%% Degbugging h5 (Extraction and combination)
+training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
+validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
+# compare_feeds("reference_data1.p", training_feeds)
+# compare_feeds("reference_data2.p", validation_feeds)
 
-# tstfeed, _ = create_graph_feed_loaded(config, molec_lst, allowed_Zs)
+#Need to regenerate the molecule batches for both train and validation
+master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
+master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
 
-# all_bsizes = list(tstfeed['glabels'].keys())
+#Reconstitute the lists 
+training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
+                                                                        training_feeds, ["Etot", "dipoles"])
+validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
+                                                                        validation_feeds, ["Etot", "dipoles"])
 
-# tstfeed['names'] = dict()
-# tstfeed['iconfigs'] = dict()
-# for bsize in all_bsizes:
-#     glabels = tstfeed['glabels'][bsize]
-#     all_names = [molec_lst[x]['name'] for x in glabels]
-#     all_configs = [molec_lst[x]['iconfig'] for x in glabels]
-#     tstfeed['names'][bsize] = all_names
-#     tstfeed['iconfigs'][bsize] = all_configs
+#Load dftb_lsts
+training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
 
-
-# # As part of tests for saving the parts of the feeds that depend on the composition
-# # of the batch
-# new_hf = h5py.File("graph_save_tst.h5", 'w')
-# per_batch_h5handler.unpack_save_feed_batch_h5(tstfeed, new_hf, 0)
-
-# x = [tstfeed]
-# per_molec_h5handler.add_per_molec_info(x, master_dict, ['Coords', 'Zs'])
-
-# #Testing loading and combination
-# x = time.time()
-# final_feeds = total_feed_combinator.create_all_feeds('final_batch_test.h5', 'final_molec_test.h5')
-# print(f"Feed constitution time: {time.time() - x}")
-# compare_feeds('reference_data.p', final_feeds)
-# print("Check me!")
+print("Check me!")
 
 #%% Graph generation
 
@@ -931,7 +920,8 @@ for index, batch in enumerate(validation_dat_set):
 
     validation_feeds.append(feed)
     validation_molec_batches.append(batch)
-            
+
+#%% Model and loss initialization
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
 
@@ -951,18 +941,6 @@ for loss in losses:
         all_losses[loss] = FormPenaltyLoss(loss)
     elif loss == "dipole":
         all_losses['dipole'] = DipoleLoss()
-
-#%% Debugging h5 part 2
-
-# #Save all the molecular information
-# per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
-# per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
-
-# with open('reference_data.p', 'wb') as handle:
-#     pickle.dump(training_feeds, handle)
-
-# print("molecular and batch information successfully saved!")
-# print("reference solution also saved")
 
 #%% Feed generation
 print('Making training feeds')
@@ -1015,12 +993,37 @@ for ibatch, feed in enumerate(validation_feeds):
         except Exception as e:
             print(e)
 
+#%% Debugging h5 (Saving)
+
+#Save all the molecular information
+per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
+per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
+
+per_molec_h5handler.save_all_molec_feeds_h5(validation_feeds, 'final_valid_molec_test.h5')
+per_batch_h5handler.save_multiple_batches_h5(validation_feeds, 'final_valid_batch_test.h5')
+
+with open("reference_data1.p", "wb") as handle:
+    pickle.dump(training_feeds, handle)
+with open("reference_data2.p", "wb") as handle:
+    pickle.dump(validation_feeds, handle)
+    
+# Also save the dftb_lsts for the training_feeds. Can do this using pickle for now
+with open("training_dftblsts.p", "wb") as handle:
+    pickle.dump(training_dftblsts, handle)
+    
+print("molecular and batch information successfully saved, along with reference data")
+
+#%% Recursive type conversion
+# Not an elegant solution but these two keys need to be ignored since they
+# should not be tensors!
+ignore_keys = ['glabels', 'basis_sizes']
 for feed in training_feeds:
-    recursive_type_conversion(feed)
+    recursive_type_conversion(feed, ignore_keys)
 for feed in validation_feeds:
-    recursive_type_conversion(feed)
+    recursive_type_conversion(feed, ignore_keys)
 times['feeds'] = time.process_time()
 
+#%% Training loop
 '''
 Two different eig methods are available for the dftblayer now, and they are 
 denoted by flags 'new' and 'old'.
@@ -1044,7 +1047,6 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-#%% Training loop
 nepochs = 300
 for i in range(nepochs):
     #Initialize epoch timer
