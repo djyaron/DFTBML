@@ -804,21 +804,26 @@ losses['monotonic'] = target_accuracy_monotonic
 #Initialize the parameter dictionary
 par_dict = ParDict()
 
+#Compute or load?
+loaded_data = True
+
 #%% Degbugging h5 (Extraction and combination)
+x = time.time()
 training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
 validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
+print(f"{time.time() - x}")
 # compare_feeds("reference_data1.p", training_feeds)
 # compare_feeds("reference_data2.p", validation_feeds)
 
 #Need to regenerate the molecule batches for both train and validation
-master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
-master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
+# master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
+# master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
 
-#Reconstitute the lists 
-training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
-                                                                        training_feeds, ["Etot", "dipoles"])
-validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
-                                                                        validation_feeds, ["Etot", "dipoles"])
+# #Reconstitute the lists 
+# training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
+#                                                                         training_feeds, ["Etot", "dipoles"])
+# validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
+#                                                                         validation_feeds, ["Etot", "dipoles"])
 
 #Load dftb_lsts
 training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
@@ -943,6 +948,7 @@ for loss in losses:
         all_losses['dipole'] = DipoleLoss()
 
 #%% Feed generation
+x = time.time()
 print('Making training feeds')
 for ibatch,feed in enumerate(training_feeds):
    for model_spec in feed['models']:
@@ -964,7 +970,7 @@ for ibatch,feed in enumerate(training_feeds):
                debug = True
            else:
                debug = False
-           all_losses[loss].get_feed(feed, training_molec_batches[ibatch], all_models, par_dict, debug)
+           all_losses[loss].get_feed(feed, [] if loaded_data else training_molec_batches[ibatch], all_models, par_dict, debug)
        except Exception as e:
            print(e)
 
@@ -989,10 +995,10 @@ for ibatch, feed in enumerate(validation_feeds):
                 debug = True
             else:
                 debug = False
-            all_losses[loss].get_feed(feed, validation_molec_batches[ibatch], all_models, par_dict, debug)
+            all_losses[loss].get_feed(feed, [] if loaded_data else validation_molec_batches[ibatch], all_models, par_dict, debug)
         except Exception as e:
             print(e)
-
+print(f"{time.time() - x}")
 #%% Debugging h5 (Saving)
 
 #Save all the molecular information

@@ -219,18 +219,19 @@ class TotalEnergyLoss(LossModel):
         #Total energy loss does not require anything saved in its state
         pass
     def get_feed(self, feed, molecs, all_models, par_dict, debug):
-        key = "Etot"
-        result_dict = dict()
-        all_bsizes = list(feed['glabels'].keys())
-        if debug:
-            for bsize in all_bsizes:
-                result_dict[bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
-        else:
-            for bsize in all_bsizes:
-                glabels = feed['glabels'][bsize]
-                total_energies = [molecs[x]['targets']['Etot'] for x in glabels]
-                result_dict[bsize] = np.array(total_energies)
-        feed[key] = result_dict
+        if "Etot" not in feed:
+            key = "Etot"
+            result_dict = dict()
+            all_bsizes = list(feed['glabels'].keys())
+            if debug:
+                for bsize in all_bsizes:
+                    result_dict[bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
+            else:
+                for bsize in all_bsizes:
+                    glabels = feed['glabels'][bsize]
+                    total_energies = [molecs[x]['targets']['Etot'] for x in glabels]
+                    result_dict[bsize] = np.array(total_energies)
+            feed[key] = result_dict
     
     def get_value(self, output, feed):
         '''
