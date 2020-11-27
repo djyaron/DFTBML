@@ -50,8 +50,8 @@ def get_data_type(specs):
     return res
 
 def get_targets_from_h5file(data_specs, ani1_path, exclude = None):
-    # if target_type is a list of length 2, the target is the difference
-    #   target = target_type[0] - target_type[1]
+    # Modified to return a list containing array(s) instead of a singular array. 
+    # This will need to be handled in any calling functions
     if exclude == None:
         exclude = dict()
     dtypes = get_data_type(data_specs)
@@ -63,11 +63,12 @@ def get_targets_from_h5file(data_specs, ani1_path, exclude = None):
                 if exclude[mol] == 'all':
                     continue
                 moldata = [np.delete(x, exclude[mol],0) for x in moldata]     
-            if len(moldata) == 1:
-                target_molecs[mol] = moldata[0]
-            else:
-                target_molecs[mol] = [moldata[0] - moldata[1]]
-                target_molecs[mol] += moldata[2:]
+            # if len(moldata) == 1:
+            target_molecs[mol] = moldata
+            # Not sure why this subtraction exists, ignore for now...
+            # else:
+            #     target_molecs[mol] = [moldata[0] - moldata[1]]
+            #     target_molecs[mol] += moldata[2:]
     return target_molecs
 
 # x, y = None, None

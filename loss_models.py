@@ -394,7 +394,7 @@ class DipoleLoss(LossModel):
         with the basis sizes as keys.
         
         To compute the dipoles for all molecules of a given basis size, we do the following:
-            np.dot(A, dQ)
+            torch.matmul(A, dQ)
             A : (ngeom, 3, nbasis)
             dQ: (ngeom, nbasis, 1)
         The batch dimension (ngeom) is broadcast for this multiplication.

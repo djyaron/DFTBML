@@ -63,22 +63,33 @@ from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h
 from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss
 
 #Fix the ani1_path for now
-ani1_path = 'data/ANI-1ccx_clean.h5'
+ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
 
 def apx_equal(x, y, tol = 1e-12):
     return abs(x - y) < tol
 
 def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
-    all_zs = get_targets_from_h5file('atomic_numbers', ani1_path) 
-    all_coords =  get_targets_from_h5file('coordinates', ani1_path) 
-    all_targets = get_targets_from_h5file(target, ani1_path)
+    '''
+    Method for extracting data from the ani1 data h5 files. 
+    
+    allowed_Zs: List of allowed atomic numbers
+    heavy_atoms: List of allowed number of heavy atoms
+    max_config: Maximum number of configurations allowed per molecule
+    target: Dictionary mapping each type of target to the corresponding ANI-1 key
+    exclude: Nonetype or list of molecules to ignore
+    '''
+    target_alias, h5keys = zip(*target.items())
+    target_alias, h5keys = list(target_alias), list(h5keys)
+    all_zs = get_targets_from_h5file('atomic_numbers', ani1_path)
+    all_coords =  get_targets_from_h5file('coordinates', ani1_path)
+    all_targets = get_targets_from_h5file(h5keys, ani1_path)
     if exclude is None:
         exclude = []
     batches = list()
     for name in all_zs.keys():
         if name in exclude:
             continue
-        zs = all_zs[name]
+        zs = all_zs[name][0] #Extract np array of the atomic numbers
         zcount = collections.Counter(zs)
         ztypes = list(zcount.keys())
         zheavy = [x for x in ztypes if x > 1]
@@ -90,15 +101,17 @@ def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
             continue
         if nheavy not in heavy_atoms:
             continue
-        nconfig = all_coords[name].shape[0]
+        nconfig = all_coords[name][0].shape[0] #Extract the np array of the atomic coordinates
         for iconfig in range(min(nconfig, max_config)):
             batch = dict()
             batch['name'] = name
             batch['iconfig'] = iconfig
             batch['atomic_numbers'] = zs
-            batch['coordinates'] = all_coords[name][iconfig,:,:]
+            batch['coordinates'] = all_coords[name][0][iconfig,:,:]
             batch['targets'] = dict()
-            batch['targets']['Etot'] = all_targets[name][iconfig]
+            for i in range(len(target_alias)):
+                targ_key = target_alias[i]
+                batch['targets'][targ_key] = all_targets[name][i][iconfig]
             batches.append([batch])
     return batches
 
@@ -751,11 +764,14 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6,7,8]
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-max_config = 2
-target = 'dt'
+max_config = 3
+# target = 'dt'
+target = {'Etot' : 'dt',
+            'dipole' : 'wb97x_dz.dipole'}
+           # 'charge' : 'wb97x_tz.mbis_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3']
 # Parameters for configuring the spline
 num_knots = 50
@@ -796,7 +812,7 @@ losses['Etot'] = target_accuracy_energy
 # Note: dipole loss cannot be optimized on its own since dQ is updated separately of the s
 # model variables. Thus, dQ and teh dipole mats are technically not part of the computational
 # graph since S is not being trained.
-losses['dipole'] = target_accuracy_dipole 
+# losses['dipole'] = target_accuracy_dipole 
 # losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
 losses['monotonic'] = target_accuracy_monotonic
@@ -805,30 +821,30 @@ losses['monotonic'] = target_accuracy_monotonic
 par_dict = ParDict()
 
 #Compute or load?
-loaded_data = True
+loaded_data = False
 
 #%% Degbugging h5 (Extraction and combination)
-x = time.time()
-training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
-validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
-print(f"{time.time() - x}")
-# compare_feeds("reference_data1.p", training_feeds)
-# compare_feeds("reference_data2.p", validation_feeds)
+# x = time.time()
+# training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
+# validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
+# print(f"{time.time() - x}")
+# # compare_feeds("reference_data1.p", training_feeds)
+# # compare_feeds("reference_data2.p", validation_feeds)
 
-#Need to regenerate the molecule batches for both train and validation
-# master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
-# master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
+# #Need to regenerate the molecule batches for both train and validation
+# # master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
+# # master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
 
-# #Reconstitute the lists 
-# training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
-#                                                                         training_feeds, ["Etot", "dipoles"])
-# validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
-#                                                                         validation_feeds, ["Etot", "dipoles"])
+# # #Reconstitute the lists 
+# # training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
+# #                                                                         training_feeds, ["Etot", "dipoles"])
+# # validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
+# #                                                                         validation_feeds, ["Etot", "dipoles"])
 
-#Load dftb_lsts
-training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
+# #Load dftb_lsts
+# training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
 
-print("Check me!")
+# print("Check me!")
 
 #%% Graph generation
 
@@ -967,7 +983,7 @@ for ibatch,feed in enumerate(training_feeds):
    for loss in all_losses:
        try:
            if loss == "dipole":
-               debug = True
+               debug = False
            else:
                debug = False
            all_losses[loss].get_feed(feed, [] if loaded_data else training_molec_batches[ibatch], all_models, par_dict, debug)
@@ -992,7 +1008,7 @@ for ibatch, feed in enumerate(validation_feeds):
     for loss in all_losses:
         try:
             if loss == "dipole":
-                debug = True
+                debug = False
             else:
                 debug = False
             all_losses[loss].get_feed(feed, [] if loaded_data else validation_molec_batches[ibatch], all_models, par_dict, debug)
@@ -1002,22 +1018,22 @@ print(f"{time.time() - x}")
 #%% Debugging h5 (Saving)
 
 #Save all the molecular information
-per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
-per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
+# per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
+# per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
 
-per_molec_h5handler.save_all_molec_feeds_h5(validation_feeds, 'final_valid_molec_test.h5')
-per_batch_h5handler.save_multiple_batches_h5(validation_feeds, 'final_valid_batch_test.h5')
+# per_molec_h5handler.save_all_molec_feeds_h5(validation_feeds, 'final_valid_molec_test.h5')
+# per_batch_h5handler.save_multiple_batches_h5(validation_feeds, 'final_valid_batch_test.h5')
 
-with open("reference_data1.p", "wb") as handle:
-    pickle.dump(training_feeds, handle)
-with open("reference_data2.p", "wb") as handle:
-    pickle.dump(validation_feeds, handle)
+# with open("reference_data1.p", "wb") as handle:
+#     pickle.dump(training_feeds, handle)
+# with open("reference_data2.p", "wb") as handle:
+#     pickle.dump(validation_feeds, handle)
     
-# Also save the dftb_lsts for the training_feeds. Can do this using pickle for now
-with open("training_dftblsts.p", "wb") as handle:
-    pickle.dump(training_dftblsts, handle)
+# # Also save the dftb_lsts for the training_feeds. Can do this using pickle for now
+# with open("training_dftblsts.p", "wb") as handle:
+#     pickle.dump(training_dftblsts, handle)
     
-print("molecular and batch information successfully saved, along with reference data")
+# print("molecular and batch information successfully saved, along with reference data")
 
 #%% Recursive type conversion
 # Not an elegant solution but these two keys need to be ignored since they
@@ -1053,7 +1069,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 300
+nepochs = 301
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -1067,13 +1083,16 @@ for i in range(nepochs):
             # loss = loss_layer.get_loss(output, elem)
             tot_loss = 0
             for loss in all_losses:
-                tot_loss += all_losses[loss].get_value(output, elem)
+                tot_loss += losses[loss] * all_losses[loss].get_value(output, elem)
             validation_loss += tot_loss.item()
     print("Validation loss:",i, (validation_loss/len(validation_feeds)))
     validation_losses.append((validation_loss/len(validation_feeds)))
 
     #Shuffle the validation data
     random.shuffle(validation_feeds)
+    
+    if (i % 150 == 0):
+        print("hello")
     
     #Training routine
     epoch_loss = 0.0
@@ -1084,7 +1103,7 @@ for i in range(nepochs):
         # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
         tot_loss = 0
         for loss in all_losses:
-            tot_loss += all_losses[loss].get_value(output, feed)
+            tot_loss += losses[loss] * all_losses[loss].get_value(output, feed)
         epoch_loss += tot_loss.item()
         tot_loss.backward()
         optimizer.step()
@@ -1099,7 +1118,7 @@ for i in range(nepochs):
     print(i, (epoch_loss/len(training_feeds)))
     training_losses.append((epoch_loss/len(training_feeds)))
     
-    # Update charges every 10 epochs
+    # Update charges every 20 epochs
     if (i % 10 == 0):
         for j in range(len(training_feeds)):
             feed = training_feeds[j]
@@ -1156,10 +1175,10 @@ with open("timing.txt", "a+") as handle:
     handle.write(f"Eigen decomp method: {eig_method}\n")
     handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
-    handle.write("Charge updating!\n")
+    handle.write("Infrequent charge updating for dipole loss\n")
     handle.write("Switched over to using non-shifted dataset\n")
     handle.write("Testing with new loss framework\n")
-    handle.write("Timing run\n")
+    handle.write("Testing dipole loss against actual dipoles\n")
     handle.write("\n")
 
 
