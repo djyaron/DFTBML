@@ -206,11 +206,13 @@ class per_molec_h5handler:
                 try:
                     curr_dipole_mats = feed['dipole_mat'][bsize][i]
                     curr_dipoles = feed['dipoles'][bsize][i]
+                    curr_charges = feed['charges'][bsize][i]
                     iconf_group.create_dataset('dipole_mat', data = curr_dipole_mats)
                     iconf_group.create_dataset('dipoles', data = curr_dipoles)
+                    iconf_group.create_dataset('charges', data = curr_charges)
                 except Exception as e:
                     print(e)
-                    print("Could not save dipole information!")
+                    print("Could not save dipole/charge information!")
                 #Now save all this information to the created iconf group
                 iconf_group.create_dataset('Erep', data = curr_Erep)
                 iconf_group.create_dataset('rho', data = curr_rho)
@@ -710,6 +712,8 @@ def compare_feeds(reference_file, reconstituted_feeds):
             assert( np.allclose (curr_ref_fd['dipole_mat'][bsize], feedi['dipole_mat'][bsize]))
             
             assert( np.allclose (curr_ref_fd['dipoles'][bsize], feedi['dipoles'][bsize]))
+            
+            assert( np.allclose (curr_ref_fd['charges'][bsize], feedi['charges'][bsize]))
             
             assert( np.allclose (curr_ref_fd['occ_rho_mask'][bsize], feedi['occ_rho_mask'][bsize]) )
             

@@ -812,7 +812,7 @@ losses['Etot'] = target_accuracy_energy
 # Note: dipole loss cannot be optimized on its own since dQ is updated separately of the s
 # model variables. Thus, dQ and teh dipole mats are technically not part of the computational
 # graph since S is not being trained.
-# losses['dipole'] = target_accuracy_dipole 
+losses['dipole'] = target_accuracy_dipole 
 losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
 losses['monotonic'] = target_accuracy_monotonic
@@ -824,27 +824,27 @@ par_dict = ParDict()
 loaded_data = False
 
 #%% Degbugging h5 (Extraction and combination)
-# x = time.time()
-# training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
-# validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
-# print(f"{time.time() - x}")
-# # compare_feeds("reference_data1.p", training_feeds)
-# # compare_feeds("reference_data2.p", validation_feeds)
+x = time.time()
+training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
+validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
+print(f"{time.time() - x}")
+compare_feeds("reference_data1.p", training_feeds)
+compare_feeds("reference_data2.p", validation_feeds)
 
-# #Need to regenerate the molecule batches for both train and validation
-# # master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
-# # master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
+#Need to regenerate the molecule batches for both train and validation
+# master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
+# master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
 
-# # #Reconstitute the lists 
-# # training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
-# #                                                                         training_feeds, ["Etot", "dipoles"])
-# # validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
-# #                                                                         validation_feeds, ["Etot", "dipoles"])
+# #Reconstitute the lists 
+# training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
+#                                                                         training_feeds, ["Etot", "dipoles"])
+# validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
+#                                                                         validation_feeds, ["Etot", "dipoles"])
 
-# #Load dftb_lsts
-# training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
+#Load dftb_lsts
+training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
 
-# print("Check me!")
+print("Check me!")
 
 #%% Graph generation
 
@@ -1014,22 +1014,22 @@ print(f"{time.time() - x}")
 #%% Debugging h5 (Saving)
 
 #Save all the molecular information
-# per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
-# per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
+per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
+per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
 
-# per_molec_h5handler.save_all_molec_feeds_h5(validation_feeds, 'final_valid_molec_test.h5')
-# per_batch_h5handler.save_multiple_batches_h5(validation_feeds, 'final_valid_batch_test.h5')
+per_molec_h5handler.save_all_molec_feeds_h5(validation_feeds, 'final_valid_molec_test.h5')
+per_batch_h5handler.save_multiple_batches_h5(validation_feeds, 'final_valid_batch_test.h5')
 
-# with open("reference_data1.p", "wb") as handle:
-#     pickle.dump(training_feeds, handle)
-# with open("reference_data2.p", "wb") as handle:
-#     pickle.dump(validation_feeds, handle)
+with open("reference_data1.p", "wb") as handle:
+    pickle.dump(training_feeds, handle)
+with open("reference_data2.p", "wb") as handle:
+    pickle.dump(validation_feeds, handle)
     
-# # Also save the dftb_lsts for the training_feeds. Can do this using pickle for now
-# with open("training_dftblsts.p", "wb") as handle:
-#     pickle.dump(training_dftblsts, handle)
+# Also save the dftb_lsts for the training_feeds. Can do this using pickle for now
+with open("training_dftblsts.p", "wb") as handle:
+    pickle.dump(training_dftblsts, handle)
     
-# print("molecular and batch information successfully saved, along with reference data")
+print("molecular and batch information successfully saved, along with reference data")
 
 #%% Recursive type conversion
 # Not an elegant solution but these two keys need to be ignored since they
