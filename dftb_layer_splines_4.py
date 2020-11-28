@@ -60,7 +60,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss
+from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
@@ -770,8 +770,8 @@ heavy_atoms = [1,2,3]
 max_config = 3
 # target = 'dt'
 target = {'Etot' : 'dt',
-            'dipole' : 'wb97x_dz.dipole'}
-           # 'charge' : 'wb97x_tz.mbis_charges'}
+          'dipole' : 'wb97x_dz.dipole',
+          'charges' : 'wb97x_dz.cm5_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3']
 # Parameters for configuring the spline
 num_knots = 50
@@ -813,7 +813,7 @@ losses['Etot'] = target_accuracy_energy
 # model variables. Thus, dQ and teh dipole mats are technically not part of the computational
 # graph since S is not being trained.
 # losses['dipole'] = target_accuracy_dipole 
-# losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
+losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
 losses['monotonic'] = target_accuracy_monotonic
 
@@ -962,6 +962,8 @@ for loss in losses:
         all_losses[loss] = FormPenaltyLoss(loss)
     elif loss == "dipole":
         all_losses['dipole'] = DipoleLoss()
+    elif loss == "charges":
+        all_losses['charges'] = ChargeLoss()
 
 #%% Feed generation
 x = time.time()
@@ -982,10 +984,7 @@ for ibatch,feed in enumerate(training_feeds):
    
    for loss in all_losses:
        try:
-           if loss == "dipole":
-               debug = False
-           else:
-               debug = False
+           debug = False
            all_losses[loss].get_feed(feed, [] if loaded_data else training_molec_batches[ibatch], all_models, par_dict, debug)
        except Exception as e:
            print(e)
@@ -1007,10 +1006,7 @@ for ibatch, feed in enumerate(validation_feeds):
     
     for loss in all_losses:
         try:
-            if loss == "dipole":
-                debug = False
-            else:
-                debug = False
+            debug = False
             all_losses[loss].get_feed(feed, [] if loaded_data else validation_molec_batches[ibatch], all_models, par_dict, debug)
         except Exception as e:
             print(e)
@@ -1069,7 +1065,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 301
+nepochs = 300
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()

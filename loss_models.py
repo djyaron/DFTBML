@@ -428,7 +428,62 @@ class ChargeLoss(LossModel):
     '''
     def __init__(self):
         pass
+    
+    def compute_charges(self, dQs, ids):
+        '''
+        Internal method to compute the charges 
+        '''
+        charges = dQs
+        #Should have the same dimensions (ngeom, nshells, 1)
+        assert(charges.shape[0] == ids.shape[0])
+        charge_tensors = []
+        for i in range(charges.shape[0]):
+            curr_ids = ids[i].squeeze(-1)
+            curr_charges = charges[i].squeeze(-1)
+            #Scale down by the minimum index
+            scaling_val = curr_ids[0].item()
+            curr_ids -= scaling_val
+            curr_charges = torch.tensor(curr_charges)
+            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype)
+            temp = temp.scatter_add(0, torch.tensor(curr_ids).long(), curr_charges)
+            charge_tensors.append(temp)
+        return torch.stack(charge_tensors)
+            
     def get_feed(self, feed, molecs, all_models, par_dict, debug):
-        pass
+        #Use 'charges' as the key for storing charge information for each molecule
+        #Generates the charges used to compute the loss later on
+        if 'charges' not in feed:
+            if debug:
+                all_bsizes = feed['basis_sizes']
+                charge_dict = dict()
+                for bsize in all_bsizes:
+                    curr_dQ = feed['dQ'][bsize]
+                    curr_ids = feed['atom_ids'][bsize]
+                    #Now get true charges
+                    true_charges = self.compute_charges(curr_dQ, curr_ids)
+                    charge_dict[bsize] = true_charges
+                feed['charges'] = charge_dict
+            else:
+                charge_dict = dict()
+                for bsize in feed['basis_sizes']:
+                    glabels = feed['glabels'][bsize]
+                    total_charges = [molecs[x]['targets']['charges'] for x in glabels]
+                    charge_dict[bsize] = np.array(total_charges)
+                feed['charges'] = charge_dict
+    
     def get_value(self, output, feed):
-        pass
+        all_bsizes = feed['basis_sizes']
+        loss_criterion = nn.MSELoss()
+        total_computed, total_targets = list(), list()
+        for bsize in all_bsizes:
+            real_charges = feed['charges'][bsize]
+            curr_dQ_out = output['dQ'][bsize]
+            curr_ids = feed['atom_ids'][bsize]
+            computed_charges = self.compute_charges(curr_dQ_out, curr_ids)
+            assert(computed_charges.shape[0] == real_charges.shape[0])
+            for i in range(len(computed_charges)):
+                total_computed.append(computed_charges[i])
+                total_targets.append(real_charges[i])
+        computed_tensor = torch.cat(total_computed)
+        target_tensor = torch.cat(total_targets)
+        return torch.sqrt(loss_criterion(computed_tensor, target_tensor))
