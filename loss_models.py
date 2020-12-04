@@ -438,6 +438,9 @@ class ChargeLoss(LossModel):
         '''
         charges = dQs
         #Should have the same dimensions (ngeom, nshells, 1)
+        if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
+            charges = torch.from_numpy(charges)
+            ids = torch.from_numpy(ids)
         assert(charges.shape[0] == ids.shape[0])
         charge_tensors = []
         for i in range(charges.shape[0]):
@@ -447,7 +450,7 @@ class ChargeLoss(LossModel):
             scaling_val = curr_ids[0].item()
             curr_ids -= scaling_val
             temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype)
-            temp = temp.scatter_add(0, torch.tensor(curr_ids).long(), curr_charges)
+            temp = temp.scatter_add(0, curr_ids.long(), curr_charges)
             charge_tensors.append(temp)
         return charge_tensors
             
@@ -463,6 +466,9 @@ class ChargeLoss(LossModel):
                     curr_ids = feed['atom_ids'][bsize]
                     #Now get true charges
                     true_charges = self.compute_charges(curr_dQ, curr_ids)
+                    for i in range(len(true_charges)):
+                        #Convert to numpy arrays for consistency
+                        true_charges[i] = true_charges[i].numpy()
                     charge_dict[bsize] = true_charges
                 feed['charges'] = charge_dict
             else:

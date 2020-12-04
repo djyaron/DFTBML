@@ -764,8 +764,8 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6,7,8]
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 15
 # target = 'dt'
@@ -832,14 +832,14 @@ compare_feeds("reference_data1.p", training_feeds)
 compare_feeds("reference_data2.p", validation_feeds)
 
 #Need to regenerate the molecule batches for both train and validation
-master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
-master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
+# master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
+# master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
 
-#Reconstitute the lists 
-training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
-                                                                        training_feeds, ["Etot", "dipoles", "charges"])
-validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
-                                                                        validation_feeds, ["Etot", "dipoles", "charges"])
+# #Reconstitute the lists 
+# training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
+#                                                                         training_feeds, ["Etot", "dipoles", "charges"])
+# validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
+#                                                                         validation_feeds, ["Etot", "dipoles", "charges"])
 
 #Load dftb_lsts
 training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
