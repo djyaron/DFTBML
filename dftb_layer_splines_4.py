@@ -623,7 +623,7 @@ class DFTB_Layer(nn.Module):
             rho = 2.0 * torch.matmul(orb_filled, torch.transpose(orb_filled, -2, -1))
             calc['rho'][bsize] = rho
             ener1 = torch.sum(torch.mul(rho.view(rho.size()[0], -1), calc['H'][bsize].view(calc['H'][bsize].size()[0], -1)), 1) #I think this is fine since calc['Eelec'] is a 1D array
-            dQ = calc['dQ'][bsize]
+            dQ = calc['dQ'][bsize] #dQ is just copied but not calculated
             Gamma = calc['G'][bsize]
             ener2 = 0.5 * torch.matmul(torch.transpose(dQ, -2, -1), torch.matmul(Gamma, dQ))
             ener2 = ener2.view(ener2.size()[0])
@@ -764,10 +764,10 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-max_config = 3
+max_config = 15
 # target = 'dt'
 target = {'Etot' : 'dt',
           'dipole' : 'wb97x_dz.dipole',
@@ -832,14 +832,14 @@ compare_feeds("reference_data1.p", training_feeds)
 compare_feeds("reference_data2.p", validation_feeds)
 
 #Need to regenerate the molecule batches for both train and validation
-# master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
-# master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
+master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
+master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
 
-# #Reconstitute the lists 
-# training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
-#                                                                         training_feeds, ["Etot", "dipoles"])
-# validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
-#                                                                         validation_feeds, ["Etot", "dipoles"])
+#Reconstitute the lists 
+training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
+                                                                        training_feeds, ["Etot", "dipoles", "charges"])
+validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
+                                                                        validation_feeds, ["Etot", "dipoles", "charges"])
 
 #Load dftb_lsts
 training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
@@ -1034,7 +1034,8 @@ print("molecular and batch information successfully saved, along with reference 
 #%% Recursive type conversion
 # Not an elegant solution but these two keys need to be ignored since they
 # should not be tensors!
-ignore_keys = ['glabels', 'basis_sizes']
+# Charges are ignored because of raggedness coming from bsize organization
+ignore_keys = ['glabels', 'basis_sizes', 'charges']
 for feed in training_feeds:
     recursive_type_conversion(feed, ignore_keys)
 for feed in validation_feeds:
@@ -1087,8 +1088,6 @@ for i in range(nepochs):
     #Shuffle the validation data
     random.shuffle(validation_feeds)
     
-    if (i % 150 == 0):
-        print("hello")
     
     #Training routine
     epoch_loss = 0.0
@@ -1114,7 +1113,7 @@ for i in range(nepochs):
     print(i, (epoch_loss/len(training_feeds)))
     training_losses.append((epoch_loss/len(training_feeds)))
     
-    # Update charges every 20 epochs
+    # Update charges every 10 epochs
     if (i % 10 == 0):
         for j in range(len(training_feeds)):
             feed = training_feeds[j]

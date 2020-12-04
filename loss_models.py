@@ -425,6 +425,8 @@ class ChargeLoss(LossModel):
     
     The charges are computed as dQ + qneutral for a given species, since the charge 
     fluctuation is defined as dQ = Q_i + Q_0, where Q_0 is the neutral charge
+    
+    TODO: Fix the ragged tensor problem with charges!
     '''
     def __init__(self):
         pass
@@ -432,6 +434,7 @@ class ChargeLoss(LossModel):
     def compute_charges(self, dQs, ids):
         '''
         Internal method to compute the charges 
+        Uses scatter_add and returns a list of torch tensor objects
         '''
         charges = dQs
         #Should have the same dimensions (ngeom, nshells, 1)
@@ -443,11 +446,10 @@ class ChargeLoss(LossModel):
             #Scale down by the minimum index
             scaling_val = curr_ids[0].item()
             curr_ids -= scaling_val
-            curr_charges = torch.tensor(curr_charges)
             temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype)
             temp = temp.scatter_add(0, torch.tensor(curr_ids).long(), curr_charges)
             charge_tensors.append(temp)
-        return torch.stack(charge_tensors)
+        return charge_tensors
             
     def get_feed(self, feed, molecs, all_models, par_dict, debug):
         #Use 'charges' as the key for storing charge information for each molecule
@@ -468,10 +470,20 @@ class ChargeLoss(LossModel):
                 for bsize in feed['basis_sizes']:
                     glabels = feed['glabels'][bsize]
                     total_charges = [molecs[x]['targets']['charges'] for x in glabels]
-                    charge_dict[bsize] = np.array(total_charges)
+                    # starting_len = len(total_charges[0])
+                    # try:
+                    #     assert (all(len(ele) == starting_len for ele in total_charges))
+                    # except:
+                    #     print("Something went wrong with length of charges")
+                    #     print([molecs[x] for x in glabels])
+                    charge_dict[bsize] = total_charges
                 feed['charges'] = charge_dict
     
     def get_value(self, output, feed):
+        '''
+        Because charges will have to be a ragged np array, will have to perform the 
+        calculation per charge vector and convert to tensor as we go along
+        '''
         all_bsizes = feed['basis_sizes']
         loss_criterion = nn.MSELoss()
         total_computed, total_targets = list(), list()
@@ -480,10 +492,11 @@ class ChargeLoss(LossModel):
             curr_dQ_out = output['dQ'][bsize]
             curr_ids = feed['atom_ids'][bsize]
             computed_charges = self.compute_charges(curr_dQ_out, curr_ids)
-            assert(computed_charges.shape[0] == real_charges.shape[0])
+            assert(len(computed_charges) == len(real_charges)) #Both are lists now since raggedness
             for i in range(len(computed_charges)):
                 total_computed.append(computed_charges[i])
-                total_targets.append(real_charges[i])
+                total_targets.append(torch.from_numpy(real_charges[i]))
+                assert (total_computed[-1].shape == total_targets[-1].shape)
         computed_tensor = torch.cat(total_computed)
         target_tensor = torch.cat(total_targets)
         return torch.sqrt(loss_criterion(computed_tensor, target_tensor))

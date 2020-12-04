@@ -355,8 +355,8 @@ class per_molec_h5handler:
                         for i in range(len(current_iconfs)):
                             name, conf = current_names[i], current_iconfs[i]
                             feed[key][bsize].append(master_dict[name][conf][key][()])
-                        
-                        feed[key][bsize] = np.array(feed[key][bsize])
+                        if key != 'charges': #Charges are ragged unfortunately
+                            feed[key][bsize] = np.array(feed[key][bsize])
         
     @staticmethod
     def create_molec_batches_from_feeds_h5(master_molec_dict, feeds, targets):
@@ -713,7 +713,9 @@ def compare_feeds(reference_file, reconstituted_feeds):
             
             assert( np.allclose (curr_ref_fd['dipoles'][bsize], feedi['dipoles'][bsize]))
             
-            assert( np.allclose (curr_ref_fd['charges'][bsize], feedi['charges'][bsize]))
+            # assert( np.allclose (curr_ref_fd['charges'][bsize], feedi['charges'][bsize]))
+            for i in range(len(curr_ref_fd['charges'][bsize])):
+                assert(np.allclose(curr_ref_fd['charges'][bsize][i], feedi['charges'][bsize][i]))
             
             assert( np.allclose (curr_ref_fd['occ_rho_mask'][bsize], feedi['occ_rho_mask'][bsize]) )
             
