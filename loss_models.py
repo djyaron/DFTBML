@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from geometry import Geometry
 from batch import create_batch, create_dataset, DFTBList
 from loss_methods import plot_spline
+import re
 
 #%% External Functions
 def compute_mod_vals_derivs(all_models, par_dict, ngrid = 200, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = []):
@@ -218,12 +219,26 @@ class TotalEnergyLoss(LossModel):
     def __init__(self):
         #Total energy loss does not require anything saved in its state
         pass
+    
+    def get_nheavy(self, lst):
+        '''
+        Gets the nuber of heavy atoms out of a list of the molecule name
+        '''
+        assert(len(lst) % 2 == 0)
+        n_heavy = 0
+        for i in range(0, len(lst), 2):
+            if lst[i].isalpha() and lst[i] != 'H':
+                n_heavy += int(lst[i+1])
+        return n_heavy
+    
     def get_feed(self, feed, molecs, all_models, par_dict, debug):
         if "Etot" not in feed:
             key = "Etot"
             result_dict = dict()
             all_bsizes = list(feed['glabels'].keys())
+                
             if debug:
+                # NOTE: Debug mode is done on energy per molecule, not energy per heavy atom
                 for bsize in all_bsizes:
                     result_dict[bsize] = feed['Eelec'][bsize] + feed['Erep'][bsize]
             else:
@@ -232,8 +247,21 @@ class TotalEnergyLoss(LossModel):
                     total_energies = [molecs[x]['targets']['Etot'] for x in glabels]
                     result_dict[bsize] = np.array(total_energies)
             feed[key] = result_dict
+        
+        if "nheavy" not in feed:
+            # Add the number of heavy atoms
+            heavy_dict = dict()
+            pattern = '[A-Z][a-z]?|[0-9]+'
+            all_bsizes = feed['basis_sizes']
+            for bsize in all_bsizes:
+                names = feed['names'][bsize]
+                # Regex approach from https://stackoverflow.com/questions/9782835/break-string-into-list-elements-based-on-keywords
+                split_lsts = list(map(lambda x : re.findall(pattern, x), names))
+                heavy_lst = list(map(lambda x : self.get_nheavy(x), split_lsts))
+                heavy_dict[bsize] = np.array(heavy_lst)
+            feed['nheavy'] = heavy_dict
     
-    def get_value(self, output, feed):
+    def get_value(self, output, feed, per_atom_flag):
         '''
         Computes the total energy loss using PyTorch MSEloss
         '''
@@ -241,7 +269,10 @@ class TotalEnergyLoss(LossModel):
         loss_criterion = nn.MSELoss() #Compute MSE loss by the pytorch specification
         target_tensors, computed_tensors = list(), list()
         for bsize in all_bsizes:
-            computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] 
+            n_heavy = feed['nheavy'][bsize].long()
+            computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
+            if per_atom_flag:
+                computed_result = torch.div(computed_result, n_heavy)
             target_result = feed['Etot'][bsize]
             if len(computed_result.shape) == 0:
                 computed_result = computed_result.unsqueeze(0)

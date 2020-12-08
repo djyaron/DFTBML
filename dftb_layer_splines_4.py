@@ -774,7 +774,7 @@ set them accordingly!
 allowed_Zs = [1,6,7,8]
 heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-max_config = 15
+max_config = 50
 # target = 'dt'
 target = {'Etot' : 'dt',
           'dipole' : 'wb97x_dz.dipole',
@@ -791,9 +791,6 @@ eig_method = 'new'
 #Proportion for training and validation
 prop_train = 0.8
 prop_valid = 0.2
-
-#Fit to DFTB or fit to ani1-ccx target
-fit_to_DFTB = False
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
 training_losses = list()
@@ -840,7 +837,7 @@ loaded_data = True
 
 # impure_ratio indicates what fraction of the molecules found with up to lower_limit
 # heavy atoms should be added to the test set if the test_set is not 'pure'
-transfer_training = True
+transfer_training = False
 test_set = 'pure' #either 'pure' or 'impure'
 impure_ratio = 0.2
 lower_limit = 4
@@ -849,6 +846,14 @@ lower_limit = 4
 # total energy as a function of the number of heavy atoms. 
 train_ener_per_heavy = True
 
+# Debug flag. If set to true, get_feeds() for the loss models adds data based on
+# dftb results rather than from ANI-1
+# Note that for total energy, debug mode gives total energy per molecule,
+# NOT total energy per heavy atom!
+debug = False
+
+# debug and train_ener_per_heavy should be opposite
+assert(not(debug and train_ener_per_heavy))
 
 #%% Degbugging h5 (Extraction and combination)
 x = time.time()
@@ -877,7 +882,6 @@ training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
 print("Check me!")
 
 #%% Dataset Sorting
-x = time.time()
 print("Running degeneracy rejection")
 degeneracy_tolerance = 1.0e-3
 bad_indices = set()
@@ -949,10 +953,17 @@ else:
     #Separate into the training and validation sets
     training_molecs, validation_molecs = list(), list()
     for i in range(len(cleaned_dataset)):
+        molec = cleaned_dataset[i]
+        if train_ener_per_heavy:
+            zcount = collections.Counter(molec['atomic_numbers'])
+            ztypes = list(zcount.keys())
+            heavy_counts = [zcount[x] for x in ztypes if x > 1]
+            num_heavy = sum(heavy_counts)
+            molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
         if i in sampled_indices:
-            training_molecs.append(cleaned_dataset[i])
+            training_molecs.append(molec)
         else:
-            validation_molecs.append(cleaned_dataset[i])
+            validation_molecs.append(molec)
 
 #Logging data
 total_num_molecs = len(cleaned_dataset)
@@ -971,6 +982,7 @@ total_num_valid_molecs = len(validation_molecs)
 print(f'Number of molecules used for training: {len(training_molecs)}')
 print(f"Number of molecules used for testing: {len(validation_molecs)}")
 #%% Graph generation
+x = time.time()
 print("Making Training Graphs")
 train_dat_set = data_loader(training_molecs, batch_size = num_per_batch)
 training_feeds, training_dftblsts = list(), list()
@@ -1065,7 +1077,6 @@ for ibatch,feed in enumerate(training_feeds):
    
    for loss in all_losses:
        try:
-           debug = False
            all_losses[loss].get_feed(feed, [] if loaded_data else training_molec_batches[ibatch], all_models, par_dict, debug)
        except Exception as e:
            print(e)
@@ -1087,7 +1098,6 @@ for ibatch, feed in enumerate(validation_feeds):
     
     for loss in all_losses:
         try:
-            debug = False
             all_losses[loss].get_feed(feed, [] if loaded_data else validation_molec_batches[ibatch], all_models, par_dict, debug)
         except Exception as e:
             print(e)
@@ -1161,7 +1171,13 @@ for i in range(nepochs):
             # loss = loss_layer.get_loss(output, elem)
             tot_loss = 0
             for loss in all_losses:
-                val = losses[loss] * all_losses[loss].get_value(output, elem)
+                if loss == 'Etot':
+                    if train_ener_per_heavy:
+                        val = losses[loss] * all_losses[loss].get_value(output, elem, True)
+                    else:
+                        val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                else:
+                    val = losses[loss] * all_losses[loss].get_value(output, elem)
                 tot_loss += val
                 loss_tracker[loss][2] += val.item()
             validation_loss += tot_loss.item()
@@ -1186,7 +1202,13 @@ for i in range(nepochs):
         # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
         tot_loss = 0
         for loss in all_losses:
-            val = losses[loss] * all_losses[loss].get_value(output, feed)
+            if loss == 'Etot':
+                if train_ener_per_heavy:
+                    val = losses[loss] * all_losses[loss].get_value(output, feed, True)
+                else:
+                    val = losses[loss] * all_losses[loss].get_value(output, feed, False)
+            else:
+                val = losses[loss] * all_losses[loss].get_value(output, feed)
             tot_loss += val
             loss_tracker[loss][2] += val.item()
         epoch_loss += tot_loss.item()
