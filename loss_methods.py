@@ -564,7 +564,7 @@ def plot_multi_splines(target_models, all_models, ngrid = 500, max_per_plot = 4)
                     axs[row, col].set_title(title)
                     curr_pos += 1
         fig.tight_layout()
-        fig.savefig(os.path.join(os.getcwd(), "Splines", f"RSplineGraph{i}.png"))
+        fig.savefig(os.path.join(os.getcwd(), "Splines", f"SplineGraph{i}.png"))
         plt.show()
         
         

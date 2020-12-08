@@ -34,6 +34,9 @@ import random
 import pickle
 from datetime import datetime
 import h5py
+import matplotlib.pyplot as plt
+from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
+                               AutoMinorLocator)
 
 from collections import OrderedDict, Counter
 import collections
@@ -571,11 +574,11 @@ class DFTB_Layer(nn.Module):
         calc['Erep'] = {}
         for bsize in data_input['basis_sizes']:
         
-            rho = data_input['rho'][bsize]
-            qbasis = rho * calc['S'][bsize]
-            GOP  = torch.sum(qbasis,2,keepdims=True)
-            qNeutral = data_input['qneutral'][bsize]
-            calc['dQ'][bsize] = qNeutral - GOP
+            # rho = data_input['rho'][bsize] #Unnecessary, just copying dQ
+            # qbasis = rho * calc['S'][bsize] #Unnecessary, just copying dQ
+            # GOP  = torch.sum(qbasis,2,keepdims=True) #Unnecessary, just copying dQ
+            # qNeutral = data_input['qneutral'][bsize] #Unnecessary, just copying dQ
+            calc['dQ'][bsize] = data_input['dQ'][bsize] #Use data_input['dQ'][bsize] here
             ep = torch.matmul(calc['G'][bsize], calc['dQ'][bsize])
             couMat = ((-0.5 * calc['S'][bsize]) *  (ep + torch.transpose(ep, -2, -1)))
             calc['F'][bsize] = calc['H'][bsize] + couMat 
@@ -764,8 +767,12 @@ def create_spline_config_dict(data_dict_lst):
 
 
 #%% Top level variable declaration
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+'''
+If loading data from h5 files, make sure to note the allowed_Zs and heavy_atoms of the dataset and
+set them accordingly!
+'''
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 15
 # target = 'dt'
@@ -803,8 +810,8 @@ config['opers_to_model'] = ['H', 'R']
 #loss weights
 losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
-target_accuracy_dipole = 0.2 # debye
-target_accuracy_charges = 0.02 # e
+target_accuracy_dipole = 100 # debye
+target_accuracy_charges = 100
 target_accuracy_convex = 1000
 target_accuracy_monotonic = 1000
 
@@ -821,7 +828,27 @@ losses['monotonic'] = target_accuracy_monotonic
 par_dict = ParDict()
 
 #Compute or load?
-loaded_data = False
+loaded_data = True
+
+#Training scheme
+# If this flag is set to true, the dataset will be changed such that you 
+# train on up to lower_limit heavy atoms and test on the rest
+
+# If test_set is set to 'pure', then the test set will only have molecules with
+# more than lower_limit heavy atoms; otherwise, test set will have a blend of 
+# molecules between those with up to lower_limit heavy atoms and those with more
+
+# impure_ratio indicates what fraction of the molecules found with up to lower_limit
+# heavy atoms should be added to the test set if the test_set is not 'pure'
+transfer_training = True
+test_set = 'pure' #either 'pure' or 'impure'
+impure_ratio = 0.2
+lower_limit = 4
+
+# Flag indicates whether or not to fit to the total energy per molecule or the 
+# total energy as a function of the number of heavy atoms. 
+train_ener_per_heavy = True
+
 
 #%% Degbugging h5 (Extraction and combination)
 x = time.time()
@@ -830,6 +857,9 @@ validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_tes
 print(f"{time.time() - x}")
 compare_feeds("reference_data1.p", training_feeds)
 compare_feeds("reference_data2.p", validation_feeds)
+
+training_molec_batches = []
+validation_molec_batches = []
 
 #Need to regenerate the molecule batches for both train and validation
 # master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
@@ -846,8 +876,8 @@ training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
 
 print("Check me!")
 
-#%% Graph generation
-
+#%% Dataset Sorting
+x = time.time()
 print("Running degeneracy rejection")
 degeneracy_tolerance = 1.0e-3
 bad_indices = set()
@@ -868,20 +898,61 @@ for index, item in enumerate(dataset, 0):
     if index not in bad_indices:
         cleaned_dataset.append(item[0])
 
-#Shuffle the dataset before feeding into data_loader
-random.shuffle(cleaned_dataset)
+print('Number of total molecules after degeneracy rejection', len(cleaned_dataset))
 
-#Sample the indices that will be used for the training dataset randomly from the shuffled data
-indices = [i for i in range(len(cleaned_dataset))]
-sampled_indices = set(random.sample(indices, int(len(cleaned_dataset) * prop_train)))
-
-#Separate into the training and validation sets
-training_molecs, validation_molecs = list(), list()
-for i in range(len(cleaned_dataset)):
-    if i in sampled_indices:
-        training_molecs.append(cleaned_dataset[i])
-    else:
-        validation_molecs.append(cleaned_dataset[i])
+if transfer_training:
+    # Separate into molecules with up to lower_limit heavy atoms and those with
+    # more
+    up_to_ll, more = list(), list()
+    for molec in cleaned_dataset:
+        zcount = collections.Counter(molec['atomic_numbers'])
+        ztypes = list(zcount.keys())
+        heavy_counts = [zcount[x] for x in ztypes if x > 1]
+        num_heavy = sum(heavy_counts)
+        if num_heavy > lower_limit:
+            if train_ener_per_heavy: 
+                molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
+            more.append(molec)
+        else:
+            if train_ener_per_heavy:
+                molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
+            up_to_ll.append(molec)
+    
+    # Check whether test_set should be pure
+    training_molecs, validation_molecs = None, None
+    if test_set == 'pure':
+        random.shuffle(up_to_ll)
+        training_molecs = up_to_ll
+        num_valid = (int(len(up_to_ll) / prop_train)) - len(up_to_ll)
+        validation_molecs = random.sample(more, num_valid)
+    elif test_set == 'impure':
+        indices = [i for i in range(len(up_to_ll))]
+        chosen_for_blend = set(random.sample(indices, int(len(up_to_ll) * impure_ratio)))
+        training_molecs, blend_temp = list(), list()
+        for ind, elem in enumerate(up_to_ll, 0):
+            if ind not in chosen_for_blend:
+                training_molecs.append(elem)
+            else:
+                blend_temp.append(elem)
+        num_valid = (int(len(training_molecs) / prop_train)) - (len(training_molecs) + len(blend_temp))
+        rest_temp = random.sample(more, num_valid)
+        validation_molecs = blend_temp + rest_temp
+        random.shuffle(validation_molecs)
+else:
+    #Shuffle the dataset before feeding into data_loader
+    random.shuffle(cleaned_dataset)
+    
+    #Sample the indices that will be used for the training dataset randomly from the shuffled data
+    indices = [i for i in range(len(cleaned_dataset))]
+    sampled_indices = set(random.sample(indices, int(len(cleaned_dataset) * prop_train)))
+    
+    #Separate into the training and validation sets
+    training_molecs, validation_molecs = list(), list()
+    for i in range(len(cleaned_dataset)):
+        if i in sampled_indices:
+            training_molecs.append(cleaned_dataset[i])
+        else:
+            validation_molecs.append(cleaned_dataset[i])
 
 #Logging data
 total_num_molecs = len(cleaned_dataset)
@@ -897,9 +968,9 @@ total_num_valid_molecs = len(validation_molecs)
 
 # Can go based on the order of the 'glabels' key in feeds, which dictates the 
 # ordering for everything as a kvp with bsize -> values for each molecule, glabels are sorted
-
-print('Number of total molecules after degeneracy rejection', len(cleaned_dataset))
-
+print(f'Number of molecules used for training: {len(training_molecs)}')
+print(f"Number of molecules used for testing: {len(validation_molecs)}")
+#%% Graph generation
 print("Making Training Graphs")
 train_dat_set = data_loader(training_molecs, batch_size = num_per_batch)
 training_feeds, training_dftblsts = list(), list()
@@ -941,7 +1012,7 @@ for index, batch in enumerate(validation_dat_set):
 
     validation_feeds.append(feed)
     validation_molec_batches.append(batch)
-
+print(f"{time.time() - x}")
 #%% Model and loss initialization
 all_models = dict()
 model_variables = dict() #This is used for the optimizer later on
@@ -955,15 +1026,25 @@ model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
 #Constructing the losses using the models implemented in loss_models
 all_losses = dict()
 
+#loss_tracker to keep track of values for each 
+#Each loss maps to tuple of two lists, the first is the validation loss,the second
+# is the training loss, and the third is a temp so that average losses for validation/train 
+# can be computed
+loss_tracker = dict() 
+
 for loss in losses:
     if loss == "Etot":
         all_losses['Etot'] = TotalEnergyLoss()
+        loss_tracker['Etot'] = [list(), list(), 0]
     elif loss in ["convex", "monotonic", "smooth"]:
         all_losses[loss] = FormPenaltyLoss(loss)
+        loss_tracker[loss] = [list(), list(), 0]
     elif loss == "dipole":
         all_losses['dipole'] = DipoleLoss()
+        loss_tracker['dipole'] = [list(), list(), 0]
     elif loss == "charges":
         all_losses['charges'] = ChargeLoss()
+        loss_tracker['charges'] = [list(), list(), 0]
 
 #%% Feed generation
 x = time.time()
@@ -1066,7 +1147,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 300
+nepochs = 150
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -1080,10 +1161,17 @@ for i in range(nepochs):
             # loss = loss_layer.get_loss(output, elem)
             tot_loss = 0
             for loss in all_losses:
-                tot_loss += losses[loss] * all_losses[loss].get_value(output, elem)
+                val = losses[loss] * all_losses[loss].get_value(output, elem)
+                tot_loss += val
+                loss_tracker[loss][2] += val.item()
             validation_loss += tot_loss.item()
     print("Validation loss:",i, (validation_loss/len(validation_feeds)))
     validation_losses.append((validation_loss/len(validation_feeds)))
+    
+    for loss in all_losses:
+        loss_tracker[loss][0].append(loss_tracker[loss][2] / len(validation_feeds))
+        #Reset the loss tracker after being done with all feeds
+        loss_tracker[loss][2] = 0
 
     #Shuffle the validation data
     random.shuffle(validation_feeds)
@@ -1098,7 +1186,9 @@ for i in range(nepochs):
         # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
         tot_loss = 0
         for loss in all_losses:
-            tot_loss += losses[loss] * all_losses[loss].get_value(output, feed)
+            val = losses[loss] * all_losses[loss].get_value(output, feed)
+            tot_loss += val
+            loss_tracker[loss][2] += val.item()
         epoch_loss += tot_loss.item()
         tot_loss.backward()
         optimizer.step()
@@ -1112,6 +1202,10 @@ for i in range(nepochs):
     
     print(i, (epoch_loss/len(training_feeds)))
     training_losses.append((epoch_loss/len(training_feeds)))
+    
+    for loss in all_losses:
+        loss_tracker[loss][1].append(loss_tracker[loss][2] / len(training_feeds))
+        loss_tracker[loss][2] = 0
     
     # Update charges every 10 epochs
     if (i % 10 == 0):
@@ -1153,28 +1247,48 @@ with open("losses.p", "wb") as handle:
 
 print(f"total time taken (sum epoch times): {sum(times_per_epoch)}")
 print(f"average epoch time: {sum(times_per_epoch) / len(times_per_epoch)}")
-print(f"total number of molecules per epoch: {total_num_molecs}")
-print(f"total number of training molecules: {total_num_train_molecs}")
-print(f"total number of validation molecules: {total_num_valid_molecs}")
+# print(f"total number of molecules per epoch: {total_num_molecs}")
+# print(f"total number of training molecules: {total_num_train_molecs}")
+# print(f"total number of validation molecules: {total_num_valid_molecs}")
 
-#Writing diagnostic information for later user
-with open("timing.txt", "a+") as handle:
-    handle.write(f"Current time: {datetime.now()}\n")
-    handle.write(f"Allowed Zs: {allowed_Zs}\n")
-    handle.write(f"Heavy Atoms: {heavy_atoms}\n")
-    handle.write(f"Molecules per batch: {num_per_batch}\n")
-    handle.write(f"Total molecules per epoch: {total_num_molecs}\n")
-    handle.write(f"Total number of training molecules: {total_num_train_molecs}\n")
-    handle.write(f"Total number of validation molecules: {total_num_valid_molecs}\n")
-    handle.write(f"Number of epochs: {nepochs}\n")
-    handle.write(f"Eigen decomp method: {eig_method}\n")
-    handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
-    handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
-    handle.write("Infrequent charge updating for dipole loss\n")
-    handle.write("Switched over to using non-shifted dataset\n")
-    handle.write("Testing with new loss framework\n")
-    handle.write("Testing dipole loss against actual dipoles\n")
-    handle.write("\n")
+#Plotting the change in each kind of loss per epoch
+for loss in all_losses:
+    validation_loss = loss_tracker[loss][0]
+    training_loss = loss_tracker[loss][1]
+    assert(len(validation_loss) == nepochs)
+    assert(len(training_loss) == nepochs)
+    fig, axs = plt.subplots()
+    axs.plot(training_loss, label = 'Training loss')
+    axs.plot(validation_loss, label = 'Validation loss')
+    axs.set_title(f"{loss} loss")
+    axs.set_xlabel("Epoch")
+    axs.set_ylabel("Average Epoch Loss (unitless)")
+    axs.yaxis.set_minor_locator(AutoMinorLocator())
+    axs.legend()
+    plt.show()
+    
+from loss_methods import plot_multi_splines
+double_mods = [mod for mod in all_models.keys() if mod != 'Eref' and len(mod.Zs) == 2]
+plot_multi_splines(double_mods, all_models)
+    
+# #Writing diagnostic information for later user
+# with open("timing.txt", "a+") as handle:
+#     handle.write(f"Current time: {datetime.now()}\n")
+#     handle.write(f"Allowed Zs: {allowed_Zs}\n")
+#     handle.write(f"Heavy Atoms: {heavy_atoms}\n")
+#     handle.write(f"Molecules per batch: {num_per_batch}\n")
+#     handle.write(f"Total molecules per epoch: {total_num_molecs}\n")
+#     handle.write(f"Total number of training molecules: {total_num_train_molecs}\n")
+#     handle.write(f"Total number of validation molecules: {total_num_valid_molecs}\n")
+#     handle.write(f"Number of epochs: {nepochs}\n")
+#     handle.write(f"Eigen decomp method: {eig_method}\n")
+#     handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
+#     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
+#     handle.write("Infrequent charge updating for dipole loss\n")
+#     handle.write("Switched over to using non-shifted dataset\n")
+#     handle.write("Testing with new loss framework\n")
+#     handle.write("Testing dipole loss against actual dipoles\n")
+#     handle.write("\n")
 
 
 

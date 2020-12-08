@@ -417,7 +417,7 @@ class DipoleLoss(LossModel):
                 real_dips.append(real_dipoles[bsize][i])
         total_comp_dips = torch.cat(computed_dips)
         total_real_dips = torch.cat(real_dips)
-        return loss_criterion(total_comp_dips, total_real_dips)
+        return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips))
 
 class ChargeLoss(LossModel):
     '''
