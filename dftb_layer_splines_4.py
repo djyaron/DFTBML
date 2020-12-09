@@ -578,8 +578,8 @@ class DFTB_Layer(nn.Module):
             # qbasis = rho * calc['S'][bsize] #Unnecessary, just copying dQ
             # GOP  = torch.sum(qbasis,2,keepdims=True) #Unnecessary, just copying dQ
             # qNeutral = data_input['qneutral'][bsize] #Unnecessary, just copying dQ
-            calc['dQ'][bsize] = data_input['dQ'][bsize] #Use data_input['dQ'][bsize] here
-            ep = torch.matmul(calc['G'][bsize], calc['dQ'][bsize])
+            #calc['dQ'][bsize] = data_input['dQ'][bsize] #Use data_input['dQ'][bsize] here
+            ep = torch.matmul(calc['G'][bsize], data_input['dQ'][bsize])
             couMat = ((-0.5 * calc['S'][bsize]) *  (ep + torch.transpose(ep, -2, -1)))
             calc['F'][bsize] = calc['H'][bsize] + couMat 
             vals = net_vals[data_input['gather_for_rep'][bsize].long()] # NET VALS ERROR OCCURS HERE
@@ -626,7 +626,12 @@ class DFTB_Layer(nn.Module):
             rho = 2.0 * torch.matmul(orb_filled, torch.transpose(orb_filled, -2, -1))
             calc['rho'][bsize] = rho
             ener1 = torch.sum(torch.mul(rho.view(rho.size()[0], -1), calc['H'][bsize].view(calc['H'][bsize].size()[0], -1)), 1) #I think this is fine since calc['Eelec'] is a 1D array
-            dQ = calc['dQ'][bsize] #dQ is just copied but not calculated
+            #dQ = calc['dQ'][bsize] #dQ is just copied but not calculated
+            qbasis = rho * calc['S'][bsize] 
+            GOP  = torch.sum(qbasis,2,keepdims=True)
+            qNeutral = data_input['qneutral'][bsize]
+            dQ = qNeutral - GOP
+            calc['dQ'][bsize] = dQ
             Gamma = calc['G'][bsize]
             ener2 = 0.5 * torch.matmul(torch.transpose(dQ, -2, -1), torch.matmul(Gamma, dQ))
             ener2 = ener2.view(ener2.size()[0])
