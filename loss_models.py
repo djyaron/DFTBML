@@ -532,7 +532,9 @@ class ChargeLoss(LossModel):
             assert(len(computed_charges) == len(real_charges)) #Both are lists now since raggedness
             for i in range(len(computed_charges)):
                 total_computed.append(computed_charges[i])
-                total_targets.append(torch.from_numpy(real_charges[i]))
+                tensor_reals = torch.from_numpy(real_charges[i])
+                tensor_reals = tensor_reals.type(computed_charges[i].dtype)
+                total_targets.append(tensor_reals)
                 assert (total_computed[-1].shape == total_targets[-1].shape)
         computed_tensor = torch.cat(total_computed)
         target_tensor = torch.cat(total_targets)

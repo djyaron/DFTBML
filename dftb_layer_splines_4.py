@@ -776,8 +776,8 @@ def create_spline_config_dict(data_dict_lst):
 If loading data from h5 files, make sure to note the allowed_Zs and heavy_atoms of the dataset and
 set them accordingly!
 '''
-allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6,7,8]
+allowed_Zs = [1,6]
+heavy_atoms = [1,2,3]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 50
 # target = 'dt'
@@ -812,8 +812,8 @@ config['opers_to_model'] = ['H', 'R']
 #loss weights
 losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
-target_accuracy_dipole = 100 # debye
-target_accuracy_charges = 100
+target_accuracy_dipole = 10 # debye
+target_accuracy_charges = 10
 target_accuracy_convex = 1000
 target_accuracy_monotonic = 1000
 
