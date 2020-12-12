@@ -12,18 +12,11 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Workaround for the R operator, since the H-H repulsion at longer range is 0 (basically, handle cases where splines are flat)
-        Don't optimize models with 0 concavity and a value of 0! (X)
-    1) Need more work on the H-H repulsion model for the spline
-    2) General optimizations for the code throughout, work based on profiler
-        To actually use the initial_results, run the file with a small molec batch and compare the results. Find the largest differences,
-        focus on those not in the pre-compute stages of the model!
-        
-        Keep in mind, initial results were computed for 1,6,7,8 and heavy 1-8, 1193 total molecules, 
-        max_config num = 2
-        300 epochs
-        
-    3) Revise h5 file to store dipole information (store dipole_mat per molec)
+    1) Rework convex and monotonic loss to deal with joined splines (high priority)
+    2) Implement plotting functions for checking joined splines too (moderate priority)
+    3) Testing and debugging new G models (moderate priority)
+    4) Automatically record all running conditions and save that along with loss figures (low priority)
+
 """
 import pdb, traceback, sys, code
 
@@ -57,7 +50,7 @@ from batch import create_batch, create_dataset, DFTBList
 #from modelval import Val_model
 # from modelspline import Spline_model
 from modelspline import get_dftb_vals
-from SplineModel_v3 import SplineModel, fit_linear_model
+from SplineModel_v3 import SplineModel, fit_linear_model, JoinedSplineModel
 import pickle
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
@@ -275,6 +268,41 @@ class Input_layer_pairwise_linear_joined:
     
     TODO: Come back to this after finished implementing joined spline model in SplineModel_v3.py
     '''
+    def __init__(self, model, pairwise_linear_model, par_dict, ngrid = 100, 
+                 noise_magnitude = 0.0):
+        self.model = model
+        self.pairwise_linear_model = pairwise_linear_model
+        (rlow, rhigh) = pairwise_linear_model.r_range()
+        rgrid = np.linspace(rlow, rhigh, ngrid)
+        ygrid = get_dftb_vals(model, par_dict, rgrid)
+        ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
+        variable_vars, fixed_vars = pairwise_linear_model.fit_model(rgrid, ygrid)
+        #Initialize the optimizable torch tensor for the variable coefficients
+        # of the spline and the fixed part that's cat'd on each time
+        self.variables = torch.from_numpy(variable_vars)
+        self.variables.requires_grad = True
+        self.constant_coefs = torch.from_numpy(fixed_vars)
+        self.joined = True #A flag used by later functions to identify joined splines
+    def get_variables(self):
+        return self.variables
+    def get_fixed(self):
+        return self.constant_coefs
+    def get_total(self):
+        return torch.cat([self.variables, self.constant_coefs])
+    def get_feed(self, mod_raw):
+        '''
+        This returns numpy arrays that will be caught by the recursive type conversions later on
+        '''
+        xeval = np.array([elem.rdist for elem in mod_raw])
+        A, b = self.pairwise_linear_model.linear_model(xeval)
+        return {'A' : A, 'b' : b}
+    def get_values(self, feed):
+        A = feed['A']
+        b = feed['b']
+        total_var_tensor = torch.cat([self.variables, self.constant_coefs])
+        result = torch.matmul(A, total_var_tensor) + b
+        return result
+        
     
 class Reference_energy:
     '''
@@ -405,7 +433,8 @@ def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0
  
     return model
 
-def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, num_grid = 200, buffer = 0.0):
+def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, num_grid = 200, buffer = 0.0, 
+                             joined_cutoff = 4.0):
     '''
     A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
     elements
@@ -423,15 +452,28 @@ def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, 
         minimum_value -= buffer
         maximum_value += buffer
         xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
-        config = {'xknots' : xknots,
-                  'deg'    : 3,
-                  'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
-        spline = SplineModel(config)
-        model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
-        variables = model.get_variables().detach().numpy()
-        if apx_equal(np.sum(variables), 0):
-            return (model, 'noopt')
-        return (model, 'opt')
+        if model_spec.oper != 'G':
+            config = {'xknots' : xknots,
+                      'deg'    : 3,
+                      'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
+            spline = SplineModel(config)
+            model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
+            variables = model.get_variables().detach().numpy()
+            if apx_equal(np.sum(variables), 0):
+                return (model, 'noopt')
+            return (model, 'opt')
+        else:
+            #Need to use joined-spline approach for modelling the G operator
+            config = {'xknots' : xknots,
+                      'equal_knots' : False,
+                      'cutoff' : joined_cutoff,
+                      'bconds' : 'natural'}
+            spline = JoinedSplineModel(config)
+            model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict)
+            variables = model.get_variables().detach().numpy()
+            if apx_equal(np.sum(variables), 0):
+                return (model, 'noopt')
+            return (model, 'opt')
         # Check that the model is not already flat at 0
         # More thorough check but probably unnecessary
         # rlow, rhigh = model.pairwise_linear_model.r_range()
@@ -791,7 +833,7 @@ If loading data from h5 files, make sure to note the allowed_Zs and heavy_atoms 
 set them accordingly!
 '''
 allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5,6,7,8]
+heavy_atoms = [1,2,3,4,5]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 10
 # target = 'dt'
@@ -844,7 +886,7 @@ losses['monotonic'] = target_accuracy_monotonic
 par_dict = ParDict()
 
 #Compute or load?
-loaded_data = True
+loaded_data = False
 
 #Training scheme
 # If this flag is set to true, the dataset will be changed such that you 

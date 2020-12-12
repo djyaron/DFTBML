@@ -127,6 +127,9 @@ class ModelPenalty:
         monotonic_penalty = 0
         m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
+        if hasattr(self.input_pairwise_lin, 'joined'):
+            other_coefs = self.input_pairwise_lin.get_fixed()
+            c = torch.cat([c, other_coefs])
         deriv = self.dgrid
         deriv = torch.tensor(deriv)
         p_monotonic = torch.einsum('j,ij->i', c, deriv)
@@ -150,6 +153,9 @@ class ModelPenalty:
         convex_penalty = 0
         m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
+        if hasattr(self.input_pairwise_lin, 'joined'):
+            other_coefs = self.input_pairwise_lin.get_fixed()
+            c = torch.cat([c, other_coefs])
         deriv = self.dgrid
         deriv = torch.tensor(deriv)
         p_convex = torch.einsum('j,ij->i', c, deriv)

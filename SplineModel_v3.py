@@ -361,8 +361,6 @@ class JoinedSplineModel(PairwiseLinearModel):
                 but right now, use the 'natural' boundary condition for both segments.
                 TODO: in the future, think about incorporating different boundary conditions.
                 Code right now defaults to an array of ['natural', 'natural']
-        max_deriv: int, maximum derivative to evaluate up to. Used mostly in merge_splines. Default is 
-                set to 2. 
         
     '''
     def __init__(self, config, xeval = None):
@@ -373,7 +371,6 @@ class JoinedSplineModel(PairwiseLinearModel):
         cutoff = default_cutoff if 'cutoff' not in config else config['cutoff']
         equal_knots = False if 'equal_knots' not in config else config['equal_knots']
         self.xknots = self.segment_knots(self.xknots, cutoff, equal_knots)
-        self.max_deriv = [0, 1, 2] if 'max_deriv' not in config else config['max_deriv']
         self.bconds = ['natural', 'natural'] #default
         #Now something to do with the spline_dicts (multiple, because we have segments)
         self.spline_dicts = None
@@ -409,11 +406,11 @@ class JoinedSplineModel(PairwiseLinearModel):
         if self.spline_dicts is None:
             return 0
         else:
-            return len(self.spline_dicts[0]['coefs']) + len(self.spline_dict[1]['coefs'])
+            return len(self.spline_dicts[0]['splines']['coefs']) + len(self.spline_dict[1]['spline']['coefs'])
     
-    #Fully aware that this is a little interface breaking, but construct_joined_splines seems to return
-    # the coefficients from its own internal fit so doing this instead.
-    # this internal version of fit_model is only called once to initialize the spline_dicts list
+    #Fully aware that this is a little interface breaking, but construct_joined_splines returns
+    # the coefficients from its internal fitting, and that seems more convenient than working 
+    # around fit_linear_model externally
     def fit_model(self, xvals, yvals):
         '''
         This method should only be called once at the start to initialize the model
@@ -424,23 +421,43 @@ class JoinedSplineModel(PairwiseLinearModel):
                       and initialize the spline coefficients
         '''
         if self.spline_dicts is not None:
-            return (self.spline_dicts[0]['coefs'], self.spline_dicts[1]['coefs'])
+            return (self.spline_dicts[0]['spline']['coefs'], self.spline_dicts[1]['spline']['coefs'])
         elif self.spline_dicts is None:
             #Spline has xknots, and the knots are already segmented so that 
             # construct_joined_splines can take them. Also, will not have to call 
             # merge_spline_dicts just yet.
+            #The spline_dicts returned from construct_joined_splines is an array of length 3
+            # with the third term containing the information for the full cubic spline
             self.spline_dicts = construct_joined_splines(self.xknots, xvals, yvals, self.bconds, xvals)
-            assert(len(self.spline_dicts) == 2)
-            return (self.spline_dics[0]['coefs'], self.spline_dicts[1]['coefs'])
+            assert(len(self.spline_dicts) == 3)
+            return (self.spline_dicts[0]['spline']['coefs'], self.spline_dicts[1]['spline']['coefs'])
         
-    def linear_model(self):
+    def linear_model(self, xeval, ider = 0, max_deriv = 2):
         """
-        TODO: CONTINUE FROM HERE!
+        The linear_model method for the joined spline must first merge the splines before
+        doing any kind of prediction on it. Because the spline_dicts field will
+        be initialized, no need to case if the spline_dict is none.
+        
+        Returns X, const such that the prediction for the spline is
+        vals_ider = np.dot(X[ider], np.concatenate([coefs,cfixed])
+                        + const[ider]
+        vals_ider[i] = value at xvals[i] where xvals is the xvals passed to
+                       to construct_joined_splines()
+        By default, the 0th derivative matrix and constants are returned since
+        we want to predict values
         """
-        pass
-            
-    
-    
+        #Get the list of derivatives to evaluate
+        deriv_lst = [i for i in range(max_deriv + 1)]
+        #Check if we're dealing with old or new xvals using the full cubic spline
+        full_xvals = self.spline_dicts[2]['spline']['xvals']
+        if (len(full_xvals) == len(xeval)) and all(x == y for x, y in zip(full_xvals, xeval)):
+            #If dealing with old xvals, just return the merged spline from the original:
+            X, const = merge_splines(self.spline_dicts, deriv_lst)
+            return X[ider], const[ider]
+        else:
+            #Dealing with new xvals
+            X, const = merge_splines_new_xvals(self.spline_dicts, xeval, deriv_lst)
+            return X[ider], const[ider]
 
 class ExponentialModel(PairwiseLinearModel):
     def __init__(self, exponents, rlow=0.0, rhigh=5.0):

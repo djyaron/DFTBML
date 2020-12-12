@@ -506,7 +506,10 @@ def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, p
     else:
         return target_loss + deviation_loss
 
-#%% Miscellaneous functions
+#%% Plotting functions
+
+#TODO: work on plotting joined splines
+
 def plot_spline(spline_model, ngrid = 500):
     '''
     Takes an instance of the input_pairwise_linear model and plots it using present variable vectors.
@@ -543,6 +546,8 @@ def plot_multi_splines(target_models, all_models, ngrid = 500, max_per_plot = 4)
     '''
     Takes in a list of the target models and a dictionary mapping all the model_specs
     to their respective Input_pairwise_linear model and plots them in square plots. 4x4 is the default.
+    
+    This method only works with generic splines, not joined splines
     '''
     total_mods = len(target_models)
     total_figs_needed = total_mods // max_per_plot if total_mods % max_per_plot == 0 else (total_mods // max_per_plot) + 1
@@ -566,10 +571,7 @@ def plot_multi_splines(target_models, all_models, ngrid = 500, max_per_plot = 4)
         fig.tight_layout()
         fig.savefig(os.path.join(os.getcwd(), "Splines", f"SplineGraph{i}.png"))
         plt.show()
-        
-        
-        
-        
+
 
 #%% Some testing
 if __name__ == "__main__":
