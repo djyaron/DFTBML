@@ -12,6 +12,8 @@ from tfspline import spline_linear_model, Bcond, spline_new_xvals
 from SplineModel_fold import Fold
 from SplineModel_utilities import get_sha256, get_dataset_type
 from SplineModel_constants import ANI1TYPES, ANGSTROM2BOHR, HARTREE
+import functools
+from tfspline import construct_joined_splines, merge_splines, merge_splines_new_xvals
 
 
 class PairwiseLinearModel:
@@ -337,6 +339,108 @@ class SplineModel(PairwiseLinearModel):
 
         return self.spline_dict['X'][ider], self.spline_dict['const'][ider]
 
+class JoinedSplineModel(PairwiseLinearModel):
+    '''
+    Wrapper for tfspline to create joined spline model
+    The default cutoff for the joined spline is 4 angstroms. Unless otherwise
+    specified, anything longer than four angstroms is kept constant
+    
+    Initialization:
+        config: dict, contains the xknots, the degree, and the boundary conditions
+        xeval: array, x positions to evaluate the spline at (fine to ignore on initialization)
+    
+    Note: Config has to contain the following information:
+        xknots: array with all the knots. They will be separated in the function internally
+                such that xknots[0][-1] == xknots[1][0] (they meet in the middle)
+        equal_knots: bool, indicates whether to balance the knots such that both 
+                segments of the joined spline will have the same number of knots. Default is false
+        cutoff: float, the cutoff distance in angstroms; anything after that will be
+                treated as segment 1 in the joined spline (fixed, not variable). If
+                no cutoff is specified, default cutoff in the code is 4 angstroms.
+        bconds: 'natural'. In the future, experiment with different boundary conditions
+                but right now, use the 'natural' boundary condition for both segments.
+                TODO: in the future, think about incorporating different boundary conditions.
+                Code right now defaults to an array of ['natural', 'natural']
+        max_deriv: int, maximum derivative to evaluate up to. Used mostly in merge_splines. Default is 
+                set to 2. 
+        
+    '''
+    def __init__(self, config, xeval = None):
+        default_cutoff = 4.0
+        if 'xknots' not in config:
+            raise ValueError("Configuration dictionary must have the knots!")
+        self.xknots = config['xknots']
+        cutoff = default_cutoff if 'cutoff' not in config else config['cutoff']
+        equal_knots = False if 'equal_knots' not in config else config['equal_knots']
+        self.xknots = self.segment_knots(self.xknots, cutoff, equal_knots)
+        self.max_deriv = [0, 1, 2] if 'max_deriv' not in config else config['max_deriv']
+        self.bconds = ['natural', 'natural'] #default
+        #Now something to do with the spline_dicts (multiple, because we have segments)
+        self.spline_dicts = None
+        
+    def segment_knots(self, xknots, cutoff, equality):
+        '''
+        Takes in a series of knots, a cutoff, and whether or not to split such
+        that all segments have equal or close to equal knots. Then, seperates the
+        knots accordingly.
+        '''
+        if equality:
+            mid_ind = len(xknots) // 2
+            #Intentional overlap to ensure that xknots[0][-1] == xknots[1][0]
+            first_segment = xknots[: mid_ind + 1]
+            second_segment = xknots[mid_ind :]
+            assert(first_segment[-1] == second_segment[0])
+            return [first_segment, second_segment]
+        else:
+            cutoff_diffs = map(lambda x : abs(x - cutoff), xknots)
+            indices = enumerate(cutoff_diffs)
+            minimum_index = functools.reduce(lambda x, y : x if x[1] <= y[1] else y, indices)
+            min_ind = minimum_index[0]
+            first_segment = xknots[: min_ind + 1]
+            second_segment = xknots[min_ind :]
+            assert(first_segment[-1] == second_segment[0])
+            return [first_segment, second_segment]
+    
+    def r_range(self):
+        #Returns the full range across both segments
+        return (self.xknots[0][0], self.xknots[1][-1])
+    
+    def n_var(self):
+        if self.spline_dicts is None:
+            return 0
+        else:
+            return len(self.spline_dicts[0]['coefs']) + len(self.spline_dict[1]['coefs'])
+    
+    #Fully aware that this is a little interface breaking, but construct_joined_splines seems to return
+    # the coefficients from its own internal fit so doing this instead.
+    # this internal version of fit_model is only called once to initialize the spline_dicts list
+    def fit_model(self, xvals, yvals):
+        '''
+        This method should only be called once at the start to initialize the model
+        and get all the coefficients. The first element is the variable coefficients, 
+        the second element is the fixed coefficients.
+        
+        xvals, yvals: both arrays of the same length, data used to fit
+                      and initialize the spline coefficients
+        '''
+        if self.spline_dicts is not None:
+            return (self.spline_dicts[0]['coefs'], self.spline_dicts[1]['coefs'])
+        elif self.spline_dicts is None:
+            #Spline has xknots, and the knots are already segmented so that 
+            # construct_joined_splines can take them. Also, will not have to call 
+            # merge_spline_dicts just yet.
+            self.spline_dicts = construct_joined_splines(self.xknots, xvals, yvals, self.bconds, xvals)
+            assert(len(self.spline_dicts) == 2)
+            return (self.spline_dics[0]['coefs'], self.spline_dicts[1]['coefs'])
+        
+    def linear_model(self):
+        """
+        TODO: CONTINUE FROM HERE!
+        """
+        pass
+            
+    
+    
 
 class ExponentialModel(PairwiseLinearModel):
     def __init__(self, exponents, rlow=0.0, rhigh=5.0):

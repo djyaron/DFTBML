@@ -236,6 +236,9 @@ class Input_layer_pairwise_linear:
     Object oriented interface replacement for original spline model
     
     The spline model already returns a torch tensor for its variables
+    
+    This model allows splines to vary without a cutoff. For a joine-spline approach,
+    refer to model Input_layer_pairwise_linear_joined.
     '''
     def __init__(self, model, pairwise_linear_model, par_dict, ngrid = 100, 
                  noise_magnitude = 0.0):
@@ -265,6 +268,13 @@ class Input_layer_pairwise_linear:
         b = feed['b']
         result = torch.matmul(A, self.variables) + b
         return result
+
+class Input_layer_pairwise_linear_joined:
+    '''
+    Class for dealing with joined splines for G (and potentially other) operators
+    
+    TODO: Come back to this after finished implementing joined spline model in SplineModel_v3.py
+    '''
     
 class Reference_energy:
     '''
@@ -689,7 +699,7 @@ def assemble_ops_for_charges(feed, all_models):
     if 'S' not in feed['onames']:
         calc['S'] = deepcopy(feed['S']) #Deepcopy operations may be too inefficient...
     if 'G' not in feed['onames']:
-            calc['G'] = deepcopy(feed['G'])
+        calc['G'] = deepcopy(feed['G'])
     
     return calc
 
@@ -699,13 +709,17 @@ def update_charges(feed, op_dict, dftblst):
     
     Since there is a correspondence between the feed dictionary and dftblst and the op_dict is generated
     from the feed, the basis sizes used should all match
+    
+    Use the information about G too since it's being modeled by the operator
     '''
     for bsize in op_dict['H'].keys():
         np_Hs = op_dict['H'][bsize].detach().numpy() #Don't care about gradients here
+        np_Gs = op_dict['G'][bsize].detach().numpy()
         for i in range(len(dftblst.dftbs_by_bsize[bsize])):
             curr_dftb = dftblst.dftbs_by_bsize[bsize][i]
             curr_H = np_Hs[i]
-            newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H) #Ignore the entropy term for now
+            curr_G = np_Gs[i]
+            newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G) #Ignore the entropy term for now
             newQ, occ_rho_mask_upd = torch.tensor(newQ).unsqueeze(1), torch.tensor(occ_rho_mask_upd)
             feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
             feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
@@ -776,10 +790,10 @@ def create_spline_config_dict(data_dict_lst):
 If loading data from h5 files, make sure to note the allowed_Zs and heavy_atoms of the dataset and
 set them accordingly!
 '''
-allowed_Zs = [1,6]
-heavy_atoms = [1,2,3]
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-max_config = 50
+max_config = 10
 # target = 'dt'
 target = {'Etot' : 'dt',
           'dipole' : 'wb97x_dz.dipole',
@@ -812,8 +826,8 @@ config['opers_to_model'] = ['H', 'R']
 #loss weights
 losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
-target_accuracy_dipole = 10 # debye
-target_accuracy_charges = 10
+target_accuracy_dipole = 100 # debye
+target_accuracy_charges = 100
 target_accuracy_convex = 1000
 target_accuracy_monotonic = 1000
 
