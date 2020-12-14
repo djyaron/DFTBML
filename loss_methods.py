@@ -536,6 +536,9 @@ def get_x_y_vals (spline_model, ngrid):
     rgrid = np.linspace(rlow, rhigh, ngrid)
     dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
     model_variables = spline_model.get_variables().detach().numpy()
+    if hasattr(spline_model, "joined"):
+        fixed_coefs = spline_model.get_fixed().detach().numpy()
+        model_variables = np.concatenate((model_variables, fixed_coefs))
     model = spline_model.model
     y_vals = np.dot(dgrids_consts[0], model_variables) + dgrids_consts[1]
     oper, Zs, orb = model

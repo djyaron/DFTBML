@@ -12,8 +12,18 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Rework convex and monotonic loss to deal with joined splines (high priority)
-    2) Implement plotting functions for checking joined splines too (moderate priority)
+    1) Rework convex and monotonic loss to deal with joined splines (high priority) (X)
+        Seems like we should be adding in the constants for the joined splines?
+        Is that right? Work on adding back in constants for joined splines
+        The general form of the spline multiply has been:
+            y_pred = Ax + b
+        But in computing the form penalties for most splines, we have neglected the
+        constants vector, so it looks like y_pred = Ax. 
+        This has not made a difference for the H and G operators before, but the joined spline
+        is different. We have to add the constants back in, it seems. Or, we can absorb the constants
+        using the nifty function in tfspline.
+    2) Figure out why train and validation losses are still diverging (top priority)
+    2) Implement plotting functions for checking joined splines too (moderate priority) (X)
     3) Testing and debugging new G models (moderate priority)
     4) Automatically record all running conditions and save that along with loss figures (low priority)
 
@@ -434,7 +444,7 @@ def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0
     return model
 
 def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, num_grid = 200, buffer = 0.0, 
-                             joined_cutoff = 4.0):
+                             joined_cutoff = 3.0):
     '''
     A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
     elements
@@ -1313,7 +1323,7 @@ for i in range(nepochs):
 
 print(f"Finished with {nepochs} epochs")
 times['train'] = time.process_time()
-
+#%% Logging
 print('dataset with', len(training_feeds), 'batches')
 time_names  = list(times.keys())
 time_vals  = list(times.values())

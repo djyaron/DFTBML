@@ -23,6 +23,8 @@ from loss_methods import plot_spline
 import re
 
 #%% External Functions
+# The determination of concavity is independent of the current implementations of the 
+# models; they are based on the model_spec and dftb values only!
 def compute_mod_vals_derivs(all_models, par_dict, ngrid = 200, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = []):
     '''
     Takes in all_models and creates a dictionary mapping each model to the original dftb equivalent since
@@ -40,7 +42,7 @@ def compute_mod_vals_derivs(all_models, par_dict, ngrid = 200, bcond = [Bcond(0,
             if (model.oper not in op_ignore) and (len(model.Zs) == 2):
                 pairwise_lin = all_models[model]
                 r_low, r_high = pairwise_lin.pairwise_linear_model.r_range()
-                rgrid = np.linspace(r_low, r_high, ngrid)
+                rgrid = np.linspace(r_low, r_high, ngrid) 
                 ygrid = get_dftb_vals(model, par_dict, rgrid)
                 model_spline_dict[model] = spline_linear_model(rgrid, None, (rgrid, ygrid), bcond)
         except:
@@ -111,9 +113,9 @@ class ModelPenalty:
         self.dgrid = None
         if dgrid is None:
             if self.penalty == "convex" or self.penalty == "smooth":
-                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 2)[0]
+                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 2)
             elif self.penalty == "monotonic":
-                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 1)[0]
+                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 1)
         else:
             self.dgrid = dgrid
     
@@ -130,9 +132,9 @@ class ModelPenalty:
         if hasattr(self.input_pairwise_lin, 'joined'):
             other_coefs = self.input_pairwise_lin.get_fixed()
             c = torch.cat([c, other_coefs])
-        deriv = self.dgrid
-        deriv = torch.tensor(deriv)
-        p_monotonic = torch.einsum('j,ij->i', c, deriv)
+        deriv, consts = self.dgrid[0], self.dgrid[1]
+        deriv, consts = torch.tensor(deriv), torch.tensor(consts)
+        p_monotonic = torch.einsum('j,ij->i', c, deriv) + consts
         #For a monotonically increasing potential (i.e. concave down integral), the
         # First derivative should be positive, so penalize the negative terms. Otherwise,
         # penalize the positive terms for concave up
@@ -156,9 +158,9 @@ class ModelPenalty:
         if hasattr(self.input_pairwise_lin, 'joined'):
             other_coefs = self.input_pairwise_lin.get_fixed()
             c = torch.cat([c, other_coefs])
-        deriv = self.dgrid
-        deriv = torch.tensor(deriv)
-        p_convex = torch.einsum('j,ij->i', c, deriv)
+        deriv, consts = self.dgrid[0], self.dgrid[1]
+        deriv, consts = torch.tensor(deriv), torch.tensor(consts)
+        p_convex = torch.einsum('j,ij->i', c, deriv) + consts
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
             p_convex = m(p_convex)
@@ -348,8 +350,9 @@ class FormPenaltyLoss(LossModel):
                     rlow, rhigh = current_model.pairwise_linear_model.r_range()
                     xgrid = np.linspace(rlow, rhigh, self.density)
                     #We only need the first and second derivative for the dgrids
-                    dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1)[0],
-                              current_model.pairwise_linear_model.linear_model(xgrid, 2)[0]]
+                    #Including the constants, especially important for the joined splines!
+                    dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1),
+                              current_model.pairwise_linear_model.linear_model(xgrid, 2)] 
                     final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids)
                     FormPenaltyLoss.seen_dgrid_dict[model_spec] = dgrids
             feed['form_penalty'] = final_dict

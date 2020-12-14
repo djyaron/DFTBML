@@ -335,6 +335,7 @@ class SplineModel(PairwiseLinearModel):
             pass
         else:
             # need to evaluate at a new set of points
+            # nder = ider + 1 because of use of range inside
             self.spline_dict = spline_new_xvals(self.spline_dict, xeval, nder=ider + 1)
 
         return self.spline_dict['X'][ider], self.spline_dict['const'][ider]
@@ -450,7 +451,8 @@ class JoinedSplineModel(PairwiseLinearModel):
         deriv_lst = [i for i in range(max_deriv + 1)]
         #Check if we're dealing with old or new xvals using the full cubic spline
         full_xvals = self.spline_dicts[2]['spline']['xvals']
-        if (len(full_xvals) == len(xeval)) and all(x == y for x, y in zip(full_xvals, xeval)):
+        if (len(full_xvals) == len(xeval)) and all(x == y for x, y in zip(full_xvals, xeval))\
+            and (len(self.spline_dicts[0]['spline']['X']) > ider and len(self.spline_dicts[1]['spline']['X']) > ider):
             #If dealing with old xvals, just return the merged spline from the original:
             X, const = merge_splines(self.spline_dicts, deriv_lst)
             return X[ider], const[ider]
