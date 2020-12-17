@@ -462,28 +462,28 @@ def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, 
         minimum_value -= buffer
         maximum_value += buffer
         xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
-        if model_spec.oper != 'G':
-            config = {'xknots' : xknots,
-                      'deg'    : 3,
-                      'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
-            spline = SplineModel(config)
-            model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
-            variables = model.get_variables().detach().numpy()
-            if apx_equal(np.sum(variables), 0):
-                return (model, 'noopt')
-            return (model, 'opt')
-        else:
-            #Need to use joined-spline approach for modelling the G operator
-            config = {'xknots' : xknots,
-                      'equal_knots' : False,
-                      'cutoff' : joined_cutoff,
-                      'bconds' : 'natural'}
-            spline = JoinedSplineModel(config)
-            model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict)
-            variables = model.get_variables().detach().numpy()
-            if apx_equal(np.sum(variables), 0):
-                return (model, 'noopt')
-            return (model, 'opt')
+        # if model_spec.oper != 'G':
+        #     config = {'xknots' : xknots,
+        #               'deg'    : 3,
+        #               'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
+        #     spline = SplineModel(config)
+        #     model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
+        #     variables = model.get_variables().detach().numpy()
+        #     if apx_equal(np.sum(variables), 0):
+        #         return (model, 'noopt')
+        #     return (model, 'opt')
+        # else:
+        #Try using the joined spline model for all operators
+        config = {'xknots' : xknots,
+                  'equal_knots' : False,
+                  'cutoff' : joined_cutoff,
+                  'bconds' : 'natural'}
+        spline = JoinedSplineModel(config)
+        model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict)
+        variables = model.get_variables().detach().numpy()
+        if apx_equal(np.sum(variables), 0):
+            return (model, 'noopt')
+        return (model, 'opt')
         # Check that the model is not already flat at 0
         # More thorough check but probably unnecessary
         # rlow, rhigh = model.pairwise_linear_model.r_range()
@@ -884,9 +884,6 @@ target_accuracy_convex = 1000
 target_accuracy_monotonic = 1000
 
 losses['Etot'] = target_accuracy_energy
-# Note: dipole loss cannot be optimized on its own since dQ is updated separately of the s
-# model variables. Thus, dQ and teh dipole mats are technically not part of the computational
-# graph since S is not being trained.
 losses['dipole'] = target_accuracy_dipole 
 losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
@@ -1193,6 +1190,25 @@ with open("training_dftblsts.p", "wb") as handle:
     
 print("molecular and batch information successfully saved, along with reference data")
 
+#%% Debugging inflection point analysis
+g_mods = [mod for mod in all_models.keys() if mod != 'Eref' and mod.oper == 'G' and len(mod.Zs) == 2]
+num_per_plot = 4
+num_row = num_col = 2
+sections = [g_mods[i : i + num_per_plot] for i in range(0, len(g_mods), num_per_plot)]
+new_dict = dict()
+rgrid = np.linspace(0, 10, 1000) #dense grid
+for sect in sections:
+    fig, axs = plt.subplots(num_row, num_col) #sqrt of num_per_plot
+    pos = 0
+    for row in range(num_row):
+        for col in range(num_col):
+            axs[row, col].plot(rgrid, get_dftb_vals(sect[pos], par_dict, rgrid))
+            axs[row, col].set_title(f"{sect[pos].oper}, {sect[pos].Zs}, {sect[pos].orb}")
+            pos += 1
+    fig.tight_layout()
+    #save the figure...
+    plt.show()
+
 #%% Recursive type conversion
 # Not an elegant solution but these two keys need to be ignored since they
 # should not be tensors!
@@ -1228,7 +1244,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 150
+nepochs = 300
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -1242,15 +1258,19 @@ for i in range(nepochs):
             # loss = loss_layer.get_loss(output, elem)
             tot_loss = 0
             for loss in all_losses:
-                if loss == 'Etot':
-                    if train_ener_per_heavy:
-                        val = losses[loss] * all_losses[loss].get_value(output, elem, True)
+                if loss != 'dipole':
+                    if loss == 'Etot':
+                        if train_ener_per_heavy:
+                            val = losses[loss] * all_losses[loss].get_value(output, elem, True)
+                        else:
+                            val = losses[loss] * all_losses[loss].get_value(output, elem, False)
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                    tot_loss += val #exclude dipole loss from total loss tracker.
+                    loss_tracker[loss][2] += val.item()
                 else:
                     val = losses[loss] * all_losses[loss].get_value(output, elem)
-                tot_loss += val
-                loss_tracker[loss][2] += val.item()
+                    loss_tracker[loss][2] += val.item()
             validation_loss += tot_loss.item()
     print("Validation loss:",i, (validation_loss/len(validation_feeds)))
     validation_losses.append((validation_loss/len(validation_feeds)))
@@ -1273,15 +1293,19 @@ for i in range(nepochs):
         # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
         tot_loss = 0
         for loss in all_losses:
-            if loss == 'Etot':
-                if train_ener_per_heavy:
-                    val = losses[loss] * all_losses[loss].get_value(output, feed, True)
+            if loss != 'dipole':
+                if loss == 'Etot':
+                    if train_ener_per_heavy:
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, True)
+                    else:
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, False)
                 else:
-                    val = losses[loss] * all_losses[loss].get_value(output, feed, False)
+                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                tot_loss += val
+                loss_tracker[loss][2] += val.item()
             else:
                 val = losses[loss] * all_losses[loss].get_value(output, feed)
-            tot_loss += val
-            loss_tracker[loss][2] += val.item()
+                loss_tracker[loss][2] += val.item()
         epoch_loss += tot_loss.item()
         tot_loss.backward()
         optimizer.step()
