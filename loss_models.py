@@ -459,6 +459,96 @@ class DipoleLoss(LossModel):
         total_real_dips = torch.cat(real_dips)
         return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips))
 
+class DipoleLoss2(LossModel):
+    """
+    Computes dipole loss, but not in an orbital resolved way. 
+    
+    More documentation will be added once all methods are implemented
+    """
+
+    def __init__(self):
+        pass
+    
+    def get_feed(self, feed, molecs, all_models, par_dict, debug):
+        '''
+        Gets the dipole mats required for computing the dipole loss
+        
+        Because of the new method of computing dipoles, the dipole mats are 
+        just the r-cart matrices of dimension (3, Natom). Furthermore, 
+        because everything based on natom here and not basis size, need to store in
+        lists to prevent ragged tensors and arrays
+        '''
+        if ('dipole_mat' not in feed) and ('dipoles' not in feed):
+            needed_fields = ['dipole_mat']
+            geom_batch = list()
+            for molecule in molecs:
+                geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
+                geom_batch.append(geom)
+                    
+            batch = create_batch(geom_batch)
+            dftblist = DFTBList(batch)
+            result = create_dataset(batch,dftblist,needed_fields)
+            dipole_mats = result['dipole_mat']
+            # In debugging case, we are just getting the dipole vectors computed from DFTB
+            if debug:
+                #Assert that the glabels and the dipole_mats have the same keys
+                assert(set(feed['basis_sizes']).difference(set(dipole_mats.keys())) == set())
+                dipvec_dict = dict()
+                for bsize in feed['basis_sizes']:
+                    dipoles = np.matmul(dipole_mats[bsize], feed['dQ'][bsize])
+                    dipoles = np.squeeze(dipoles, 2) #Reduce to shape (ngeom, 3)
+                    dipvec_dict[bsize] = dipoles
+                feed['dipole_mat'] = dipole_mats
+                feed['dipoles'] = dipvec_dict
+            # If not debugging, we pull the real dipole vectors 
+            else:
+                real_dipvecs = dict()
+                #Also need to pull the dipoles from the molecules for comparison
+                #Trick is going to be here
+                for bsize, glabels in feed['glabels'].items():
+                    curr_molec_rs = [molecs[x]['coordinates'].T for x in glabels]
+                    curr_molec_charges = [molecs[x]['targets']['charges'] for x in glabels]
+                    assert(len(curr_molec_rs) == len(curr_molec_charges))
+                    indices = [i for i in range(len(curr_molec_rs))]
+                    results = list(map(lambda x : np.matmul(curr_molec_rs[x], curr_molec_charges[x]), indices))
+                    real_dipvecs[bsize] = np.array(results)
+                feed['dipole_mat'] = dipole_mats
+                feed['dipoles'] = real_dipvecs
+        pass
+    
+    def get_value(self, output, feed):
+        '''
+        Computes the dipoles for all molecules, similar to what is done in losschemtools.py
+        
+        The data_dict must store the dQ's by basis size, and the dipole_mats must also be a dict
+        with the basis sizes as keys.
+        
+        To compute the dipoles for all molecules of a given basis size, we do the following:
+            torch.matmul(A, dQ)
+            A : (ngeom, 3, nbasis)
+            dQ: (ngeom, nbasis, 1)
+        The batch dimension (ngeom) is broadcast for this multiplication.
+        
+        The result will be a (ngeom, 3, 1), which will be squeezed to (ngeom, 3)
+        
+        The real dipoles will have shape (ngeom, 3) as well, so everything matches
+        '''
+        dipole_mats, real_dipoles = feed['dipole_mat'], feed['dipoles']
+        loss_criterion = nn.MSELoss()
+        computed_dips = list()
+        real_dips = list()
+        for bsize in feed['basis_sizes']:
+            curr_dQ = output['dQ'][bsize]
+            curr_dipmat = dipole_mats[bsize]
+            comp_result = torch.matmul(curr_dipmat, curr_dQ).squeeze(2)
+            assert(comp_result.shape[0] == real_dipoles[bsize].shape[0])
+            for i in range(comp_result.shape[0]):
+                computed_dips.append(comp_result[i])
+                real_dips.append(real_dipoles[bsize][i])
+        total_comp_dips = torch.cat(computed_dips)
+        total_real_dips = torch.cat(real_dips)
+        return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips))        
+
 class ChargeLoss(LossModel):
     '''
     Class for handling training loss associated with charges
