@@ -465,9 +465,32 @@ class DipoleLoss2(LossModel):
     
     More documentation will be added once all methods are implemented
     """
-
+    
     def __init__(self):
         pass
+    
+    def compute_charges(self, dQs, ids):
+        '''
+        Internal method to compute the charges 
+        Uses scatter_add and returns a list of torch tensor objects
+        '''
+        charges = dQs
+        #Should have the same dimensions (ngeom, nshells, 1)
+        if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
+            charges = torch.from_numpy(charges)
+            ids = torch.from_numpy(ids)
+        assert(charges.shape[0] == ids.shape[0])
+        charge_tensors = []
+        for i in range(charges.shape[0]):
+            curr_ids = ids[i].squeeze(-1)
+            curr_charges = charges[i].squeeze(-1)
+            #Scale down by the minimum index
+            scaling_val = curr_ids[0].item()
+            curr_ids -= scaling_val
+            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype)
+            temp = temp.scatter_add(0, curr_ids.long(), curr_charges)
+            charge_tensors.append(temp)
+        return charge_tensors
     
     def get_feed(self, feed, molecs, all_models, par_dict, debug):
         '''
@@ -479,16 +502,20 @@ class DipoleLoss2(LossModel):
         lists to prevent ragged tensors and arrays
         '''
         if ('dipole_mat' not in feed) and ('dipoles' not in feed):
-            needed_fields = ['dipole_mat']
-            geom_batch = list()
-            for molecule in molecs:
-                geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
-                geom_batch.append(geom)
+            # needed_fields = ['dipole_mat']
+            # geom_batch = list()
+            # for molecule in molecs:
+            #     geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
+            #     geom_batch.append(geom)
                     
-            batch = create_batch(geom_batch)
-            dftblist = DFTBList(batch)
-            result = create_dataset(batch,dftblist,needed_fields)
-            dipole_mats = result['dipole_mat']
+            # batch = create_batch(geom_batch)
+            # dftblist = DFTBList(batch)
+            # result = create_dataset(batch,dftblist,needed_fields)
+            dipole_mat_dict = dict()
+            for bsize, glabels in feed['glabels'].items():
+                bsize_coords = [molecs[x]['coordinates'].T for x in glabels] #Should be list of (3, Natom) arrays
+                dipole_mat_dict[bsize] = bsize_coords
+            dipole_mats = dipole_mat_dict
             # In debugging case, we are just getting the dipole vectors computed from DFTB
             if debug:
                 #Assert that the glabels and the dipole_mats have the same keys
@@ -539,11 +566,16 @@ class DipoleLoss2(LossModel):
         real_dips = list()
         for bsize in feed['basis_sizes']:
             curr_dQ = output['dQ'][bsize]
-            curr_dipmat = dipole_mats[bsize]
-            comp_result = torch.matmul(curr_dipmat, curr_dQ).squeeze(2)
-            assert(comp_result.shape[0] == real_dipoles[bsize].shape[0])
-            for i in range(comp_result.shape[0]):
-                computed_dips.append(comp_result[i])
+            curr_ids = feed['atom_ids'][bsize]
+            curr_dipmats = dipole_mats[bsize]
+            curr_charges = self.compute_charges(curr_dQ, curr_ids)
+            assert(len(curr_charges) == len(curr_dipmats) == len(real_dipoles[bsize]))
+            for i in range(len(curr_charges)):
+                cart_mat = torch.from_numpy(curr_dipmats[i])
+                #dipoles computed as coords @ charges
+                cart_mat = cart_mat.type(curr_charges[i].dtype)
+                comp_res = torch.matmul(cart_mat, curr_charges[i])
+                computed_dips.append(comp_res)
                 real_dips.append(real_dipoles[bsize][i])
         total_comp_dips = torch.cat(computed_dips)
         total_real_dips = torch.cat(real_dips)

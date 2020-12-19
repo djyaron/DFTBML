@@ -66,7 +66,7 @@ import pickle
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss
+from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
@@ -923,6 +923,9 @@ debug = False
 # debug and train_ener_per_heavy should be opposite
 assert(not(debug and train_ener_per_heavy))
 
+# Flag indicating whether or not to include the dipole in backprop
+include_dipole_backprop = True
+
 #%% Degbugging h5 (Extraction and combination)
 x = time.time()
 training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
@@ -1075,7 +1078,7 @@ for index, batch in enumerate(train_dat_set):
 
 print("Making Validation Graphs")
 validation_dat_set = data_loader(validation_molecs, batch_size = num_per_batch)
-validation_feeds = list()
+validation_feeds, validation_dftblsts = list(), list()
 validation_molec_batches = list()
 for index, batch in enumerate(validation_dat_set):
     feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs)
@@ -1091,6 +1094,7 @@ for index, batch in enumerate(validation_dat_set):
         feed['iconfigs'][bsize] = all_configs
 
     validation_feeds.append(feed)
+    validation_dftblsts.append(batch_dftb_lst) #Save the validation dftblsts for charge updates on the validation set
     validation_molec_batches.append(batch)
 print(f"{time.time() - x}")
 #%% Model and loss initialization
@@ -1120,7 +1124,7 @@ for loss in losses:
         all_losses[loss] = FormPenaltyLoss(loss)
         loss_tracker[loss] = [list(), list(), 0]
     elif loss == "dipole":
-        all_losses['dipole'] = DipoleLoss()
+        all_losses['dipole'] = DipoleLoss2()
         loss_tracker['dipole'] = [list(), list(), 0]
     elif loss == "charges":
         all_losses['charges'] = ChargeLoss()
@@ -1213,7 +1217,11 @@ for sect in sections:
 # Not an elegant solution but these two keys need to be ignored since they
 # should not be tensors!
 # Charges are ignored because of raggedness coming from bsize organization
-ignore_keys = ['glabels', 'basis_sizes', 'charges']
+
+#If you are using the second version of dipole loss, ignore the dipole_mats too
+# because they are going to be a list of arrays
+ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mats']
+
 for feed in training_feeds:
     recursive_type_conversion(feed, ignore_keys)
 for feed in validation_feeds:
@@ -1258,18 +1266,21 @@ for i in range(nepochs):
             # loss = loss_layer.get_loss(output, elem)
             tot_loss = 0
             for loss in all_losses:
-                if loss != 'dipole':
-                    if loss == 'Etot':
-                        if train_ener_per_heavy:
-                            val = losses[loss] * all_losses[loss].get_value(output, elem, True)
-                        else:
-                            val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                if loss == 'Etot':
+                    if train_ener_per_heavy:
+                        val = losses[loss] * all_losses[loss].get_value(output, elem, True)
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, elem)
-                    tot_loss += val #exclude dipole loss from total loss tracker.
+                        val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                    tot_loss += val
                     loss_tracker[loss][2] += val.item()
+                elif loss == 'dipole':
+                    val = losses[loss] * all_losses[loss].get_value(output, elem)
+                    loss_tracker[loss][2] += val.item()
+                    if include_dipole_backprop:
+                        tot_loss += val
                 else:
                     val = losses[loss] * all_losses[loss].get_value(output, elem)
+                    tot_loss += val 
                     loss_tracker[loss][2] += val.item()
             validation_loss += tot_loss.item()
     print("Validation loss:",i, (validation_loss/len(validation_feeds)))
@@ -1281,8 +1292,11 @@ for i in range(nepochs):
         loss_tracker[loss][2] = 0
 
     #Shuffle the validation data
-    random.shuffle(validation_feeds)
-    
+    # random.shuffle(validation_feeds)
+    temp = list(zip(validation_feeds, validation_dftblsts))
+    random.shuffle(temp)
+    validation_feeds, validation_dftblsts = zip(*temp)
+    validation_feeds, validation_dftblsts = list(validation_feeds), list(validation_dftblsts)
     
     #Training routine
     epoch_loss = 0.0
@@ -1293,19 +1307,23 @@ for i in range(nepochs):
         # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
         tot_loss = 0
         for loss in all_losses:
-            if loss != 'dipole':
-                if loss == 'Etot':
-                    if train_ener_per_heavy:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, True)
-                    else:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, False)
+            if loss == 'Etot':
+                if train_ener_per_heavy:
+                    val = losses[loss] * all_losses[loss].get_value(output, feed, True)
                 else:
-                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    val = losses[loss] * all_losses[loss].get_value(output, feed, False)
                 tot_loss += val
                 loss_tracker[loss][2] += val.item()
-            else:
+            elif loss == 'dipole':
                 val = losses[loss] * all_losses[loss].get_value(output, feed)
                 loss_tracker[loss][2] += val.item()
+                if include_dipole_backprop:
+                    tot_loss += val
+            else:
+                val = losses[loss] * all_losses[loss].get_value(output, feed)
+                tot_loss += val
+                loss_tracker[loss][2] += val.item()
+
         epoch_loss += tot_loss.item()
         tot_loss.backward()
         optimizer.step()
@@ -1325,8 +1343,11 @@ for i in range(nepochs):
         loss_tracker[loss][2] = 0
     
     # Update charges every 10 epochs
+    # Do the charge update for the validation and the training sets
     if (i % 10 == 0):
+        print("running training set charge update")
         for j in range(len(training_feeds)):
+            # Charge update for training_feeds
             feed = training_feeds[j]
             dftb_list = training_dftblsts[j]
             op_dict = assemble_ops_for_charges(feed, all_models)
@@ -1341,7 +1362,24 @@ for i in range(nepochs):
                     result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
                 print("Charge update failed for")
                 print(result_lst)
-    
+        print("training charge update done, doing validation set")
+        for k in range(len(validation_feeds)):
+            # Charge update for validation_feeds
+            feed = validation_feeds[k]
+            dftb_list = validation_dftblsts[k]
+            op_dict = assemble_ops_for_charges(feed, all_models)
+            try:
+                update_charges(feed, op_dict, dftb_list)
+            except Exception as e:
+                print(e)
+                glabels = feed['glabels']
+                basis_sizes = feed['basis_sizes']
+                result_lst = []
+                for bsize in basis_sizes:
+                    result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
+                print("Charge update failed for")
+                print(result_lst)
+        print(f"charge updates done for epoch {i}")
     #Save timing information for diagnostics
     times_per_epoch.append(time.time() - start)
 
@@ -1372,8 +1410,8 @@ print(f"average epoch time: {sum(times_per_epoch) / len(times_per_epoch)}")
 for loss in all_losses:
     validation_loss = loss_tracker[loss][0]
     training_loss = loss_tracker[loss][1]
-    assert(len(validation_loss) == nepochs)
-    assert(len(training_loss) == nepochs)
+    # assert(len(validation_loss) == nepochs)
+    # assert(len(training_loss) == nepochs)
     fig, axs = plt.subplots()
     axs.plot(training_loss, label = 'Training loss')
     axs.plot(validation_loss, label = 'Validation loss')
