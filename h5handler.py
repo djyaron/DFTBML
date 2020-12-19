@@ -320,7 +320,7 @@ class per_molec_h5handler:
         return molec_list
     
     @staticmethod
-    def add_per_molec_info(feeds, master_dict, ignore_keys = ['Coords', 'Zs']):
+    def add_per_molec_info(feeds, master_dict, ragged_dipole_mat, ignore_keys = ['Coords', 'Zs']):
         '''
         This adds the SCF information and everything else saved to the h5 file
         back into the feed using the glabels, names, and iconfigs as guidance.
@@ -328,6 +328,8 @@ class per_molec_h5handler:
         Also, need to specify which keys to ignore from the master_dict
         
         The master_dict comes from the method reading from the h5 file
+        
+        ragged_dipole_mat indicates whether the dipole_matrices are ragged (not of the same shape)
         
         NOTE: the 'glables' key has to exist in all the feeds already!
         '''
@@ -355,7 +357,11 @@ class per_molec_h5handler:
                         for i in range(len(current_iconfs)):
                             name, conf = current_names[i], current_iconfs[i]
                             feed[key][bsize].append(master_dict[name][conf][key][()])
-                        if key != 'charges': #Charges are ragged unfortunately
+                        #Charges and dipole_mat are now ragged unfortunately
+                        if key == 'dipole_mat':
+                            if not ragged_dipole_mat:
+                                feed[key][bsize] = np.array(feed[key][bsize])
+                        elif key != 'charges':
                             feed[key][bsize] = np.array(feed[key][bsize])
         
     @staticmethod
@@ -605,10 +611,11 @@ class total_feed_combinator:
     '''
     
     @staticmethod
-    def create_all_feeds(batch_filename, molec_filename):
+    def create_all_feeds(batch_filename, molec_filename, ragged_dipole_mat = True):
         '''
         batch_filename: h5 file containing batch information
         molec_filename: h5 file containing molecule information
+        ragged_dipole_mat: boolean indicating whether the dipole_mats are ragged.
         
         Pulls all the molecules and feeds out of their respective files and 
         then assembles them into the list of complete feeds that is commonly used
@@ -632,7 +639,7 @@ class total_feed_combinator:
                     feed['geoms'][curr_glabels[i]] = Geometry(Zs, coordinates) #No need to transpose
         
         #Now just use the master correction function in the per_molec_h5handler
-        per_molec_h5handler.add_per_molec_info(extracted_feeds, master_molec_dict)
+        per_molec_h5handler.add_per_molec_info(extracted_feeds, master_molec_dict, ragged_dipole_mat)
         return extracted_feeds
 
 #%% Testing utilities 
@@ -709,7 +716,8 @@ def compare_feeds(reference_file, reconstituted_feeds):
 
             assert( np.allclose (curr_ref_fd['eorb'][bsize], feedi['eorb'][bsize]) ) 
             
-            assert( np.allclose (curr_ref_fd['dipole_mat'][bsize], feedi['dipole_mat'][bsize]))
+            for i in range(len(curr_ref_fd['dipole_mat'][bsize])):
+                assert( np.allclose (curr_ref_fd['dipole_mat'][bsize][i], feedi['dipole_mat'][bsize][i]))
             
             assert( np.allclose (curr_ref_fd['dipoles'][bsize], feedi['dipoles'][bsize]))
             

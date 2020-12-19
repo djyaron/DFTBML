@@ -479,7 +479,7 @@ class DipoleLoss2(LossModel):
         if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
             charges = torch.from_numpy(charges)
             ids = torch.from_numpy(ids)
-        assert(charges.shape[0] == ids.shape[0])
+        assert(charges.shape == ids.shape)
         charge_tensors = []
         for i in range(charges.shape[0]):
             curr_ids = ids[i].squeeze(-1)

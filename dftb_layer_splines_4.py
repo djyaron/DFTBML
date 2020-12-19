@@ -893,7 +893,7 @@ losses['monotonic'] = target_accuracy_monotonic
 par_dict = ParDict()
 
 #Compute or load?
-loaded_data = False
+loaded_data = True
 
 #Training scheme
 # If this flag is set to true, the dataset will be changed such that you 
@@ -928,8 +928,8 @@ include_dipole_backprop = True
 
 #%% Degbugging h5 (Extraction and combination)
 x = time.time()
-training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5")
-validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5")
+training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5", False)
+validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5", False)
 print(f"{time.time() - x}")
 compare_feeds("reference_data1.p", training_feeds)
 compare_feeds("reference_data2.p", validation_feeds)
@@ -949,6 +949,7 @@ validation_molec_batches = []
 
 #Load dftb_lsts
 training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
+validation_dftblsts = pickle.load(open("validation_dftblsts.p", "rb"))
 
 print("Check me!")
 
@@ -976,6 +977,7 @@ for index, item in enumerate(dataset, 0):
 print('Number of total molecules after degeneracy rejection', len(cleaned_dataset))
 
 if transfer_training:
+    print("Transfer training dataset")
     # Separate into molecules with up to lower_limit heavy atoms and those with
     # more
     up_to_ll, more = list(), list()
@@ -1015,6 +1017,7 @@ if transfer_training:
         random.shuffle(validation_molecs)
 else:
     #Shuffle the dataset before feeding into data_loader
+    print("Non-transfer training dataset")
     random.shuffle(cleaned_dataset)
     
     #Sample the indices that will be used for the training dataset randomly from the shuffled data
@@ -1124,7 +1127,7 @@ for loss in losses:
         all_losses[loss] = FormPenaltyLoss(loss)
         loss_tracker[loss] = [list(), list(), 0]
     elif loss == "dipole":
-        all_losses['dipole'] = DipoleLoss2()
+        all_losses['dipole'] = DipoleLoss2() #Use DipoleLoss2 for dipoles computed from ESP charges!
         loss_tracker['dipole'] = [list(), list(), 0]
     elif loss == "charges":
         all_losses['charges'] = ChargeLoss()
@@ -1188,9 +1191,12 @@ with open("reference_data1.p", "wb") as handle:
 with open("reference_data2.p", "wb") as handle:
     pickle.dump(validation_feeds, handle)
     
-# Also save the dftb_lsts for the training_feeds. Can do this using pickle for now
+# Also save the dftb_lsts for the training_feeds and validation feeds. Can do this using pickle for now
 with open("training_dftblsts.p", "wb") as handle:
     pickle.dump(training_dftblsts, handle)
+    
+with open("validation_dftblsts.p", "wb") as handle:
+    pickle.dump(validation_dftblsts, handle)
     
 print("molecular and batch information successfully saved, along with reference data")
 
@@ -1220,7 +1226,7 @@ for sect in sections:
 
 #If you are using the second version of dipole loss, ignore the dipole_mats too
 # because they are going to be a list of arrays
-ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mats']
+ignore_keys = ['glabels', 'basis_sizes', 'charges']
 
 for feed in training_feeds:
     recursive_type_conversion(feed, ignore_keys)
@@ -1252,7 +1258,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 300
+nepochs = 150
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -1419,6 +1425,7 @@ for loss in all_losses:
     axs.set_xlabel("Epoch")
     axs.set_ylabel("Average Epoch Loss (unitless)")
     axs.yaxis.set_minor_locator(AutoMinorLocator())
+    axs.xaxis.set_minor_locator(AutoMinorLocator())
     axs.legend()
     plt.show()
     
