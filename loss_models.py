@@ -21,20 +21,39 @@ from geometry import Geometry
 from batch import create_batch, create_dataset, DFTBList
 from loss_methods import plot_spline
 import re
+from typing import Union, List, Optional, Dict, Any, Literal
+Array = np.ndarray
+Tensor = torch.Tensor
 
 #%% External Functions
 # The determination of concavity is independent of the current implementations of the 
 # models; they are based on the model_spec and dftb values only!
-def compute_mod_vals_derivs(all_models, par_dict, ngrid = 200, bcond = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore = []):
-    '''
-    Takes in all_models and creates a dictionary mapping each model to the original dftb equivalent since
-    we want to be sure that the concavity is based on the dftb data
+def compute_mod_vals_derivs(all_models: Dict, par_dict: Dict, ngrid: int = 200, 
+                            bcond: List[Bcond] = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)], op_ignore: List[str] = []) -> Dict:
+    r"""Computes the matrix X and vector const based on DFTB values for determining concavity
     
-    Default boundary conditions is 'natural', and default number of gridpoints is 100.
+    Arguments:
+        all_models (Dict): A dictionary referencing all the models that need to have their
+            (X, const) pair computed
+        par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+            between different elements, indexed by a string 'elem1-elem2'. For example, the
+            Carbon-Carbon interaction is accessed using the key 'C-C'
+        ngrid (int): The number of grid points to use for evaluating the spline. Defaults to 200
+        bcond (List[Bcond]): A list of the boundary conditions to use for the spline. Defaults to 
+            a list representing natural boundary conditions at start and end
+        op_ignore (List[str]): A list of the operators to ignore
     
-    This is just used so that first and second derivative information are all stored and easily accessible, cuts down
-    on computation time.
-    '''
+    Returns:
+        model_spline_dict (Dict): Dictionary mapping the model_specs to the (X, b) pairs necessary for evaluating
+            the curvature of the spline.
+    
+    Notes: By default the spline_linear_model computes a cubic spline up to the second derivative. 
+        This behavior is necessary for this code to work, so that should not be changed in tfspline, 
+        which has those defaults encoded.
+        
+        This computation is based on what the models should look like from the dftb slater-koster parameters
+        alone. This is necessary to determine the correct concavity and curvature later on.
+    """
     model_spline_dict = dict()
     for model in all_models:
         try:
@@ -49,11 +68,23 @@ def compute_mod_vals_derivs(all_models, par_dict, ngrid = 200, bcond = [Bcond(0,
             pass
     return model_spline_dict
 
-def generate_concavity_dict(model_spline_dict):
-    '''
-    Takes in a dictionary containing spline information for all the dftb models and
-    returns a dictionary mapping each model to whether it's concave up (False) or concave down (True)
-    '''
+def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
+    r"""Generates a dictionary mapping each model to its concavity
+    
+    Arguments:
+        model_spline_dict (Dict): output from compute_mod_vals_derivs
+    
+    Returns:
+        concavity_dict (Dict[Model, bool]): A dictionary mapping each 
+            model spec to its concavity. If the model should be concave down,
+            then set to True; otherwise, set to False
+    
+    Notes: The concavity of the model is deteremined by the sign of the
+        average value of the predictions of the second derivative. If the 
+        average value is 0, then this means the spline is flat and has
+        no curvature. In this case, the spline is not optimized since there
+        is no interaction
+    """
     concavity_dict = dict()
     for model_spec in model_spline_dict:
         mod_dict = model_spline_dict[model_spec]
@@ -90,17 +121,27 @@ TODO: Figure out system for classifying if model should concave up or concave do
     trying to figure it out on the fly...
 '''
 class ModelPenalty:
-    '''
-    This class takes in two things:
-        input_pairwise_linear: model conforming to the input_pairwise_linear interface
-                               defined in dftb_layer_splines_3.py
-        penalty (str): Indicates the type of penalty to apply
-        dgrid (array): The derivative grid to use for the given penalty. 
-        n_grid (int): number of points to use when evaluating the second derivative and the penalty. Default = 500
-        neg_integral (bool): Indicates whether the spline represented by this model should be concave up (v''(r) > 0) or
-                             concave down (v''(r) < 0). If True, then concave down; otherwise, concave up
-    '''
-    def __init__ (self, input_pairwise_linear, penalty, dgrid, n_grid = 500, neg_integral = False):
+
+    def __init__ (self, input_pairwise_linear, penalty: str, dgrid: (Array, Array), n_grid: int = 500, neg_integral: bool = False) -> None:
+        r"""Initializes the ModelPenalty object for computing the spline functional form penalty
+        
+        Arguments:
+            input_pairwise_linear: This can be either an Input_layer_pairwise_linear or 
+                input_layer_pairwise_linear_joined object.
+            penalty (str): The pnalty to be computed. One of "convex", "monotonic", "smooth"
+            dgrid (Array, Array): The matrix A and vector b for doing y = Ax + b. Depending on 
+                the penalty,it's either the first or second derivative
+            n_grid (int): Number of grid points to use. Defaults to 500
+            neg_integral (bool): Whether the spline is concave down. Defaults to False
+        
+        Returns:
+            None
+        
+        Notes: This is adapted from solver.py from the dftbrepulsive project. For concavity,
+            we define concave down as (v''(r) < 0) and concave up as (v''(r) > 0), where r is
+            the interatomic distance. If no dgrids are given, then they are recomputed which is
+            computationally inefficient.
+        """
         self.input_pairwise_lin = input_pairwise_linear
         self.penalty = penalty
         self.neg_integral = neg_integral
@@ -120,12 +161,27 @@ class ModelPenalty:
             self.dgrid = dgrid
     
     # Now some methods for computing the different penalties
-    def get_monotonic_penalty(self):
-        '''
-        Computes the monotonic penalty similar to that done in solver.py
+    def get_monotonic_penalty(self) -> float:
+        r"""Computes the monotonic penalty for the model
         
-        TODO: Come back to this and consider how monotonic penalty changes given spline sign
-        '''
+        Arguments:
+            None
+            
+        Returns:
+            monotonic_penalty (float): The value for the monotonic penalty, with
+                gradients for backpropagation
+        
+        Notes: The monotonic penalty depends on the first integral, v'(r). If the 
+            spline should be monotonically increasing (concave down), we enforce that 
+            v'(r) > 0. Otherwise, we enforce that v'(r) < 0 for a concave up, 
+            monotonically decreasing potential. Enforcement of the penalty is done through
+            the ReLU activation function, where if the spline should be concave down, we multiply 
+            all the values by -1 and apply ReLU to only penalize the negative terms. Otherwise,
+            we just apply ReLU to penalize the positive terms.
+            
+            The final penalty is computed as a dot product of the vector resulting from
+            the application of ReLU.
+        """
         monotonic_penalty = 0
         m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
@@ -148,10 +204,20 @@ class ModelPenalty:
         monotonic_penalty = torch.einsum('i,i->', p_monotonic, p_monotonic) / len(p_monotonic)
         return monotonic_penalty
         
-    def get_convex_penalty(self):
-        '''
-        Computes the convex penalty similar to that done in solver.py
-        '''
+    def get_convex_penalty(self) -> float:
+        r"""Computes the convex penalty
+        
+        Arguments:
+            None
+        
+        Returns:
+            convex_penalty (float): The value of the convex penalty with gradients 
+                for backpropagation
+        
+        Notes: The convex penalty deals with the second derivative. For a concave up function,
+            we enforce that v''(r) > 0, and for a concave down function we enforce that v''(r) < 0. 
+            This us achieved again through the use of ReLU.
+        """
         convex_penalty = 0
         m = torch.nn.ReLU()
         c = self.input_pairwise_lin.get_variables()
@@ -171,14 +237,19 @@ class ModelPenalty:
         convex_penalty = torch.einsum('i,i->', p_convex, p_convex) / len(p_convex)
         return convex_penalty
     
-    def get_smooth_penalty(self):
-        '''
-        Computes the smooth penalty similar to that done in solver.py
+    def get_smooth_penalty(self) -> float:
+        r"""Computes the smooth penalty
         
-        Pretty sure this is going ot have to change
+        Arguments: 
+            None
         
-        Not sure what the smooth penalty means here
-        '''
+        Returns:
+            smooth_penalty (float): The value for the smooth penalty
+        
+        Notes: The smooth penalty is computed as a dot product on the second
+            derivative values, enforcing the second derivative goes to 0. 
+            Not currently used.
+        """
         smooth_penalty = 0
         c = self.input_pairwise_lin.get_variables()
         deriv = self.dgrid
@@ -188,12 +259,18 @@ class ModelPenalty:
         return smooth_penalty
     
     #Compute the actual loss
-    def get_loss(self):
-        '''
-        Computes the overall loss as a sum of the individual penalties
+    def get_loss(self) -> float:
+        r"""Computes the loss
         
-        Nothing fancy like shuttling information back and forth in solver.py
-        '''
+        Arguments: 
+            None
+        
+        Returns:
+            penalty (float): Calls on the requisite function depending on the
+                set penalty to compute the value for the form penalty
+        
+        Notes: None
+        """
         if self.penalty == "convex":
             return self.get_convex_penalty()
         elif self.penalty == "monotonic":
@@ -203,7 +280,7 @@ class ModelPenalty:
     
 #%% Loss Model Interface
 class LossModel:
-    def get_feed(self, feed, molecs, all_models, par_dict, debug):
+    def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:
         '''
         Method for adding stuff to the feed for the given loss. Every loss
         will take in the feed and the associated molecules, but 
@@ -215,23 +292,36 @@ class LossModel:
         '''
         raise NotImplementedError
     
-    def get_value(self, output, feed):
+    def get_value(self, output: Dict, feed: Dict) -> None:
         '''
         Computes the value of the loss directly against the feed from the output,
         returns the loss as a PyTorch object.
+        
+        For consistency, all losses have torch.sqrt applied since we are interested in 
+        RMSE loss.
         '''
         raise NotImplementedError
 
 #%% Loss Model Implementations
 class TotalEnergyLoss(LossModel):
-    def __init__(self):
+    def __init__(self) -> None:
         #Total energy loss does not require anything saved in its state
         pass
     
-    def get_nheavy(self, lst):
-        '''
-        Gets the nuber of heavy atoms out of a list of the molecule name
-        '''
+    def get_nheavy(self, lst: List[str]) -> int:
+        r"""Computes the number of heavy atoms from a list formed by the molecule's name
+        
+        Arguments:
+            lst (List[str]): The properly formed list derived from the molecule's name.
+                By properly formed, we mean that for a formula like "C10H11", the list is
+                ["C", "10", "H", "11"]. 
+        
+        Returns:
+            n_heavy (int): The number of heavy (non-hydrogen) atoms in the molecule
+
+        Notes: The list is formed by using regex and the findall method with the 
+            appropriate pattern.
+        """
         assert(len(lst) % 2 == 0)
         n_heavy = 0
         for i in range(0, len(lst), 2):
@@ -239,7 +329,29 @@ class TotalEnergyLoss(LossModel):
                 n_heavy += int(lst[i+1])
         return n_heavy
     
-    def get_feed(self, feed, molecs, all_models, par_dict, debug):
+    def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:
+        r"""Adds the necessary information for the total energy into the feed
+        
+        Arguments:
+            feed (Dict): The input dictionary representing the current batch to add 
+                information to
+            molecs (List[Dict]): A list of the molecular conformations used to generate this batch
+                all_models (Dict): A dictionary containing references to all the spline models being used
+            par_dict (Dict):  Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            debug (bool): A flag indicating whether we are in debug mode.
+        
+        Returns:
+            None
+        
+        Notes: The total energy is pulled out from the molecules and added to the feed dictionary.
+            Additionally, the number of heavy atoms in each molecule is also extracted and added
+            in. For determining the number of heavy atoms, a regex approach is used [1]
+        
+        References:
+            [1] https://stackoverflow.com/questions/9782835/break-string-into-list-elements-based-on-keywords
+        """
         if "Etot" not in feed:
             key = "Etot"
             result_dict = dict()
@@ -269,10 +381,24 @@ class TotalEnergyLoss(LossModel):
                 heavy_dict[bsize] = np.array(heavy_lst)
             feed['nheavy'] = heavy_dict
     
-    def get_value(self, output, feed, per_atom_flag):
-        '''
-        Computes the total energy loss using PyTorch MSEloss
-        '''
+    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool) -> float:
+        r"""Computes the loss for the total energy
+        
+        Arguments:
+            output (Dict): The output dictionary from the dftb layer
+            feed (Dict): The original input dictionary for the DFTB layer
+            per_atom_flag (bool): Whether the energy should be trained on a
+                per heavy atom basis
+            
+        Returns:
+            loss (float): The value for the total energy loss with gradients
+                attached that allow backpropagation
+        
+        Notes: If total energy is computed per heavy atom, torch.div is used
+            to perform element-wise division with gradients. This is slightly
+            interface breaking, but a better workaround than handling things externally
+            in the training loop.
+        """
         all_bsizes = list(output['Eelec'].keys())
         loss_criterion = nn.MSELoss() #Compute MSE loss by the pytorch specification
         target_tensors, computed_tensors = list(), list()
@@ -294,34 +420,51 @@ class TotalEnergyLoss(LossModel):
         return torch.sqrt(loss_criterion(total_computed, total_targets))
     
 class FormPenaltyLoss(LossModel):
-    '''
-    Takes in a penalty_type string that determines what kind of form penalty to compute, 
-    i.e. monotonic, convex, smooth, etc.
     
-    Can specify the grid density, but the default is 500. Form penalty only applies
-    to two-body potentials
-    '''
-    # DEBUGGING CODE
-    # tst_mod = Model(oper='G', Zs=(1, 1), orb='ss')
-    # tst_penalty = "convex"
-    # tst_dgrid = None
-    
-    #Additional optimization: Keep track of the models and dgrid sets we've seen so far.
-    # Also, keep track of the spline_dicts that we've seen so far for future use
     seen_dgrid_dict = dict()
     seen_concavity_dict = dict()
     
-    def __init__(self, penalty_type, grid_density = 500):
+    def __init__(self, penalty_type: str, grid_density: int = 500) -> None:
+        r"""Initializes the FormPenaltyLoss object
+        
+        Arguments:
+            penalty_type (str): The penalty to be computed. One of "convex", "monotonic", "smooth"
+            grid_density (int): The number of grid points to use for evaluating the splines. 
+                Defaults to 500
+        
+        Returns:
+            None
+        
+        Notes: As an optimization step, there are two class-level variables seen_dgrid_dict and
+            seen_concavity_dict. They keep track of which models have already had their dgrids and concavities
+            calculated, and saves those values to be reused. This prevents repeated computation, 
+            and is useful since the dgrids and target concavities of the models never change for 
+            computing the form penalties.
+        """
         self.type = penalty_type
         self.density = grid_density
         
-    def get_feed(self, feed, molecs, all_models, par_dict, debug):
-        '''
-        No need to do anything with debug right now
-        The FormPenaltyLoss deals with the convex, smooth, and monotonic penalties
-        '''
-        #If a previous FormPenaltyLoss has already added the concavity information,
-        # no need to duplicate that computation
+    def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:
+        r"""Adds the information needed for the form penalty loss to the feed
+        
+        Arguments:
+            feed (Dict): The feed dictionary to the DFTB layer
+            molecs (List[Dict]): List of molecule dictionaries used to construct
+                the current feed
+            all_models (Dict): A dictionary containing references to all the spline models
+                used
+            par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            debug (bool): A flag indicating whether we are in debug mode.
+            
+        Returns:
+            None
+        
+        Notes: If a concavity or dgrid has already been seen, it is called from 
+            class-level seen_dgrid_dict or seen_concavity_dict rather than recomputed. Adds the dgrids, concavity, and current
+            models into the feed. Because the spline models are all aliased, everything is connected.
+        """
         
         if 'form_penalty' not in feed: 
             # First, check to see what's already done
@@ -357,7 +500,19 @@ class FormPenaltyLoss(LossModel):
                     FormPenaltyLoss.seen_dgrid_dict[model_spec] = dgrids
             feed['form_penalty'] = final_dict
     
-    def get_value(self, output, feed):
+    def get_value(self, output: Dict, feed: Dict) -> float:
+        r"""Computes the form penalty for the spline functional form
+        
+        Arguments:
+            output (Dict): Output from the DFTB layer
+            feed (Dict): The original feed into the DFTB layer
+        
+        Returns:
+            loss (float): The value for the form penalty loss with gradients
+                attached that allow backpropagation
+        
+        Notes: None
+        """
         form_penalty_dict = feed["form_penalty"]
         total_loss = 0
         for model_spec in form_penalty_dict:
@@ -381,7 +536,7 @@ class FormPenaltyLoss(LossModel):
             #             print("Arrays change over time")
         return torch.sqrt(total_loss / len(form_penalty_dict))
     
-class DipoleLoss(LossModel):
+class DipoleLoss(LossModel): #DEPRECATED
     '''
     Class to compute the dipole loss
     '''
@@ -460,20 +615,26 @@ class DipoleLoss(LossModel):
         return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips))
 
 class DipoleLoss2(LossModel):
-    """
-    Computes dipole loss, but not in an orbital resolved way. 
-    
-    More documentation will be added once all methods are implemented
-    """
     
     def __init__(self):
         pass
     
-    def compute_charges(self, dQs, ids):
-        '''
-        Internal method to compute the charges 
-        Uses scatter_add and returns a list of torch tensor objects
-        '''
+    def compute_charges(self, dQs: Union[Array, Tensor], ids: Union[Array, Tensor]) -> List[Tensor]:
+        r"""Computes the charges with a segment sum over dQs
+        
+        Arguments:
+            dQs (Union[Array, Tensor]): The current orbital-resolved charge fluctuations
+                predicted from the DFTB layer
+            ids (Union[Array, Tensor]): The atom_ids for summing the dQs together
+        
+        Returns:
+            charge_tensors (List[Tensor]): List of charge tensors computed from the 
+                dQ summation
+        
+        Notes: To get the charges, we first flatten the dQs and ids into 1-dimensional tensors.
+            We then perform a scatter_add (same as tf.segsum) using the ids as a map for 
+            summing the dQs together into on-atom charges.
+        """
         charges = dQs
         #Should have the same dimensions (ngeom, nshells, 1)
         if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
@@ -492,15 +653,26 @@ class DipoleLoss2(LossModel):
             charge_tensors.append(temp)
         return charge_tensors
     
-    def get_feed(self, feed, molecs, all_models, par_dict, debug):
-        '''
-        Gets the dipole mats required for computing the dipole loss
+    def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:
+        r"""Adds the information needed for the dipole loss to the feed
         
-        Because of the new method of computing dipoles, the dipole mats are 
-        just the r-cart matrices of dimension (3, Natom). Furthermore, 
-        because everything based on natom here and not basis size, need to store in
-        lists to prevent ragged tensors and arrays
-        '''
+        Arguments:
+            feed (Dict): The feed dictionary to the DFTB layer
+            molecs (List[Dict]): List of molecule dictionaries used to construct
+                the current feed
+            all_models (Dict): A dictionary containing references to all the spline models
+                used
+            par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            debug (bool): A flag indicating whether we are in debug mode.
+            
+        Returns:
+            None
+        
+        Notes: Adds the dipole matrices (3 * Natom matrices of cartesian coordinates) and the
+            real dipoles to the feed. Note that the debug mode does not currently work for DipoleLoss2.
+        """
         if ('dipole_mat' not in feed) and ('dipoles' not in feed):
             # needed_fields = ['dipole_mat']
             # geom_batch = list()
@@ -543,23 +715,23 @@ class DipoleLoss2(LossModel):
                 feed['dipoles'] = real_dipvecs
         pass
     
-    def get_value(self, output, feed):
-        '''
-        Computes the dipoles for all molecules, similar to what is done in losschemtools.py
+    def get_value(self, output: Dict, feed: Dict) -> float:
+        r"""Computes the penalty for the dipoles
         
-        The data_dict must store the dQ's by basis size, and the dipole_mats must also be a dict
-        with the basis sizes as keys.
+        Arguments:
+            output (Dict): Output from the DFTB layer
+            feed (Dict): The original feed into the DFTB layer
         
-        To compute the dipoles for all molecules of a given basis size, we do the following:
-            torch.matmul(A, dQ)
-            A : (ngeom, 3, nbasis)
-            dQ: (ngeom, nbasis, 1)
-        The batch dimension (ngeom) is broadcast for this multiplication.
+        Returns:
+            loss (float): The value for the dipole loss with gradients 
+                attached for backpropagation
         
-        The result will be a (ngeom, 3, 1), which will be squeezed to (ngeom, 3)
-        
-        The real dipoles will have shape (ngeom, 3) as well, so everything matches
-        '''
+        Notes: Dipoles are computed from the predicted values for dQ as 
+            mu = R @ q where q is the dQs summed into on-atom charges and 
+            R is the matrix of cartesian coordinates. This mu is therefore the
+            ESP dipoles, and they are used to prevent competition between 
+            atomic charge and dipole optimization.
+        """
         dipole_mats, real_dipoles = feed['dipole_mat'], feed['dipoles']
         loss_criterion = nn.MSELoss()
         computed_dips = list()
@@ -582,22 +754,26 @@ class DipoleLoss2(LossModel):
         return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips))        
 
 class ChargeLoss(LossModel):
-    '''
-    Class for handling training loss associated with charges
-    
-    The charges are computed as dQ + qneutral for a given species, since the charge 
-    fluctuation is defined as dQ = Q_i + Q_0, where Q_0 is the neutral charge
-    
-    TODO: Fix the ragged tensor problem with charges!
-    '''
+
     def __init__(self):
         pass
     
-    def compute_charges(self, dQs, ids):
-        '''
-        Internal method to compute the charges 
-        Uses scatter_add and returns a list of torch tensor objects
-        '''
+    def compute_charges(self, dQs: Union[Array, Tensor], ids: Union[Array, Tensor]) -> List[Tensor]:
+        r"""Computes the charges with a segment sum over dQs
+        
+        Arguments:
+            dQs (Union[Array, Tensor]): The current orbital-resolved charge fluctuations
+                predicted from the DFTB layer
+            ids (Union[Array, Tensor]): The atom_ids for summing the dQs together
+        
+        Returns:
+            charge_tensors (List[Tensor]): List of charge tensors computed from the 
+                dQ summation
+        
+        Notes: To get the charges, we first flatten the dQs and ids into 1-dimensional tensors.
+            We then perform a scatter_add (same as tf.segsum) using the ids as a map for 
+            summing the dQs together into on-atom charges.
+        """
         charges = dQs
         #Should have the same dimensions (ngeom, nshells, 1)
         if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
@@ -616,9 +792,27 @@ class ChargeLoss(LossModel):
             charge_tensors.append(temp)
         return charge_tensors
             
-    def get_feed(self, feed, molecs, all_models, par_dict, debug):
-        #Use 'charges' as the key for storing charge information for each molecule
-        #Generates the charges used to compute the loss later on
+    def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:
+        r"""Adds the information needed for the charge loss to the feed
+        
+        Arguments:
+            feed (Dict): The feed dictionary to the DFTB layer
+            molecs (List[Dict]): List of molecule dictionaries used to construct
+                the current feed
+            all_models (Dict): A dictionary containing references to all the spline models
+                used
+            par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            debug (bool): A flag indicating whether we are in debug mode.
+            
+        Returns:
+            None
+        
+        Notes: Adds atomic charges for each molecule. Because molecules are organized by bsize and 
+            not number of atoms, the charges are stored in the feed dictionary as a list to prevent
+            having to deal with ragged tensors or arrays.
+        """
         if 'charges' not in feed:
             if debug:
                 all_bsizes = feed['basis_sizes']
@@ -647,11 +841,20 @@ class ChargeLoss(LossModel):
                     charge_dict[bsize] = total_charges
                 feed['charges'] = charge_dict
     
-    def get_value(self, output, feed):
-        '''
-        Because charges will have to be a ragged np array, will have to perform the 
-        calculation per charge vector and convert to tensor as we go along
-        '''
+    def get_value(self, output: Dict, feed: Dict) -> float:
+        r"""Computes the loss for charges
+        
+        Arguments:
+            output (Dict): Output from the DFTB layer
+            feed (Dict): The original feed into the DFTB layer
+        
+        Returns:
+            loss (float): The value for the dipole loss with gradients 
+                attached for backpropagation
+        
+        Notes: Charges are compouted by summing the orbital-resolved charge fluctuations
+            into on-atom charges using the compute_charges function and a segment sum.
+        """
         all_bsizes = feed['basis_sizes']
         loss_criterion = nn.MSELoss()
         total_computed, total_targets = list(), list()

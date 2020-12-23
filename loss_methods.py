@@ -20,6 +20,8 @@ from tfspline import Bcond,spline_linear_model
 from modelspline import get_dftb_vals
 import matplotlib.pyplot as plt
 import os, os.path
+from typing import Union, List, Optional, Dict, Any, Literal
+Array = np.ndarray
 
 #%% Previous loss methods 
 def loss_refactored(output, data_dict, targets):
@@ -508,15 +510,18 @@ def compute_total_loss(output, data_dict, targets, all_models, concavity_dict, p
 
 #%% Plotting functions
 
-#TODO: work on plotting joined splines
-
-def plot_spline(spline_model, ngrid = 500):
-    '''
-    Takes an instance of the input_pairwise_linear model and plots it using present variable vectors.
-    Draws on the linear_model() method for the spline class and matplotlib
+def plot_spline(spline_model, ngrid: int = 500) -> None:
+    r"""Takes an instance of input_pairwise_linear and plots using present variable vector
     
-    Use this function to plot graphs of splines throughout the debugging process
-    '''
+    Arguments:
+        spline_model (input_pairwise_linear): Instance of input_pairwise_linear for plotting
+        ngrid (int): Number of grid points for evaluation. Defaults to 500
+    
+    Returns:
+        None
+    
+    Notes: Deprecated method, only for non-joined splines.
+    """
     rlow, rhigh = spline_model.pairwise_linear_model.r_range()
     rgrid = np.linspace(rlow, rhigh, ngrid)
     dgrids_consts = [spline_model.pairwise_linear_model.linear_model(rgrid, 0),
@@ -531,7 +536,19 @@ def plot_spline(spline_model, ngrid = 500):
         ax.set_title(f"{model} deriv {i}")
         plt.show()
 
-def get_x_y_vals (spline_model, ngrid):
+def get_x_y_vals (spline_model, ngrid: int) -> (Array, Array, str):
+    r"""Obtains the x and y values for plotting the spline
+    
+    Arguments:
+        spline_model (input_pairwise_linear or joined): Model to get values for
+        ngrid (int): Number of grid points to use for evaluation
+    
+    Returns:
+        (rgrid, y_vals, title) (Array, Array, str): Data used for plotting the spline
+            where rgrid is on x-axis, y_vals on y-axis, with the given title
+            
+    Notes: Works for joined and non-joined splines.
+    """
     rlow, rhigh = spline_model.pairwise_linear_model.r_range()
     rgrid = np.linspace(rlow, rhigh, ngrid)
     dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
@@ -545,13 +562,20 @@ def get_x_y_vals (spline_model, ngrid):
     title = f"{oper, Zs, orb}"
     return (rgrid, y_vals, title)
 
-def plot_multi_splines(target_models, all_models, ngrid = 500, max_per_plot = 4):
-    '''
-    Takes in a list of the target models and a dictionary mapping all the model_specs
-    to their respective Input_pairwise_linear model and plots them in square plots. 4x4 is the default.
+def plot_multi_splines(target_models: List[Model], all_models: Dict, ngrid: int = 500, max_per_plot: int = 4):
+    r"""Plots all the splines whose specs are listed in target_models
     
-    This method only works with generic splines, not joined splines
-    '''
+    Arguments:
+        target_models (List[Model]): List of model specs to plot
+        all_models (Dict): Dictionary referencing all the models used
+        ngrid (int): Number of grid points to use for evaluation. Defaults to 500
+        max_per_plot (int): Maximum number of splines for each plot
+    
+    Returns:
+        None
+    
+    Notes: Works for both joined and non-joined splines.
+    """
     total_mods = len(target_models)
     total_figs_needed = total_mods // max_per_plot if total_mods % max_per_plot == 0 else (total_mods // max_per_plot) + 1
     # max per plot should always be a square number

@@ -14,6 +14,9 @@ from SplineModel_utilities import get_sha256, get_dataset_type
 from SplineModel_constants import ANI1TYPES, ANGSTROM2BOHR, HARTREE
 import functools
 from tfspline import construct_joined_splines, merge_splines, merge_splines_new_xvals
+from typing import Union, List, Optional, Dict, Any, Literal
+Array = np.ndarray
+
 
 
 class PairwiseLinearModel:
@@ -341,30 +344,33 @@ class SplineModel(PairwiseLinearModel):
         return self.spline_dict['X'][ider], self.spline_dict['const'][ider]
 
 class JoinedSplineModel(PairwiseLinearModel):
-    '''
-    Wrapper for tfspline to create joined spline model
-    The default cutoff for the joined spline is 4 angstroms. Unless otherwise
-    specified, anything longer than four angstroms is kept constant
     
-    Initialization:
-        config: dict, contains the xknots, the degree, and the boundary conditions
-        xeval: array, x positions to evaluate the spline at (fine to ignore on initialization)
-    
-    Note: Config has to contain the following information:
-        xknots: array with all the knots. They will be separated in the function internally
+    def __init__(self, config: Dict, xeval: Array = None) -> None:
+        r"""Initializes the joined spline model with the given configurations
+        
+        Arguments:
+            config (Dict): A dictionary that contains the xknots, the degree, and the boundary 
+                conditions of the joined spline
+            xeval (Array): x positions to evaluate the spline at. Defaults to None,
+                ignore on initialization
+        
+        Returns: 
+            None
+        
+        Notes: Config has to contain the following information:
+            
+            xknots: array with all the knots. They will be separated in the function internally
                 such that xknots[0][-1] == xknots[1][0] (they meet in the middle)
-        equal_knots: bool, indicates whether to balance the knots such that both 
+            equal_knots: bool, indicates whether to balance the knots such that both 
                 segments of the joined spline will have the same number of knots. Default is false
-        cutoff: float, the cutoff distance in angstroms; anything after that will be
+            cutoff: float, the cutoff distance in angstroms; anything after that will be
                 treated as segment 1 in the joined spline (fixed, not variable). If
                 no cutoff is specified, default cutoff in the code is 4 angstroms.
-        bconds: 'natural'. In the future, experiment with different boundary conditions
+            bconds: 'natural'. In the future, experiment with different boundary conditions
                 but right now, use the 'natural' boundary condition for both segments.
                 TODO: in the future, think about incorporating different boundary conditions.
                 Code right now defaults to an array of ['natural', 'natural']
-        
-    '''
-    def __init__(self, config, xeval = None):
+        """
         default_cutoff = 4.0
         if 'xknots' not in config:
             raise ValueError("Configuration dictionary must have the knots!")
@@ -376,12 +382,21 @@ class JoinedSplineModel(PairwiseLinearModel):
         #Now something to do with the spline_dicts (multiple, because we have segments)
         self.spline_dicts = None
         
-    def segment_knots(self, xknots, cutoff, equality):
-        '''
-        Takes in a series of knots, a cutoff, and whether or not to split such
-        that all segments have equal or close to equal knots. Then, seperates the
-        knots accordingly.
-        '''
+    def segment_knots(self, xknots: Array, cutoff: float, equality: bool) -> List[List[float]]:
+        r"""Segments the given knots of the spline into the two pieces
+        
+        Arguments:
+            xknots (Array): Array of the knots
+            cutoff (float): The cutoff distance for the two segments
+            equality (bool): Boolean specifying whether the two halves should have
+                the same number of knots
+        
+        Returns:
+            segments (List[List[float]]): The knots for the two segments in a list of lists of floats.
+                This return type is necessary for later functions in the joined spline workflow
+        
+        Notes: If equality is toggled, then the cutoff distance may not be achieved.
+        """
         if equality:
             mid_ind = len(xknots) // 2
             #Intentional overlap to ensure that xknots[0][-1] == xknots[1][0]
@@ -399,28 +414,54 @@ class JoinedSplineModel(PairwiseLinearModel):
             assert(first_segment[-1] == second_segment[0])
             return [first_segment, second_segment]
     
-    def r_range(self):
-        #Returns the full range across both segments
+    def r_range(self) -> (float, float):
+        r"""Returns the full distance range spanned by the spline (i.e. first knot, last knot)
+        
+        Arguments:
+            None
+        
+        Returns:
+            min, max (float, float): The minimum and maximum distance for the spline.
+        
+        Notes: None
+        """
         return (self.xknots[0][0], self.xknots[1][-1])
     
-    def n_var(self):
+    def n_var(self) -> int:
+        r"""Returns the number of variables used by the spline (coefficients)
+        
+        Arguments:
+            None
+        
+        Returns:
+            num var (int): The number of coefficients for the spline. If the spline
+                dictionary is not initialized, the value 0 is returned
+        
+        Notes: None
+        """
         if self.spline_dicts is None:
             return 0
         else:
             return len(self.spline_dicts[0]['splines']['coefs']) + len(self.spline_dict[1]['spline']['coefs'])
     
-    #Fully aware that this is a little interface breaking, but construct_joined_splines returns
-    # the coefficients from its internal fitting, and that seems more convenient than working 
-    # around fit_linear_model externally
-    def fit_model(self, xvals, yvals):
-        '''
-        This method should only be called once at the start to initialize the model
-        and get all the coefficients. The first element is the variable coefficients, 
-        the second element is the fixed coefficients.
+    def fit_model(self, xvals: Array, yvals: Array) -> (Array, Array):
+        r"""Fits the model to initialize the spline coefficients
         
-        xvals, yvals: both arrays of the same length, data used to fit
-                      and initialize the spline coefficients
-        '''
+        Arguments: 
+            xvals (Array): The x-values for fitting the spline
+            yvals (Array): The y-values for fitting the spline
+        
+        Returns:
+            coeffs, c_fixed (Array, Array): A tuple where the first array contains the 
+                coefficients that need to be optimized and the second array contains the
+                coefficients that are fixed
+        
+        Notes: This method should only be called once at the start to initialize the model.
+            The inclusion of this method is interface-breaking, but it is the best workaround 
+            given that the internal fit for the joined spline can produce the coefficients,
+            and that seems easier than trying to work around the external method
+            fit_linear_model.
+        """
         if self.spline_dicts is not None:
             return (self.spline_dicts[0]['spline']['coefs'], self.spline_dicts[1]['spline']['coefs'])
         elif self.spline_dicts is None:
@@ -433,19 +474,24 @@ class JoinedSplineModel(PairwiseLinearModel):
             assert(len(self.spline_dicts) == 3)
             return (self.spline_dicts[0]['spline']['coefs'], self.spline_dicts[1]['spline']['coefs'])
         
-    def linear_model(self, xeval, ider = 0, max_deriv = 2):
-        """
-        The linear_model method for the joined spline must first merge the splines before
-        doing any kind of prediction on it. Because the spline_dicts field will
-        be initialized, no need to case if the spline_dict is none.
+    def linear_model(self, xeval: Array, ider: int = 0, max_deriv: int = 2) -> (Array, Array):
+        r"""Method for getting the matrix A and vector b for the spline matrix multiply
         
-        Returns X, const such that the prediction for the spline is
-        vals_ider = np.dot(X[ider], np.concatenate([coefs,cfixed])
-                        + const[ider]
-        vals_ider[i] = value at xvals[i] where xvals is the xvals passed to
-                       to construct_joined_splines()
-        By default, the 0th derivative matrix and constants are returned since
-        we want to predict values
+        Arguments:
+            xeval (Array): The distances to evaluate the spline at
+            ider (int): The derivative value needed. Defaults to 0
+            max_deriv (int): The maximum derivative to calculate. Defaults to 2
+        
+        Returns:
+            X, const (Array, Array): Returns X and const such that the prediction
+                from the spline can be generated as follows:
+                
+                y = X @ cat (coeffs, c_fixed) + const
+                
+                where the fixed and variable coefficients are concatenated together
+                before being matrix multiplied by the matrix X.
+        
+        Notes: None
         """
         #Get the list of derivatives to evaluate
         deriv_lst = [i for i in range(max_deriv + 1)]

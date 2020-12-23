@@ -12,56 +12,43 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Rework convex and monotonic loss to deal with joined splines (high priority) (X)
-        Seems like we should be adding in the constants for the joined splines?
-        Is that right? Work on adding back in constants for joined splines
-        The general form of the spline multiply has been:
-            y_pred = Ax + b
-        But in computing the form penalties for most splines, we have neglected the
-        constants vector, so it looks like y_pred = Ax. 
-        This has not made a difference for the H and G operators before, but the joined spline
-        is different. We have to add the constants back in, it seems. Or, we can absorb the constants
-        using the nifty function in tfspline.
-    2) Figure out why train and validation losses are still diverging (top priority)
-    2) Implement plotting functions for checking joined splines too (moderate priority) (X)
-    3) Testing and debugging new G models (moderate priority)
-    4) Automatically record all running conditions and save that along with loss figures (low priority)
+    1) Update logging functionalities to record all experimental parameters on each run (low priority)
+    2) Document and type all the code (moderate priority) (X)
+    3) Refactor the top level stuff into functions (high priority)
 
 """
 import pdb, traceback, sys, code
 
-import math
 import numpy as np
-import os
 import random
 import pickle
-from datetime import datetime
-import h5py
 import matplotlib.pyplot as plt
-from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
-                               AutoMinorLocator)
+from matplotlib.ticker import AutoMinorLocator
 
-from collections import OrderedDict, Counter
+from collections import OrderedDict
 import collections
 import torch
 torch.set_printoptions(precision = 10)
 from copy import deepcopy
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset
 import time
 from tfspline import Bcond
 
-from geometry import Geometry, random_triatomics, to_cart
+from geometry import Geometry, to_cart
 from auorg_1_1 import ParDict
 from dftb import DFTB
 from eig import SymEigB
 from batch import create_batch, create_dataset, DFTBList
-#from modelval import Val_model
-# from modelspline import Spline_model
+
 from modelspline import get_dftb_vals
 from SplineModel_v3 import SplineModel, fit_linear_model, JoinedSplineModel
-import pickle
+
+from numbers import Real
+from typing import Union, List, Optional, Dict, Any, Literal
+Tensor = torch.Tensor
+Array = np.ndarray
+from batch import Model, RawData
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
@@ -71,19 +58,62 @@ from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
 
-def apx_equal(x, y, tol = 1e-12):
+def apx_equal(x: Union[float, int], y: Union[float, int], tol: float = 1e-12) -> bool:
+    r"""Compares two floating point numbers for equality with a given threshold
+    
+    Arguments:
+        x (float): The first number to be compared
+        y (float): The second number to be compared
+        
+    Returns:
+        equality (bool): Whether the two given numbers x and y are equal
+            within the specified threshold by comparing the absolute value
+            of their difference.
+            
+    Notes: This method works with both integers and floats, which are the two 
+        numeric types. Chosen workaround for determining float equality
+
+    """
     return abs(x - y) < tol
 
-def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
-    '''
-    Method for extracting data from the ani1 data h5 files. 
+def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int, 
+                 target: Dict[str, str], exclude: List[str] = []) -> List[Dict]:
+    r"""Extracts data from the ANI-1 data files
     
-    allowed_Zs: List of allowed atomic numbers
-    heavy_atoms: List of allowed number of heavy atoms
-    max_config: Maximum number of configurations allowed per molecule
-    target: Dictionary mapping each type of target to the corresponding ANI-1 key
-    exclude: Nonetype or list of molecules to ignore
-    '''
+    Arguments:
+        allowed_Z (List[int]): Include only molecules whose elements are in
+            this list
+        heavy_atoms (List[int]): Include only molecules for which the number
+            of heavy atoms is in this list
+        max_config (int): Maximum number of configurations included for each
+            molecule.
+        target (Dict[str,str]): entries specify the targets to extract
+            key: target_name name assigned to the target
+            value: key that the ANI-1 file assigns to this target
+        exclude (List[str], optional): Exclude these molecule names from the
+            returned molecules
+            Defaults to [].
+            
+    Returns:
+        molecules (List[Dict]): Each Dict contains the data for a single
+            molecular structure:
+                {
+                    'name': str with name ANI1 assigns to this molecule type
+                    'iconfig': int with number ANI1 assignes to this structure
+                    'atomic_numbers': List of Zs
+                    'coordinates': numpy array (:,3) with cartesian coordinates
+                    'targets': Dict whose keys are the target_names in the
+                        target argument and whose values are numpy arrays
+                        with the ANI-1 data
+                        
+    Notes: The ANI-1 data h5 files are indexed by a molecule name. For each
+        molecule, the data is stored in arrays whose first dimension is the
+        configuration number, e.g. coordinates(iconfig,atom_num,3). This
+        function treats each configuration as its own molecular structure. The
+        returned dictionaries include the ANI1-name and configuration number
+        in the dictionary, along with the data for that individual molecular
+        structure.
+    """
     target_alias, h5keys = zip(*target.items())
     target_alias, h5keys = list(target_alias), list(h5keys)
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path)
@@ -121,13 +151,31 @@ def get_ani1data(allowed_Z, heavy_atoms, max_config, target, exclude = None):
             batches.append([batch])
     return batches
 
-# Fields that come from SCF:
-#    ['F','Eelec','rho','eorb','occ_rho_mask', 'entropy', 'fermi_energy']
-#    ['dQ','dQinit','dQcurr']
-def create_graph_feed(config, batch, allowed_Zs):
-    '''
-    Takes in a list of geometries and creates the graph and feed dictionaries for that batch
-    '''
+def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int]) -> (Dict, DFTBList):
+    r"""Takes in a list of geomtries and creates the graph and feed dictionaries for the batch
+    
+    Arguments:
+        config (Dict): Configuration dictionary that indicates which operators to model (e.g. "H", "G", "R")
+        batch (List[Dict]): List of dictionaries representing the molecular configurations that 
+            are going into the batch
+        allowed_Zs (List[int]): List of allowed atomic numbers
+        
+    Returns:
+        feed (Dict): Dictionary containing information for all the requested fields
+            for the batch, with the field names as the keys. This is the feed dictionary
+            for the given molecular batch.
+        dftblist (DFTBList): Instance of the DFTBList object for this batch that contains
+            the DFTB objects necessary for charge updates.
+    
+    Notes: The values for the feed can change depending on which fields are needed. 
+        Those fields that can be linked to individual molecules are organized by basis size,
+        and the information can be connected back to the molecules using the 'glabels' key. 
+        The molecular conformations are listed under the 'geom' key, and they are inserted 
+        in the same order as they appear in batch.
+        
+        Information that depends on the batch composition is not organized by bsize, so things 
+        like 'models', 'onames', and 'basis_sizes' are given as lists.
+    """
     fields_by_type = dict()
     fields_by_type['graph'] = \
       ['models','onames','basis_sizes','glabels',
@@ -160,91 +208,199 @@ def create_graph_feed(config, batch, allowed_Zs):
 
     return feed, dftblist
 
-def create_graph_feed_loaded (config, batch, allowed_Zs):
-    '''
-    Method to generate the feeds for the dftblayer from data loaded in from
-    h5 file. This requires running on a subset of the fields used in the 
-    original method
-    
-    Ideally, since this side-steps the SCF cycle, this should require less compute time
-    
-    Defunct method, not necessary anymore.
-    '''
-    fields_by_type = dict()
-    fields_by_type['graph'] = \
-      ['models','onames','basis_sizes','glabels',
-       'gather_for_rot', 'gather_for_oper',
-       'gather_for_rep','segsum_for_rep','atom_ids','norbs_atom']
-    
-    fields_by_type['feed_constant'] = \
-        ['geoms','mod_raw', 'rot_tensors']
-        
-    needed_fields = fields_by_type['feed_constant'] + fields_by_type['graph']
-    
-    geom_batch = []
-    for molecule in batch:
-        geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
-        geom_batch.append(geom)
-    
-
-    batch = create_batch(geom_batch, FIXED_ZS = allowed_Zs)
-    dftblist = DFTBList(batch)
-    feed = create_dataset(batch, dftblist, needed_fields)
-
-    return feed, dftblist
-
 class Input_layer_DFTB:
-    '''
-    Object oriented interface replacement for original value model input
-    
-    Ths value model should return a single torch tensor for its variables too...
-    '''
-    def __init__(self,model):
+
+    def __init__(self, model: Model) -> None:
+        r"""Initializes a debugging model that just uses the DFTB values
+        
+        Arguments:
+            model (Model): Named tuple describing the interaction being modeled
+        
+        Returns:
+            None
+        
+        Notes: This interface is mostly a debugging tool
+        """
         self.model = model
-    def get_variables(self):
+
+    def get_variables(self) -> List:
+        r"""Returns variables for the model
+        
+        Arguments:
+            None
+        
+        Returns:
+            [] (List): Empty list
+        
+        Notes: There are no variables for this model.
+        """
         return []
-    def get_feed(self, mod_raw):
+    
+    def get_feed(self, mod_raw: List[RawData]) -> Dict:
+        r"""Returns the necessary values for the feed dictionary
+        
+        Arguments:
+            mod_raw (List[RawData]): List of RawData tuples from the feed dictionary
+        
+        Returns:
+            value dict (Dict): The dftb values extracted from the mod_raw list
+        
+        Notes: None
+        """
         return {'values' : np.array([x.dftb for x in mod_raw])}
-    def get_values(self, feed):
-       return feed['values']
+
+    def get_values(self, feed: Dict) -> Array:
+        r"""Generates a prediction from this model
+        
+        Arguments:
+            feed (Dict): The dictionary containing the needed values
+        
+        Returns:
+            feed['values'] (Array): Numpy array of the predictions (just the original values)
+        
+        Notes: None
+        """
+        return feed['values']
 
 class Input_layer_value:
-    '''
-    Object oriented interface replacement for original value model input
     
-    Ths value model should return a single torch tensor for its variables too...
-    '''
-    def __init__(self,model, initial_value=0.0):
+    def __init__(self, model: Model, initial_value: float = 0.0) -> None:
+        r"""Interface for models predicting on-diagonal elements
+        
+        Arguments:
+            model (Model): A named tuple of the form ('oper', 'Zs', 'orb'), where
+                'oper' is the operater the model is modelling represented as a string
+                (e.g. 'G', 'H', 'R'), 'Zs' is a tuple of the atomic number that is needed
+                (e.g. (1,)), and 'orb' is a string representing the orbitals being considered
+                (e.g. 'ss' for two s-orbital interactions)
+            initial_value (float): The starting value for the model. Defaults to 0.0
+        
+        Returns:
+            None
+        
+        Notes: Because this model is only used to model on-diagonal elements of the 
+            various operator matrices, this constructor is only called when the 
+            number of atomic numbers is 1 (i.e. len(model.Zs) == 1). The variable tensor
+            has requires_grad set to true so that the variable is trainable by the network later on.
+        """
         self.model = model
         if not isinstance(initial_value, float):
             raise ValueError('Val_model not initialized to float')
         self.value = np.array([initial_value])
         self.variables = torch.from_numpy(self.value)
         self.variables.requires_grad = True
-    def initialize_to_dftb(self,pardict, noise_magnitude = 0.0):
+
+    def initialize_to_dftb(self, pardict: Dict, noise_magnitude: float = 0.0) -> None:
+        r"""Initializes the value model parameter to DFTB values
+        
+        Arguments:
+            pardict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            noise_magnitude (float): Factor to distort the DFTB-initialized value by. Can be used
+                to test the effectiveness of the training by introducing artificial error. Defaults
+                to 0.0
+        
+        Returns:
+            None
+        
+        Notes: This method updates the value for the value being held within the self.value field. 
+        The reason we do not have to re-initialize the torch tensor for the variable is because 
+        the torch tensor and the numpy array share the same underlying location in memory, so changing one 
+        will change the other.
+        """
         init_value = get_dftb_vals(self.model, pardict)
         if not noise_magnitude == 0.0:
             init_value = init_value + noise_magnitude * np.random.randn(1)
         self.value[0]= init_value
-    def get_variables(self):
+
+    def get_variables(self) -> Tensor:
+        r"""Returns the trainable variables for this model as a PyTorch tensor.
+        
+        Arguments:
+            None
+        
+        Returns:
+            self.variables (Tensor): The trainable variables for this model 
+                as a PyTorch tensor object with gradients enabled.
+        
+        Notes: None
+        """
         return self.variables
-    def get_feed(self, mod_raw):
+
+    def get_feed(self, mod_raw: List[RawData]) -> Dict[str, int]:
+        r"""Returns a dictionary indicating how to use the variable for this model.
+        
+        Arguments:
+            mod_raw (List[RawData]): A list of RawData named tuples that contains the
+                index, glabel, Zs, oper string, dftb value, and distance for each occurence
+                of a given Model within the data. Used to determine how many times the variable for the
+                value model is needed.
+        
+        Returns:
+            feed dictionary (Dict): A dictionary indicating how many times the model's variable needs
+                to be repeated in the initial input to the DFTB layer before the Slater-Koster rotations
+                and gather/reshape operations.
+        
+        Notes: The number of times the variable is needed is equal to the number of times the model is
+            used within the given batch.
+        """
         return {'nval': len(mod_raw)}
-    def get_values(self, feed):
-       result = self.variables.repeat(feed['nval'])
-       return result
+
+    def get_values(self, feed: Dict) -> Tensor:
+        r"""Returns the values necessary for the DFTB layer
+        
+        Arguments: 
+            feed (Dict): The dictionary that indicates how many times to repeat the value
+        
+        Returns:
+            result (Tensor): A tensor with the model value repeated the necessary number of times for 
+                the initial layer for the gather/reshape operations to work properly in assembling the
+                operator matrices.
+        
+        Notes: The number of times that the value needs to be repeated is determined by the number 
+            of times the model appears in mod_raw.
+        """
+        result = self.variables.repeat(feed['nval'])
+        return result
    
 class Input_layer_pairwise_linear:
-    '''
-    Object oriented interface replacement for original spline model
-    
-    The spline model already returns a torch tensor for its variables
-    
-    This model allows splines to vary without a cutoff. For a joine-spline approach,
-    refer to model Input_layer_pairwise_linear_joined.
-    '''
-    def __init__(self, model, pairwise_linear_model, par_dict, ngrid = 100, 
-                 noise_magnitude = 0.0):
+
+    def __init__(self, model: Model, pairwise_linear_model: SplineModel, par_dict: Dict, ngrid: int = 100, 
+                 noise_magnitude: float = 0.0) -> None:
+        r"""Creates a cubic spline model that is allowed to vary over the entire spanned distance
+        
+        Arguments:
+            model (Model): A named tuple of the form ('oper', 'Zs', 'orb'), where
+                'oper' is the operater the model is modelling represented as a string
+                (e.g. 'G', 'H', 'R'), 'Zs' is a tuple of the atomic numbers that are needed
+                (e.g. (1,)), and 'orb' is a string representing the orbitals being considered
+                (e.g. 'ss' for two s-orbital interactions)
+            pairwise_linear_model (SplineModel): An instance of the SplineModel from
+                SplineModel_v3.py, used for managing cubic splines that vary
+                over the entire distance
+            par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            ngrid: (int): The number of points for initially fitting the model to the DFTB
+                parameters. Defaults to 100
+            noise_magnitude (float): Factor to distort the DFTB-initialized value by. Can be used
+                to test the effectiveness of the training by introducing artificial error. Defaults
+                to 0.0
+        
+        Returns:
+            None
+        
+        Notes: The model is initialized to DFTB values by a least squares fit, which 
+            is solved by the fit_linear_model function. Getting the predictions from the spline
+            is done using the equation
+            
+            y = Ax + b
+            
+            where x is the coefficient vector. The least squares problem is solved for the vector
+            x. Once the coefficients are obtained, they are converted to a PyTorch tensor and
+            their gradients are initialized to allow training.
+        """
         self.model = model
         self.pairwise_linear_model= pairwise_linear_model
         (rlow,rhigh) = pairwise_linear_model.r_range()
@@ -255,31 +411,100 @@ class Input_layer_pairwise_linear:
         model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) 
         self.variables = torch.from_numpy(model_vars)
         self.variables.requires_grad = True
-    def get_variables(self):
+
+    def get_variables(self) -> Tensor:
+        r"""Returns the coefficient vector for the spline model.
+        
+        Arguments:
+            None
+        
+        Returns:
+            self.variables (Tensor): The trainable variables for this model 
+                as a PyTorch tensor object with gradients enabled.
+        
+        Notes: The same variable tensor can be used for evaluating the spline
+            at any derivative. However, the matrix A and vector b in y = Ax + b must
+            be recomputed for each derivative.
+        """
         return self.variables
-    def get_feed(self, mod_raw):
-        ''' this returns numpy arrays '''
+
+    def get_feed(self, mod_raw: List[RawData]) -> Dict:
+        r"""Returns the necessary information for the feed dictionaries into the DFTB layer
+        
+        Arguments:
+            mod_raw (List[RawData]): A list of RawData named tuples that contains the
+                index, glabel, Zs, oper string, dftb value, and distance for each occurence
+                of a given Model within the data. Used to determine the distances (xeval) that 
+                the spline needs to be evaluated at, and this is used to generate the matrix A and vector b
+                that is needed for generating predictions from the model.
+        
+        Returns:
+            feed dictionary (Dict): A dictionary containing the matrix A and vector b needed by the given
+                spline for generating a prediction. These are added to the feed dictionary for the 
+                DFTB layer.
+        
+        Notes: The matrix A and vector b returned by this function in the dictionary
+            are initally numpy arrays, but they are converted to PyTorch tensors
+            later on.
+        """
         xeval = np.array([elem.rdist for elem in mod_raw])
         A,b = self.pairwise_linear_model.linear_model(xeval)
         return {'A': A, 'b': b}
-    def get_values(self, feed):
-        '''
-        No need to convert from numpy to torch, the recursive type correction
-        should catch everything
-        '''
+    
+    def get_values(self, feed: Dict) -> Tensor:
+        r"""Generates a prediction from the spline
+        
+        Arguments:
+            feed (Dict): The dictionary that contains the matrix A and vector b that
+                are needed for generating a prediction.
+        
+        Returns:
+            result (Tensor): A torch tensor of the predicted values.
+        
+        Notes: Because we are concerned with the values and not derivatives,
+            the values returned correspond with the 0th derivative. The prediction
+            is generated as y = (A @ x) + b.
+        """
         A = feed['A']
         b = feed['b']
         result = torch.matmul(A, self.variables) + b
         return result
 
 class Input_layer_pairwise_linear_joined:
-    '''
-    Class for dealing with joined splines for G (and potentially other) operators
-    
-    TODO: Come back to this after finished implementing joined spline model in SplineModel_v3.py
-    '''
-    def __init__(self, model, pairwise_linear_model, par_dict, ngrid = 100, 
-                 noise_magnitude = 0.0):
+
+    def __init__(self, model: Model, pairwise_linear_model: JoinedSplineModel, par_dict: Dict, ngrid: int = 100, 
+                 noise_magnitude: float = 0.0) -> None:
+        r"""Interface for a joined spline model with flexible and infleixble regions.
+        
+        Arguments:
+            model (Model): A named tuple of the form ('oper', 'Zs', 'orb'), where
+                'oper' is the operater the model is modelling represented as a string
+                (e.g. 'G', 'H', 'R'), 'Zs' is a tuple of the atomic numbers that are needed
+                (e.g. (1,)), and 'orb' is a string representing the orbitals being considered
+                (e.g. 'ss' for two s-orbital interactions)
+            pairwise_linear_model (JoinedSplineModel): An instance of the JoinedSplineModel
+                class for handling joined splines
+            par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+                between different elements, indexed by a string 'elem1-elem2'. For example, the
+                Carbon-Carbon interaction is accessed using the key 'C-C'
+            ngrid (int): The number of points for initially fitting the model to the DFTB
+                parameters. Defaults to 100
+            noise_magnitude (float): Factor to distort the DFTB-initialized value by. Can be used
+                to test the effectiveness of the training by introducing artificial error. Defaults
+                to 0.0
+        
+        Returns:
+            None
+        
+        Notes: For a joined spline, a cutoff distance r_0 is given. The spline functional
+            form is then allowed to change for distances r_i < r_0, but not for distances
+            r_j > r_0. The coefficients are also partitioned into two sections, coeffs and c_fixed.
+            To generate a prediction from the joined spline, we first perform a merge operation
+            to generate the necessary matrix A and vector b. Then, the predictions are generated as 
+            y = concatenate(coeffs, c_fixed) + b. Because we only want the model to train the variable
+            portion of the spline, only the vector for coeffs is converted to a PyTorch tensor that 
+            is optimizable.
+        """
         self.model = model
         self.pairwise_linear_model = pairwise_linear_model
         (rlow, rhigh) = pairwise_linear_model.r_range()
@@ -293,57 +518,192 @@ class Input_layer_pairwise_linear_joined:
         self.variables.requires_grad = True
         self.constant_coefs = torch.from_numpy(fixed_vars)
         self.joined = True #A flag used by later functions to identify joined splines
-    def get_variables(self):
+        
+    def get_variables(self) -> Tensor:
+        r"""Returns the trainable coefficients for the given joined spline
+        
+        Arguments:
+            None
+        
+        Returns:
+            self.variables (Tensor): The trainable variables for this model 
+                as a PyTorch tensor object with gradients enabled.
+        
+        Notes: Only coeffs is returned, not c_fixed
+        """
         return self.variables
-    def get_fixed(self):
+
+    def get_fixed(self) -> Tensor:
+        r"""Returns the non-trainable coefficients for the given joined spline
+        
+        Arguments:
+            None
+        
+        Returns:
+            self.constant_coefs (Tensor): The non-trainable coefficients for this model
+                as a PyTorch tensor object without gradients enabled.
+        
+        Notes: None
+        """
         return self.constant_coefs
-    def get_total(self):
+
+    def get_total(self) -> Tensor:
+        r"""Returns the total coefficient vector for the joined spline
+        
+        Arguments:
+            None
+        
+        Returns:
+            total coefficients (Tensor): A tensor of the coeffs and c_fixed 
+                concatenated together.
+        
+        Notes: Because coeffs has gradients enabled, the total coefficient 
+            tensor will also have gradients enabled.
+        """
         return torch.cat([self.variables, self.constant_coefs])
-    def get_feed(self, mod_raw):
-        '''
-        This returns numpy arrays that will be caught by the recursive type conversions later on
-        '''
+    
+    def get_feed(self, mod_raw: List[RawData]) -> Dict:
+        r"""Returns the necessary information for the feed dictionaries into the DFTB layer
+        
+        Arguments:
+            mod_raw (List[RawData]): A list of RawData named tuples that contains the
+                index, glabel, Zs, oper string, dftb value, and distance for each occurence
+                of a given Model within the data. Used to determine the distances (xeval) that 
+                the spline needs to be evaluated at, and this is used to generate the matrix A and vector b
+                that is needed for generating predictions from the model.
+        
+        Returns:
+            feed dictionary (Dict): A dictionary containing the matrix A and vector b needed by the given
+                spline for generating a prediction. These are added to the feed dictionary for the 
+                DFTB layer.
+        
+        Notes: The matrix A and vector b returned by this function in the dictionary
+            are initally numpy arrays, but they are converted to PyTorch tensors
+            later on. The matrix A and vector b requires a spline merge operation under the hood.
+        """
         xeval = np.array([elem.rdist for elem in mod_raw])
         A, b = self.pairwise_linear_model.linear_model(xeval)
         return {'A' : A, 'b' : b}
-    def get_values(self, feed):
+
+    def get_values(self, feed: Dict) -> Tensor:
+        r"""Generates a prediction from the joined spline.
+        
+        Arguments: 
+            feed (Dictionary): The dictionary containing the matrix A and vector b needed
+                for generating the predictions
+        
+        Returns:
+            result (Tensor): PyTorch tensor containing the predictions from the spline
+        
+        Notes: For a joined spline, the predictions are computed as 
+        
+            y = (A @ cat(coeffs, c_fixed)) + b
+        
+            Where coeffs are the trainable coefficients, c_fixed are the fixed coefficients. 
+            Cat is the concatenation operation to generate the total coefficient Tensor.
+        """
         A = feed['A']
         b = feed['b']
         total_var_tensor = torch.cat([self.variables, self.constant_coefs])
         result = torch.matmul(A, total_var_tensor) + b
         return result
         
-    
 class Reference_energy:
-    '''
-    Object oriented interface replacement for original value model input
-    
-    Ths value model should return a single torch tensor for its variables too...
-    '''
+
     #TODO: add const to this
-    def __init__(self,allowed_Zs, prev_values = None):
+    def __init__(self, allowed_Zs: List[int], prev_values: List[float] = []) -> None:
+        r"""Initializes the reference energy model.
+        
+        Arguments:
+            allowed_Zs (List[int]): List of the allowed atomic numbers
+            prev_values (List[float]): Previous values for the reference energy to start from.
+                Defaults to []
+        
+        Returns:
+            None
+        
+        Notes: The reference energy is computed for each element type, and is used
+            as a term in computing the total energy. For calculating Etot, the total
+            energy is computed as
+            
+            Etot = Eelec + Erep + Eref
+            
+            Where Eelec, Erep, and Eref are the electronic, repulsive, and reference 
+            energies respectively. The reference energy values are all initialized to 0,
+            and the tensor representing the reference energies has a required gradient as
+            they are trainable.
+            
+            To compute the reference energy contribution, for each basis size,
+            we do feed[zcounts][bsize] @ self.variables where feed[zcounts][bsize]
+            will be a (ngeom, natom) matrix consisting of the molecules of that 
+            basis size with the atom counts sorted from lowest to highest atomic number,
+            and self.variables is a (natom, 1) vector of the reference energy variables.
+            This gives a vector of (ngeom, 1) with the reference energy terms for each 
+            variable. natom here does not mean the number of atoms in the molecule, but the
+            number of unique atom types across all molecules in the data.
+        """
         self.allowed_Zs = np.sort(np.array(allowed_Zs))
         self.values = np.zeros(self.allowed_Zs.shape)
-        if prev_values is not None:
+        if len(prev_values) > 0:
             #Load previous values if they are given
             #FOR DEBUGGING PURPOSES ONLY
-            self.values[0] = prev_values[0]
-            self.values[1] = prev_values[1]
+            assert(len(prev_values) == len(self.values))
+            self.values = np.array(prev_values)
         self.variables = torch.from_numpy(self.values)
         self.variables.requires_grad = True
-    def get_variables(self):
+
+    def get_variables(self) -> Tensor:
+        r"""Returns the trainable variables for the reference energy.
+        
+        Arguments:
+            None
+        
+        Returns:
+            self.variables (Tensor): The tensor of the trainable reference
+                energy variables, with gradients enabled.
+        
+        Notes: None
+        """
         return self.variables
    
     
-def get_model_dftb(model_spec): 
+def get_model_dftb(model_spec: Model) -> Input_layer_DFTB:
+    r"""Wrapper method for generating an instance of the debugging model for a given model_spec
+    
+    Arguments: 
+        model_spec (Model): The named tuple describing the interaction
+    
+    Returns:
+        Input_layer_DFTB: An instance of the debugging model
+    
+    Notes: None
+    """
     return Input_layer_DFTB(model_spec)
 
 
 class data_loader:
-    '''
-    This is a new data loader class specifically designed for our use
-    '''
-    def __init__(self, dataset, batch_size, shuffle = True, shuffle_scheme = 'random'):
+
+    def __init__(self, dataset: List[Dict], batch_size: int, shuffle: bool = True, 
+                 shuffle_scheme: str = 'random') -> None:
+        r"""Initializes the data_loader object for batching data.
+        
+        Arguments:
+            dataset (List[Dict]): A list of dictionaries containing information for
+                all the molecules, with each molecule represented as a dictionary.
+            batch_size (int): The number of molecules to have per batch
+            shuffle (bool): Whether or not to shuffle batches. Defaults to True
+            shuffle_scheme (str): The scheme for shuffling. Defaults to "random"
+        
+        Returns:
+            None
+        
+        Notes: This is a very simple data_loader implementation that uses sequential
+            batching on a list of data. Once all the data has been iterated over, the
+            loader can be re-iterated over and it will shuffle the batches between iterations.
+            
+            This loader can be used for any list-type dataset, but for this use case we 
+            specify List[Dict] since that is the data format being used here.
+        """
         self.data = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -351,48 +711,90 @@ class data_loader:
         self.batch_creation()
         self.batch_index = 0
     
-    def create_batches(self, data):
-        '''
-        Implements sequential batching of the data
-        '''
+    def create_batches(self, data: List[Dict]) -> List[List[Dict]]:
+        r"""Generates the batches from the list of data.
+        
+        Arguments:
+            data (List[Dict]): List of molecule dictionaries from which to generate
+                the batches
+        
+        Returns:
+            batches (List[List[Dict]]): A list of lists of molecule dictionaries, where
+                each inner list represents one batch
+                
+        Notes: If the number of elements in the data is not a multiple of the batch size,
+            the last batch will have less elements than the batch size.
+        """
         batches = list()
         for i in range(0, len(data), self.batch_size):
             current_batch = data[i : i + self.batch_size]
             batches.append(current_batch)
         return batches
     
-    def batch_creation(self):
-        '''
-        Creates all the batches so that they are accessible in the class
-        '''
+    def batch_creation(self) -> None:
+        r"""Wrapper method for creating the batches
+        
+        Arguments:
+            None
+        
+        Returns: 
+            None
+        
+        Notes: Initializes the batches by calling self.create_batches, and 
+            also initializes the batch index used for iterating over the 
+            data_loader
+        """
         self.batches = self.create_batches(self.data)
         self.batch_index = 0
         
-    def shuffle_batches(self):
-        '''
-        Takes the train and valid data, shuffles them, and then re-batches them
+    def shuffle_batches(self) -> None:
+        r"""Shuffles batches and resets the batch_index
         
-        Currently only takes in the random shuffling scheme
-        '''
+        Arguments: 
+            None
+            
+        Returns:
+            None
+        
+        Notes: Called at end of iteration over data_loader
+        """
         random.shuffle(self.batches)
         self.batch_index = 0
         
-    def shuffle_total_data(self):
-        '''
-        This reshuffles all the original data to create new train and valid batch possibilities
+    def shuffle_total_data(self) -> None:
+        r"""Reshuffles the original data from which the batches are generated
         
-        This will need to be manually called
-        '''
+        Arguments:
+            None
+        
+        Returns:
+            None
+        
+        Notes: None
+        """
         random.shuffle(self.data)
         self.batch_creation()
     
     def __iter__(self):
-        '''
-        Treat this as our iterator
-        '''
+        r"""
+        Method for treating the data_loader as the iterator.
+        """
         return self
     
-    def __next__(self):
+    def __next__(self) -> List[Dict]:
+        r"""Method for retrieving next element in iterator
+        
+        Arguments:
+            None
+        
+        Returns:
+            return_batch (List[Dict]): The current batch to be used
+        
+        Notes: None
+        
+        Raises:
+            StopIteration: If iteration over all batches in data_loader is complete
+        """
         if self.batch_index < len(self.batches):
             return_batch = self.batches[self.batch_index]
             self.batch_index += 1
@@ -402,56 +804,36 @@ class data_loader:
             self.shuffle_batches()
             raise StopIteration
 
-'''
-The minimum and maximum should be determined dynamically each training session
-'''
-def get_model_value_spline(model_spec, max_val = 7.1, num_knots = 50, buffer = 0.1):
-    par_dict = ParDict()
-    noise_magnitude = 0.0
-    if len(model_spec.Zs) == 1:
-        model = Input_layer_value(model_spec)
-        model.initialize_to_dftb(par_dict, noise_magnitude)            
-    elif len(model_spec.Zs) == 2:
-        cutoffs = OrderedDict(
-            [( (1, 1) , (0.63, 5.00) ),
-             ( (1, 6) , (0.60, 5.00) ),
-             ( (1, 7) , (0.59, 5.00) ),
-             ( (1, 8) , (0.66, 5.00) ),
-             ( (6, 6) , (1.04, 5.00) ),
-             ( (6, 7) , (0.95, 5.00) ),
-             ( (6, 8) , (1.00, 5.00) ),
-             ( (7, 7) , (0.99, 5.00) ),
-             ( (7, 8) , (0.93, 5.00) ),
-             ( (8, 8) , (1.06, 5.00) )] )
-        flipped = dict()
-        for z,rs in cutoffs.items():
-            if z[0] != z[1]:
-                flipped[(z[1],z[0])] = rs
-        cutoffs.update(flipped)
-        num_knots = num_knots
-        # minimum_val = cutoffs[model_spec.Zs][0]
-        # maximum_val = cutoffs[model_spec.Zs][1]
-        minimum_val = 0.0
-        maximum_val = max_val + buffer
-        xknots = np.linspace(minimum_val, maximum_val, num = num_knots)
-        # xknots = np.concatenate([xknots,[6.8]],0)
-        config = {'xknots' : xknots,
-                  'deg'    : 3,
-                  'bconds' : 'vanishing'}  
-        spline = SplineModel(config)
-        model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
- 
-    return model
-
-def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, num_grid = 200, buffer = 0.0, 
-                             joined_cutoff = 3.0):
-    '''
-    A hypothetical approach to spline configuration for off-diagonal models, no change for on-diagonal
-    elements
+def get_model_value_spline_2(model_spec: Model, spline_dict: Dict, par_dict: Dict, num_knots: int = 50, 
+                             num_grid: int = 200, buffer: float = 0.0, 
+                             joined_cutoff: float = 3.0) -> (Input_layer_pairwise_linear_joined, str):
+    r"""Generates a joined spline model for the given model_spec
     
-    Will also need to check that the spline is not already flat at 0 (e.g. long range H-H repulsion). If the
-    spline is already 0, don't change it!
-    '''
+    Arguments:
+        model_spec (Model): Named tupled describing the interaction being modeled by the spline
+        spline_dict (Dict): Dictionary of the minimum and maximum distance, i.e. endpoints of the range
+            spanned by the spline
+        par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
+            between different elements, indexed by a string 'elem1-elem2'. For example, the
+            Carbon-Carbon interaction is accessed using the key 'C-C'
+        num_knots (int): The number of knots to use for the spline. Defaults to 50
+        num_grid (int): The number of grid points, used for old approach for identifying
+            if the spline is completely 0. Defaults to 200
+        buffer (float): The value to shift the starting and ending distance by. The starting distance
+            is rlow - buffer, and the ending distance is rhigh + buffer, where rlow, rhigh are the 
+            minimum and maximum distances for the spline from the spline_dict. Defaults to 0.0 angstroms
+        joined_cutoff (float): The cutoff distance for separating the variable and fixed
+            regions of the spline. Defaults to 3.0 angstroms
+    
+    Returns:
+        model (Input_layer_pairwise_linear_joined): The instance of the Input_layer_pairwise_linear_joined
+            object for working with the joined spline
+        tag (str): A tag indicating whether to optimize the spline ('opt') or to ignore the spline in
+            optimizations ('noopt')
+    
+    Notes: The tag is included because if a spline is flat at 0 (i.e., no interactions), then the 
+        spline is not optimized
+    """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
         model = Input_layer_value(model_spec)
@@ -498,106 +880,80 @@ def get_model_value_spline_2(model_spec, spline_dict, par_dict, num_knots = 50, 
         #     return (model, 'noopt')
         # else:
         #     return (model, 'opt')
-        
 
-def form_initial_layer(all_models, feeds, device = None, dtype = torch.double):
-    '''
-    Form the initial layer (the net_vals) for dftb layer from the data contained in the 
-    input dictionary, no more graph and feed separation. Also, now need to get the
-    all_models dictionary going on in here to take advantage of the class method
-    '''
-    net_vals = list()
-    for model_spec in feeds['models']:
-        net_vals.append( all_models[model_spec].get_values(feeds[model_spec]) )
-    result = torch.cat(net_vals)
-    return result
-
-def torch_segment_sum(data, segment_ids, device, dtype): # Can potentially replace with scatter_add, but not part of main ptyorch distro
-    '''
-     just going to use pytorch tensor instead of np array
-    '''
+def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
+    r"""Function for summing elements together based on index
+    
+    Arguments:
+        data (Tensor): The data to sum together
+        segment_ids (Tensor): The indices used to sum together corresponding elements
+        device (torch.device): The device to execute the operations on (CPU vs GPU)
+        dtype (torch.dtype): The datatype for the result
+    
+    Returns:
+        res (Tensor): The resulting tensor from executing the segment sum
+    
+    Notes: This is similar to scatter_add for PyTorch, but this is easier to deal with.
+        The segment_ids, since they are being treated as indices, must be a tensor
+        of integers
+    """
     max_id = torch.max(segment_ids)
     res = torch.zeros([max_id + 1], device = device, dtype = dtype)
     for i, val in enumerate(data):
         res[segment_ids[i]] += val
     return res
 
-class loss_model:
-    '''
-    General class for handling losses; users will have to supply list of targets to use in
-    loss computation and a function for actually computing it.
-    
-    Targets will be a list of strings.
-    '''
-    def __init__(self, targets, loss_function):
-        self.targets = targets
-        self.loss_func = loss_function
- 
-    def get_targets(self):
-        return self.targets
-    
-    def compute_loss(self, output, feed):
-        '''
-        Computes the loss using the user-provided loss function by comparing the 
-        differences in target fields. The user defined loss function should have
-        the following signature:
-        
-        def loss(output, feed, targets):
-            # Logic
-            # Returns a pytorch loss object with a backward method for backpropagation
-        '''
-        return self.loss_func(output, feed, self.targets)
-
-class loss_model_alt:
-    
-    '''
-    Take 2 on class for handling losses
-    
-    This time, incorporate penalties and weights for overall loss. Penalties and
-    weights are optional, but all_models is not
-    
-    Also required to pass in concavity information. To save computational time, 
-    do this as a pre-compute for all the models and toss it in. In fact, the 
-    concavity can be determined for all models independently since it only 
-    depends on the Model named tuple and the slater-koster files
-    '''
-    def __init__ (self, targets, loss_function, all_models, concavity, penalties = None, weights = None):
-        self.targets = targets
-        self.loss_func = loss_function
-        self.penalties = penalties
-        self.weights = weights
-        self.all_models = all_models
-        self.concavity = concavity
-    
-    '''
-    This loss model does not need anything added to the feed
-    '''
-    def get_feed(self):
-        return {}
-    
-    '''
-    Method to compute the loss, taking in the output and the original feed to 
-    compare the values against
-    
-    Since everything is aliased, we can be sure that references are properly maintained to all the dictionaries
-    we are passing in.
-    '''
-    def get_loss(self, output, feed):
-        return self.loss_func(output, feed, self.targets, self.all_models, self.concavity, self.penalties,
-                              self.weights)
-
 class DFTB_Layer(nn.Module):
-    def __init__(self, device, dtype, eig_method = 'old'):
+    
+    def __init__(self, device: torch.device, dtype: torch.dtype, eig_method: str = 'new') -> None:
+        r"""Initializes the DFTB deep learning layer for the network
+        
+        Arguments:
+            device (torch.device): The device to run the computations on (CPU vs GPU)
+            dtype (torch.dtype): The torch datatype for the calculations
+            eig_method (str): The eigenvalue method for the symmetric eigenvalue decompositions.
+                'old' means the original PyTorch symeig method, and 'new' means the 
+                eigenvalue broadening method implemented in eig.py. Defaults to 'new'.
+        
+        Returns:
+            None
+        
+        Notes: The eigenvalue broadening method implemented in eig.py is the default 
+            because with eigenvalue broadening degenerate molecules are handled and do not
+            need to be sorted out explicitly. Further documentation for the methods 
+            can be found in the eig.py file.
+            
+            The theory and derviations for the tensor operations comprising the DFTB layer
+            can be found in the paper by Collins, Tanha, Gordon, and Yaron [1]
+        
+        References:
+            [1] Li, H.; Collins, C.; Tanha, M.; Gordon, G. J.; Yaron, D. J. A Density
+            Functional Tight Binding Layer for Deep Learning of Chemical Hamiltonians. 2018,
+        """
         super(DFTB_Layer, self).__init__()
         self.device = device
         self.dtype = dtype
         self.method = eig_method
     
-    def forward(self, data_input, all_models):
-        '''
-        The forward pass now takes a full data dictionary (combination of graph and feed) and
-        the all_models dictionary because we need that for form initial layer
-        '''
+    def forward(self, data_input: Dict, all_models: Dict) -> Dict:
+        r"""Forward pass through the DFTB layer to generate molecular properties
+        
+        Arguments: 
+            data_input (Dict): The feed dictionary for the current batch being pushed
+                through the network
+            all_models (Dict): The dictionary containing references to all the spline 
+                model objects being used to predict operator elements
+        
+        Returns:
+            calc (Dict): A dictionary contianing the molecular properties predicted from the 
+                DFTB layer using the predicted operator element values from the spline models.
+                The calc dict contains important values like 'dQ' used for charges and dipoles, and 
+                'Erep', 'Eelec', and 'Eref', which are used to compute the total energy.
+        
+        Notes: The DFTB layer operations are separated into 5 stages: forming the initial input layer,
+            performing Slater-Koster rotations, assembling values into operators, constructing the fock operators, and
+            solving the generalized eigenvalue problem for the the fock operator. 
+        """
         model_vals = list()
         for model_spec in data_input['models']:
             model_vals.append( all_models[model_spec].get_values(data_input[model_spec]) )
@@ -703,15 +1059,25 @@ class DFTB_Layer(nn.Module):
             calc['Eref'][bsize] = ref_res.squeeze(1)
         return calc
 
-def recursive_type_conversion(data, ignore_keys, device = None, dtype = torch.double, grad_requires = False):
-    '''
-    Transports all the tensors stored in data to a tensor with the correct dtype
-    on the correct device
+def recursive_type_conversion(data: Dict, ignore_keys: List[str], device: torch.device = None, 
+                              dtype: torch.dtype = torch.double, grad_requires: bool = False) -> None:
+    r"""Performs destructive conversion of elements in data from np arrays to Tensors
     
-    list_keys specifies those keys whose values should be a list rather than an np array
+    Arguments:
+        data (Dict): The dictionary to perform the recursive type conversion on
+        ignore_keys (List[str]): The list of keys to ignore when doing
+            the recursive type conversion
+        device (torch.device): Which device to put the tensors on (CPU vs GPU).
+            Defaults to None.
+        dtype (torch.dtype): The datatype for all created tensors. Defaults to torch.double
+        grad_requires (bool): Whether or not created tensors should have their 
+            gradients enabled. Defaults to False
     
-    Can also instantiate gradient requirements for the recursive type conversion
-    '''
+    Returns:
+        None
+    
+    Notes: None
+    """
     for key in data:
         if key not in ignore_keys:
             if isinstance(data[key], np.ndarray):
@@ -719,10 +1085,20 @@ def recursive_type_conversion(data, ignore_keys, device = None, dtype = torch.do
             elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
                 recursive_type_conversion(data[key], ignore_keys)
 
-def assemble_ops_for_charges(feed, all_models):
-    '''
-    This is just to assemble the operators for updating the charges
-    '''
+def assemble_ops_for_charges(feed: Dict, all_models: Dict) -> Dict:
+    r"""Generates the H and G operators for the charge update operation
+    
+    Arguments:
+        feed (Dict): The current feed whose charges need to be udpated
+        all_models (Dict): A dictionary referencing all the spline models being used
+            to predict operator elements
+    
+    Returns:
+        calc (Dict): A dictionary containing the tensors for the H and G operators, organized
+            by basis size. 
+    
+    Notes: This replicates the first three steps of the DFTB layer.
+    """
     model_vals = list()
     for model_spec in feed['models']:
         model_vals.append( all_models[model_spec].get_values(feed[model_spec]) )
@@ -755,15 +1131,19 @@ def assemble_ops_for_charges(feed, all_models):
     
     return calc
 
-def update_charges(feed, op_dict, dftblst):
-    '''
-    Test code right now, only works for current configuration of one molecule per batch
+def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList) -> None:
+    r"""Destructively updates the charges in the feed
     
-    Since there is a correspondence between the feed dictionary and dftblst and the op_dict is generated
-    from the feed, the basis sizes used should all match
+    Arguments:
+        feed (Dict): The feed dictionary whose charges need to be updated
+        op_dict (Dict): The dictionary containing the H and G operators, separated by bsize
+        dftblst (DFTBList): The DFTBList instance for this feed
     
-    Use the information about G too since it's being modeled by the operator
-    '''
+    Returns:
+        None
+    
+    Notes: Both dQ and the occ_rho_mask are udpated for the feed
+    """
     for bsize in op_dict['H'].keys():
         np_Hs = op_dict['H'][bsize].detach().numpy() #Don't care about gradients here
         np_Gs = op_dict['G'][bsize].detach().numpy()
@@ -776,49 +1156,19 @@ def update_charges(feed, op_dict, dftblst):
             feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
             feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
 
-def update_charges_2(feed, op_dict):
-    '''
-    Try again, this time without batches, create a standalone dftb object much like how we did in
-    dftb_layer_splines_1.py
+def create_spline_config_dict(data_dict_lst: List[Dict]) -> Dict:
+    r"""Finds the distance range (min, max) for each model across the entire data
     
-    Test code right now, only works for one molecule per batch
-    '''
-    geom_labels = list(feed['geoms'].keys())
-    geom_labels.sort()
-    geom_lst = [feed['geoms'][x] for x in geom_labels]
-    for geom in geom_lst:
-        dftb = DFTB(ParDict(), to_cart(geom), charge = 0)
-        curr_basis_size = dftb.nBasis()
-        curr_H = op_dict['H'][curr_basis_size]
-        curr_H = curr_H.detach().numpy()[0]
-        newQ, new_occ_mask, _ = dftb.get_dQ_from_H(curr_H)
-        newQ, new_occ_mask = torch.tensor(newQ).unsqueeze(1), torch.tensor(new_occ_mask)
-        feed['dQ'][curr_basis_size][0] = newQ # Change dQ to newQ instead
-        feed['occ_rho_mask'][curr_basis_size][0] = new_occ_mask
-    pass
-
-def find_config_range(data_dict_lst):
-    '''
-    Finds the range of distances for configuring the splines so that the models do 
-    not behave crazily
+    Arguments:
+        data_dict_lst (List[Dict]): List of all feeds, train and validation
     
-    Too naive of an approach, best not to use this approach
-    '''
-    minimum, maximum = 0.0, 0.0
-    for data_dict in data_dict_lst:
-        mod_raw_lsts = [data for _, data in data_dict['mod_raw'].items()]
-        distances = [x.rdist for lst in mod_raw_lsts for x in lst]
-        (tempMax, tempMin) = max(distances), min(distances)
-        if tempMax > maximum: maximum = tempMax
-        if tempMin < minimum: minimum = tempMin
-    return minimum, maximum
-
-def create_spline_config_dict(data_dict_lst):
-    '''
-    Finds the range of distances FOR EACH TYPE OF MODEL. Models that are not spline models
-    (i.e. len(Zs) == 1) are ignored. This is only for spline models
-    Here, data_dict_lst is a list of feeds
-    '''
+    Returns:
+        model_range_dict (Dict): A dictionary mapping each model_spec to 
+            a tuple representing the minimum and maximum distances spanned by the model
+            (i.e. (min, max))
+    
+    Notes: The distance ranges for each model depends on all the data points
+    """
     model_range_dict = dict()
     for feed in data_dict_lst:
         models_for_feed = list(feed['mod_raw'].keys())
@@ -893,7 +1243,7 @@ losses['monotonic'] = target_accuracy_monotonic
 par_dict = ParDict()
 
 #Compute or load?
-loaded_data = True
+loaded_data = False
 
 #Training scheme
 # If this flag is set to true, the dataset will be changed such that you 
@@ -928,8 +1278,8 @@ include_dipole_backprop = True
 
 #%% Degbugging h5 (Extraction and combination)
 x = time.time()
-training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5", False)
-validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5", False)
+training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5", True)
+validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5", True)
 print(f"{time.time() - x}")
 compare_feeds("reference_data1.p", training_feeds)
 compare_feeds("reference_data2.p", validation_feeds)
@@ -1226,7 +1576,7 @@ for sect in sections:
 
 #If you are using the second version of dipole loss, ignore the dipole_mats too
 # because they are going to be a list of arrays
-ignore_keys = ['glabels', 'basis_sizes', 'charges']
+ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat']
 
 for feed in training_feeds:
     recursive_type_conversion(feed, ignore_keys)
@@ -1258,7 +1608,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 150
+nepochs = 300
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()

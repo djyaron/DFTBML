@@ -28,14 +28,25 @@ from batch import Model, RawData
 import collections
 from geometry import Geometry
 import pickle
+from typing import Union, List, Optional, Dict, Any, Literal
+Array = np.ndarray
 
 #%% Model variables h5
 
-def get_model_from_string(model_spec : str):
-    '''
-    Converts the model_spec named tuple from a binary string representation to the
-    named tuple representation. Will decode by UTF-8 first.
-    '''
+def get_model_from_string(model_spec : str) -> Model:
+    r"""Converts model_spec from string to named tuple object
+    
+    Arguments:
+        model_spec (str): The representation of the model spec in string form
+    
+    Returns:
+        model (Model): The named tuple representation of the model_spec, non-string 
+            form
+    
+    Notes: This is a necessity because of the level of deconstruction data has 
+        to go through to get saved in h5. Every key must be a binary string of some form,
+        so decoding by UTF-8 is a necessary step.
+    """
     return eval(model_spec.decode('UTF-8'))
     
 class model_variable_h5handler:
@@ -44,17 +55,23 @@ class model_variable_h5handler:
     are going to be static methods.
     '''
     @staticmethod
-    def save_model_variables_h5(model_variables, filename):
-        '''
-        Saves the model_variables to an h5 file. Model variables are indexed by 
-        the model_spec, i.e. the named tuple representing the model. Filename must
-        be specified
+    def save_model_variables_h5(model_variables: Dict, filename: str) -> None:
+        r"""Saves the model variables to an h5 file after training
         
-        There will be two groups: off-diagonal and on-diagonal elements, i.e. splines
-        versus model_values
+        Arguments:
+            model_variables (Dict): A dictionary contianing all the model variables,
+                mapped by the model_spec tuple
+            filename (str): The filename for the h5 file to write to
         
-        Save everything in different groups with the same order
-        '''
+        Returns:
+            None
+        
+        Notes: The value models and spline models have their variables saved separately. 
+            Do note that for joined splines, only the variable coefficients will be saved. 
+            This will have to be changed later if we intend on saving the variables. Alternatively, 
+            saving the variables in a pickle file might be better since there aren't that many 
+            weights. For N many models, we have at most num_knots * N weights so save.
+        """
         hf = h5py.File(filename, 'w')
         spline_keys, spline_vars = list(), list()
         value_keys, value_vars = list(), list()
@@ -89,15 +106,20 @@ class model_variable_h5handler:
         hf.close()
         
     @staticmethod
-    def load_model_variables_h5(filename):
-        '''
-        Loads the model_variables from the model_variables dictionary saved in
-        h5 format and reformats the model_variables dictionary. They are saved as
-        np arrays.
+    def load_model_variables_h5(filename: str) -> Dict[str, Array]:
+        r"""Loads the model variables from the model_variables dictionary saved in h5 
         
-        If intent is to use these variables in training, please use recursive type conversion
-        to change into torch tensors with a gradient requirement.
-        '''
+        Arguments:
+            filename (str): The name of the h5 file from which to read model variables
+        
+        Returns:
+            model_variables_np (Dict[str, Array]): A dictionary of the model variables as numpy arrays
+        
+        Notes: If you intend to use the loaded variables for training, please
+            make sure to run a recursive type conversion to get the variables into tensors.
+            Also, saving and loading variable names only works for non-joined splines
+            right now, will fix that later if we end up using this approach.
+        """
         model_variables_np = dict()
         hf = h5py.File(filename, 'r')
         spline_mod_specs = list(hf['spline_mod_specs'])
@@ -138,13 +160,18 @@ class per_molec_h5handler:
     This is saving information on a per-molecule basis
     """
     @staticmethod
-    def unpack_save_molec_feed_h5(feed, hf):
-        '''
-        Here, the feed is the current feed to be saved and the hf is a created
-        file pointer to an open and waiting h5py file.
+    def unpack_save_molec_feed_h5(feed: Dict, hf: h5py.File) -> None:
+        r"""Saves a molecule feed to the given file pointer
         
-        This method will make heavy use of glabels to access the correct molecules
-        '''
+        Arguments:
+            feed (Dict): Current feed dictionary to be saved
+            hf (h5py.File): Pointer to h5 file to save data to
+        
+        Returns:
+            None
+        
+        Notes: None
+        """
         # First, get all the basis_sizes
         all_bsizes = list(feed['glabels'].keys())
         
@@ -232,10 +259,18 @@ class per_molec_h5handler:
         # Will not save the things related to the models because 
         
     @staticmethod
-    def save_all_molec_feeds_h5(feeds, filename):
-        '''
-        Master method for saving a list of feeds into the h5 format
-        '''
+    def save_all_molec_feeds_h5(feeds: List[Dict], filename: str) -> None:
+        r"""Master method for saving a list of feeds into h5 format
+        
+        Arguments:
+            feeds (List[Dict]): List of feed dictionaries to save
+            filename (str): Name of h5 file to save to
+        
+        Returns:
+            None
+        
+        Notes: None
+        """
         hf = h5py.File(filename, 'w')
         try:
             for feed in feeds:
@@ -250,22 +285,22 @@ class per_molec_h5handler:
     Extract and reconstitute the feed with the information provided on a per-molecule basis
     """
     @staticmethod
-    def extract_molec_feeds_h5(filename):
-        '''
-        Pulls the saved information for each molecule from the h5 file and
-        saves the info as a dictionary.
+    def extract_molec_feeds_h5(filename: str) -> Dict:
+        r"""Pulls saved information for each molecule from the h5 file into a dictionary
         
-        With the saved information, should be able to side-step the SCF cycle in 
-        the initial precompute cycle
+        Arguments:
+            filename (str): h5 file to read from
         
-        This massive dictionary will have the exact same structure as the h5 file;
-        a separate method will be in charge of taking this dictionary and 
-        reconstituting the original feed with the SCF + other information 
-        that's stored
+        Returns:
+            master_molec_dict (Dict): Dictionary where information about each molecule
+                is indexed first by the molecule name and then the configuration number.
+                To access information for the 5th conformation of C1H4, you would do
+                master_molec_dict['C1H4'][5][()]
         
-        Accessing information requires an additional level of indexing by the empty 
-        shape, i.e. dataset[()]. 
-        '''
+        Notes: Accessing information from the h5 data requires using the [()] as the 
+            last indexing argument. This is important because without this, closing 
+            the h5 file means shutting off access to the data.
+        """
         master_molec_dict = dict()
         hf = h5py.File(filename, 'r')
         for molec in hf.keys():
@@ -284,24 +319,26 @@ class per_molec_h5handler:
         return master_molec_dict
     
     @staticmethod
-    def reconstitute_molecs_from_h5 (master_dict, targets):
-        '''
-        Generates the list of dictionaries that is commonly used in
-        dftb_layer_splines_3.py. 
+    def reconstitute_molecs_from_h5 (master_dict: Dict, targets: List[str]) -> List[Dict]:
+        r"""Recreates a list of molecule dictionaries from the data in the h5 file
         
-        The keys for each molecule as used in dftb_layer_splines_3.py are as follows:
-            name : name of molecule
-            iconfig: configuration number
-            atomic_numbers : Zs
-            coordinates : Natom x 3 (will have to do a transpose from h5)
-            targets : list of targets (e.g. Etot, dipoles, etc)
+        Arguments:
+            master_dict (Dict): Dictionary of molecular information generated from
+                extract_molec_feeds_h5
+            targets (List[str]): List of strings representing the name of the targets
+                of interest
         
-        Current dictionary configuration, likely to change in the future
-        
-        It is important to keep track of the initial dictionary generated from
-        the h5 file because that is going to be used to supplement any necessary SCF 
-        information
-        '''
+        Returns:
+            molec_list (List[Dict]): A list of molecule dictionaries for each molecule contained within
+                master_dict
+            
+        Notes: The keys for each molecule as used are as follows:
+            name (str): Name of the molecule
+            iconfig (int): Configuration number of the molecule
+            atomic_numbers (Array[int]): Zs
+            coordinates (Array): Natom x 3 of the cartesian coordinates
+            targets (Dict): Dictionary mapping targets to values (e.g. Etot, dipole, etc.)
+        """
         molec_list = list()
         for molec in master_dict:
             for config in master_dict[molec]:
@@ -320,19 +357,29 @@ class per_molec_h5handler:
         return molec_list
     
     @staticmethod
-    def add_per_molec_info(feeds, master_dict, ragged_dipole_mat, ignore_keys = ['Coords', 'Zs']):
-        '''
-        This adds the SCF information and everything else saved to the h5 file
-        back into the feed using the glabels, names, and iconfigs as guidance.
+    def add_per_molec_info(feeds: List[Dict], master_dict: Dict, ragged_dipole_mat: bool, ignore_keys: List[str] = ['Coords', 'Zs']) -> None:
+        r"""Adds the SCF information and everything else saved for molecules back into feeds
         
-        Also, need to specify which keys to ignore from the master_dict
+        Arguments:
+            feeds (List[Dict]): List of feed dictionaries that need stuff added
+                back in
+            master_dict (Dict): Master dictionary containing information for all
+                the molecules indexed by name and configuration number
+            ragged_dipole_mat (bool): Flag indicating whether the dipole matrices
+                are ragged or not
+            ignore_keys (List[str]): List of keys to ignore. Defaults to ['Coords', 'Zs']
         
-        The master_dict comes from the method reading from the h5 file
+        Returns:
+            None
+            
+        Raises:
+            AssertionError: If the number of configuration numbers does not match the
+                number of names
         
-        ragged_dipole_mat indicates whether the dipole_matrices are ragged (not of the same shape)
-        
-        NOTE: the 'glables' key has to exist in all the feeds already!
-        '''
+        Notes: The 'glabels', 'iconfigs', and 'names' keys must already exist in all the feeds that 
+            need correcting, since we certainly need the names and configuration numbers to access
+            the molecular information
+        """
         first_mol = list(master_dict.keys())[0]
         first_mol_first_conf = list(master_dict[first_mol].keys())[0]
         
@@ -365,12 +412,23 @@ class per_molec_h5handler:
                             feed[key][bsize] = np.array(feed[key][bsize])
         
     @staticmethod
-    def create_molec_batches_from_feeds_h5(master_molec_dict, feeds, targets):
-        '''
-        Takes a master molecule dictionary (generated from extract_molec_feeds_h5)
-        and a list of feeds and creates a list of batches (lists of single-molecule dictionaries)
-        where the ith batch corresponds to the ith feed in the feeds list.
-        '''
+    def create_molec_batches_from_feeds_h5(master_molec_dict: Dict, feeds: List[Dict], targets: List[str]) -> List[List[Dict]]:
+        r"""Generates the batches of molecule dictionaries for each of the feeds
+        
+        Arguments:
+            master_molec_dict (Dict): Dictionary contianing all the molecule infomration 
+                indexed by name and configuration number
+            feeds (List[Dict]): List of feed dictionaries that need their
+                original molecule batches reconstructed
+            
+        Returns:
+            master_batch_list (List[List[Dict]]): The list of lists of molecule
+                dictionaries corresponding to the batches for every feed in feeds.
+        
+        Notes: Since the order of the molecules is preserved in creating each 
+            feed dictionary, we can use glabels as a method of extracting the
+            molecules and placing them in the correct places in each batch.
+        """
         master_batch_list = list()
         for feed in feeds:
             num_geoms = len(feed['geoms'].keys())
@@ -408,16 +466,21 @@ class per_batch_h5handler:
     
     '''
     @staticmethod
-    def unpack_save_feed_batch_h5(feed, hf, feed_id):
-        '''
-        This method is used to save information for each feed that depends on the 
-        composition. The feed_id is used as the indexing method, and must be incremented
-        by any wrapper function that calls this one repeatedly. The feed_id is an integer, but
-        be sure to save 
+    def unpack_save_feed_batch_h5(feed: Dict, hf: h5py.File, feed_id: int) -> None:
+        r"""Save information for each feed that depends on total composition
         
-        For a complete list of the information saved in these files, refer to 
-        h5Notes.txt
-        '''
+        Arguments:
+            feed (Dict): Feed to save information for
+            hf (h5py.File): Pointer to h5 file to save information to
+            feed_id (int): Integer index for ith feed
+        
+        Returns:
+            None
+        
+        Notes: Feeds are indexed by a generic number. They do not save
+            any information that is organized by molecules, but only the 
+            information that depends on the overall composition of the feed.
+        """
         #Create a group for the current batch
         curr_batch_grp = hf.create_group(str(feed_id))
         
@@ -480,10 +543,18 @@ class per_batch_h5handler:
             iconfig_grp.create_dataset(str(bsize), data = feed['iconfigs'][bsize])
     
     @staticmethod
-    def save_multiple_batches_h5(batches, filename):
-        '''
-        Wrapper method for saving all the information
-        '''
+    def save_multiple_batches_h5(batches: List[Dict], filename: str) -> None:
+        r"""Wrapper method for saving all the information that depends on batch composition
+        
+        Arguments:
+            batches (List[Dict]): List of feed dictionaries to save
+            filename (str): Name of the h5 file to save the information to
+        
+        Returns:
+            None
+        
+        Notes: Entry point for user.
+        """
         save_file = h5py.File(filename, 'w')
         try:
             for i in range(len(batches)):
@@ -493,14 +564,22 @@ class per_batch_h5handler:
             print("something went wrong with saving batch information")
 
     @staticmethod
-    def extract_batch_info(filename):
-        '''
-        Creates a list of feeds from the informaiton saved in the given file
-        represented by filename
+    def extract_batch_info(filename: str) -> List[Dict]:
+        r"""Creates a list of feeds from the information saved in the given h5 file
         
-        Will extract the feeds in the filename into a feeds list, which is the
-        same format as when the data was first encoded in h5
-        '''
+        Arguments:
+            filename (str): Name of h5 file to read from
+        
+        Returns:
+            feeds_lst
+            
+        Raises:
+            AssertionError: If the number of reconstructed feeds does not match the number of ids
+        
+        Notes: Simple keys are those which have their information organized by bsize 
+            and can be easily retrieved by a direct index. Complex keys are those that
+            will require more specialized handling to get out of the h5 files.
+        """
         simple_keys = ['glabels', 'gather_for_rep', 'segsum_for_rep', 
                        'atom_ids', 'norbs_atom', 'iconfigs', 
                        'basis_sizes', 'names']
@@ -611,15 +690,24 @@ class total_feed_combinator:
     '''
     
     @staticmethod
-    def create_all_feeds(batch_filename, molec_filename, ragged_dipole_mat = True):
-        '''
-        batch_filename: h5 file containing batch information
-        molec_filename: h5 file containing molecule information
-        ragged_dipole_mat: boolean indicating whether the dipole_mats are ragged.
+    def create_all_feeds(batch_filename: str, molec_filename: str, ragged_dipole_mat: bool = True) -> List[Dict]:
+        r"""Pulls all the molecules and feeds out of their respective files and comnbines to form feeds for DFTB layer
         
-        Pulls all the molecules and feeds out of their respective files and 
-        then assembles them into the list of complete feeds that is commonly used
-        '''
+        Arguments:
+            batch_filename (str): h5 file to read batch information (depends on composition)
+            molec_filename (str): h5 file to read per-molecule information
+            ragged_dipole_mat (bool): Indicates whether the dipole matrices are ragged (lists). Defaults to True
+        
+        Returns:
+            extracted_feeds (List[Dict]): List of feed dictionaries correctly formatted
+                with all the original data, ready to go for the DFTB layer
+        
+        Raises:
+            AssertionError: If the glabels, names, and iconfigs are not the same length per basis size
+        
+        Notes: Keys such as 'glabels', 'names', and 'iconfigs' have to be added
+            in manually first.
+        """
         extracted_feeds = per_batch_h5handler.extract_batch_info(batch_filename)
         master_molec_dict = per_molec_h5handler.extract_molec_feeds_h5(molec_filename)
         
@@ -643,16 +731,22 @@ class total_feed_combinator:
         return extracted_feeds
 
 #%% Testing utilities 
-def compare_feeds(reference_file, reconstituted_feeds):
-    '''
-    reference_file: pickle file name to load in the reference data
-    reconstituted_feeds: list of reconstituted feeds
+def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
+    r"""Function for checkig that the reconstituted feeds matches the original data
     
-    Compares the values between each key between each feed of the reference_file
-    feeds and the reconstituted feeds
+    Arguments:
+        reference_file (str): Name of the pickle file that stores the original data
+        reconstituted_feeds (List[Dict]): Reconstructed feeds that need checking
     
-    The reconstituted feeds and reference file feeds should have the same order in terms of their feeds
-    '''
+    Returns:
+        None
+    
+    Raises:
+        AssertionError: If any of the tests fail
+    
+    Notes: For ragged data like dipole matrices and charges, that information is 
+        handled with a small for loop.
+    """
     reference_file_feeds = pickle.load(open(reference_file, 'rb'))
     assert(len(reconstituted_feeds) == len(reference_file_feeds))
     for i in range(len(reference_file_feeds)):
