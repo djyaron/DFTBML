@@ -12,9 +12,8 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Update logging functionalities to record all experimental parameters on each run (low priority)
-    2) Document and type all the code (moderate priority) (X)
-    3) Refactor the top level stuff into functions (high priority)
+    1) Rewrite sccparam to use PyTorch operations (top priority)
+    2) Test new OffDiagModel and get_model_value_spline_2 (high priority)
 
 """
 import pdb, traceback, sys, code
@@ -54,6 +53,8 @@ from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
 from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2
+
+from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
@@ -634,10 +635,29 @@ class OffDiagModel:
             Where C s and C p are the two digaonal elements for the G operator matrix corresponding
             to the s-orbital interactions on C and p orbital interactions on C, respectively. The 
             distances r to evaluate this model at will be determined from the mod_raw data.
+            
+            Because the OffDiagModel uses the same variables as the diagonal models,
+            it will not have its variables added to the model_variables dictionary.
         """
-        pass
+        if len(model.Zs) < 2: 
+            return
+        elem1, elem2 = model.Zs
+        orb1, orb2 = model.orb[0], model.orb[1]
+        oper = model.oper
+        if oper == 'G':
+            # Double the orbitals for a G operator
+            orb1, orb2 = orb1 + orb1, orb2 + orb2
+        mod1 = Model(oper, (elem1, ), orb1)
+        mod2 = Model(oper, (elem2, ), orb2)
+        
+        # Use the created orbitals to index into the model variables and 
+        # get the appropriate variables out
+        elem1_var = model_variables[mod1]
+        elem2_var = model_variables[mod2]
+        # Keep the variables in a list
+        self.variables = [elem1_var, elem2_var] 
     
-    def get_variables(self) -> (Tensor, Tensor):
+    def get_variables(self) -> List[Tensor]:
         r"""Returns the variables that the model needs
         
         Arguments:
@@ -652,7 +672,7 @@ class OffDiagModel:
             So for G(C s|C p) (r), the two variables would be the on-diagonal element for 
             G(C s) and G(C p). Both variables should have gradients enabled.
         """
-        pass
+        return self.variables
     
     def get_feed(self, mod_raw: List[RawData]) -> Dict:
         r"""Gets information for the feed dictionary for the OffDiagModel
@@ -685,8 +705,12 @@ class OffDiagModel:
             the given variables. Switching variable order does not affect
             computed result, i.e. _Gamma12(r, x, y) == _Gamma12(r, y, x).
         """
-        
-    
+        distances = feed['distances']
+        elem1_var, elem2_var = self.variables
+        results = []
+        for dist in distances:
+            results.append(_Gamma12(dist, elem1_var, elem2_var))
+        return torch.cat(results)
         
 class Reference_energy:
 
@@ -884,13 +908,16 @@ class data_loader:
             self.shuffle_batches()
             raise StopIteration
 
-def get_model_value_spline_2(model_spec: Model, spline_dict: Dict, par_dict: Dict, num_knots: int = 50, 
+def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict, num_knots: int = 50, 
                              num_grid: int = 200, buffer: float = 0.0, 
-                             joined_cutoff: float = 3.0) -> (Input_layer_pairwise_linear_joined, str):
+                             joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
+                             off_diag_opers: List[str] = ['G']) -> (Input_layer_pairwise_linear_joined, str):
     r"""Generates a joined spline model for the given model_spec
     
     Arguments:
         model_spec (Model): Named tupled describing the interaction being modeled by the spline
+        model_variables (Dict): Dictionary containing references to all the model variables
+            instantiated so far. This is necessary for initializing the instances of the OffDiagModel
         spline_dict (Dict): Dictionary of the minimum and maximum distance, i.e. endpoints of the range
             spanned by the spline
         par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
@@ -904,6 +931,10 @@ def get_model_value_spline_2(model_spec: Model, spline_dict: Dict, par_dict: Dic
             minimum and maximum distances for the spline from the spline_dict. Defaults to 0.0 angstroms
         joined_cutoff (float): The cutoff distance for separating the variable and fixed
             regions of the spline. Defaults to 3.0 angstroms
+        cutoff_dict (Dict): Dictionary of cutoffs to use for each joined spline model, indexed
+            by the model_spec. Defaults to None, in which case the joined_cutoff default of 3.0 angstroms is used
+        off_diag_opers (List[str]): A list of the operators to model using the 
+            OffDiagModel. Defaults to ['G']
     
     Returns:
         model (Input_layer_pairwise_linear_joined): The instance of the Input_layer_pairwise_linear_joined
@@ -912,7 +943,11 @@ def get_model_value_spline_2(model_spec: Model, spline_dict: Dict, par_dict: Dic
             optimizations ('noopt')
     
     Notes: The tag is included because if a spline is flat at 0 (i.e., no interactions), then the 
-        spline is not optimized
+        spline is not optimized. 
+        
+        The inclusion of model_variables is for the OffDiag model. It is assumed that by the time
+        a two-body interaction is encountered (e.g. G, (1,6), sp) that all the one-body interactions for
+        that model have been handled. Right now, it seems like that is a safe assumption.
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
@@ -920,46 +955,26 @@ def get_model_value_spline_2(model_spec: Model, spline_dict: Dict, par_dict: Dic
         model.initialize_to_dftb(par_dict, noise_magnitude)
         return (model, 'vol')
     elif len(model_spec.Zs) == 2:
-        minimum_value, maximum_value = spline_dict[model_spec]
-        minimum_value -= buffer
-        maximum_value += buffer
-        xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
-        # if model_spec.oper != 'G':
-        #     config = {'xknots' : xknots,
-        #               'deg'    : 3,
-        #               'bconds' : 'natural'}  #CHANGED THE BOUNDARY CONDITION FROM VANISHING TO NATURAL
-        #     spline = SplineModel(config)
-        #     model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
-        #     variables = model.get_variables().detach().numpy()
-        #     if apx_equal(np.sum(variables), 0):
-        #         return (model, 'noopt')
-        #     return (model, 'opt')
-        # else:
-        #Try using the joined spline model for all operators
-        config = {'xknots' : xknots,
-                  'equal_knots' : False,
-                  'cutoff' : joined_cutoff,
-                  'bconds' : 'natural'}
-        spline = JoinedSplineModel(config)
-        model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict)
-        variables = model.get_variables().detach().numpy()
-        if apx_equal(np.sum(variables), 0):
-            return (model, 'noopt')
-        return (model, 'opt')
-        # Check that the model is not already flat at 0
-        # More thorough check but probably unnecessary
-        # rlow, rhigh = model.pairwise_linear_model.r_range()
-        # rgrid = np.linspace(rlow, rhigh, num_grid)
-        # dgrids_consts = [model.pairwise_linear_model.linear_model(rgrid, 0),
-        #              model.pairwise_linear_model.linear_model(rgrid, 2)]
-        # y_vals_0 = np.dot(dgrids_consts[0][0], variables) + dgrids_consts[0][1]
-        # y_vals_2 = np.dot(dgrids_consts[1][0], variables) + dgrids_consts[1][1]
-        # sum_res = np.sum(y_vals_0) #values
-        # sum_res2 = np.sum(y_vals_2) #2nd deriv
-        # if apx_equal(sum_res, 0) and apx_equal(sum_res2, 0):
-        #     return (model, 'noopt')
-        # else:
-        #     return (model, 'opt')
+        if model_spec.oper not in off_diag_opers:
+            minimum_value, maximum_value = spline_dict[model_spec]
+            minimum_value -= buffer
+            maximum_value += buffer
+            xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
+            # Joined splines for all operators
+            config = {'xknots' : xknots,
+                      'equal_knots' : False,
+                      'cutoff' : cutoff_dict[model_spec] if (cutoff_dict is not None) else joined_cutoff,
+                      'bconds' : 'natural'}
+            spline = JoinedSplineModel(config)
+            model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict)
+            variables = model.get_variables().detach().numpy()
+            if apx_equal(np.sum(variables), 0):
+                return (model, 'noopt')
+            return (model, 'opt')
+        else:
+            # Case of using OffDiagModel
+            model = OffDiagModel(model_spec, model_variables)
+            return (model, 'opt')
 
 def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
     r"""Function for summing elements together based on index
@@ -1551,10 +1566,12 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
     for ibatch,feed in enumerate(feeds):
         for model_spec in feed['models']:
             if (model_spec not in all_models):
-                mod_res, tag = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
+                mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
                 all_models[model_spec] = mod_res
                 #all_models[model_spec] = get_model_dftb(model_spec)
-                if tag != 'noopt':
+                if tag != 'noopt' and not isinstance(mod_res, OffDiagModel):
+                    # Do not add redundant variables for the OffDiagModel. Nothing
+                    # is done for off-diagonal model variables
                     model_variables[model_spec] = all_models[model_spec].get_variables()
                 # Detach it from the computational graph (unnecessary)
                 elif tag == 'noopt':
@@ -1936,10 +1953,10 @@ if __name__ == "__main__":
     for ibatch,feed in enumerate(training_feeds):
        for model_spec in feed['models']:
            if (model_spec not in all_models):
-               mod_res, tag = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
+               mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
                all_models[model_spec] = mod_res
                #all_models[model_spec] = get_model_dftb(model_spec)
-               if tag != 'noopt':
+               if tag != 'noopt' and not isinstance(mod_res, OffDiagModel):
                    model_variables[model_spec] = all_models[model_spec].get_variables()
                # Detach it from the computational graph (unnecessary)
                elif tag == 'noopt':
@@ -1958,10 +1975,10 @@ if __name__ == "__main__":
     for ibatch, feed in enumerate(validation_feeds):
         for model_spec in feed['models']:
             if (model_spec not in all_models):
-                mod_res, tag = get_model_value_spline_2(model_spec, model_range_dict, par_dict)
+                mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
                 all_models[model_spec] = mod_res
                 #all_models[model_spec] = get_model_dftb(model_spec)
-                if tag != 'noopt':
+                if tag != 'noopt' and not isinstance(mod_res, OffDiagModel):
                     model_variables[model_spec] = all_models[model_spec].get_variables()
                 elif tag == 'noopt':
                     all_models[model_spec].variables.requires_grad = False
