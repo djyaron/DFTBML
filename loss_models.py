@@ -132,7 +132,7 @@ class ModelPenalty:
             dgrid (Array, Array): The matrix A and vector b for doing y = Ax + b. Depending on 
                 the penalty,it's either the first or second derivative
             n_grid (int): Number of grid points to use. Defaults to 500
-            neg_integral (bool): Whether the spline is concave down. Defaults to False
+            neg_integral (bool): Whether the spline is concave down. Defaults to False (concave up)
         
         Returns:
             None
