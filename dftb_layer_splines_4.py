@@ -55,6 +55,7 @@ from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h
 from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2
 
 from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
+from functools import partial
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
@@ -691,7 +692,7 @@ class OffDiagModel:
         xeval = np.array([elem.rdist for elem in mod_raw])
         return {'distances' : xeval}
     
-    def get_value(self, feed: Dict) -> Tensor:
+    def get_values(self, feed: Dict) -> Tensor:
         r"""Obtains the predicted values from the model
         
         Arguments:
@@ -707,9 +708,8 @@ class OffDiagModel:
         """
         distances = feed['distances']
         elem1_var, elem2_var = self.variables
-        results = []
-        for dist in distances:
-            results.append(_Gamma12(dist, elem1_var, elem2_var))
+        gamma_partial = partial(_Gamma12, hub1 = elem1_var, hub2 = elem2_var)
+        results = list(map(gamma_partial, distances))
         return torch.cat(results)
         
 class Reference_energy:
@@ -911,7 +911,7 @@ class data_loader:
 def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict, num_knots: int = 50, 
                              num_grid: int = 200, buffer: float = 0.0, 
                              joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
-                             off_diag_opers: List[str] = ['G']) -> (Input_layer_pairwise_linear_joined, str):
+                             off_diag_opers: List[str] = ["G"]) -> (Input_layer_pairwise_linear_joined, str):
     r"""Generates a joined spline model for the given model_spec
     
     Arguments:

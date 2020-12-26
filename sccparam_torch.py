@@ -2,6 +2,8 @@
 import numpy as np
 import scipy.linalg
 from util import TriuToSymm, BMatArr
+import torch
+Tensor = torch.Tensor
 
 '''
 Switching over to a torch tensor version of the sccparam code so that
@@ -12,7 +14,27 @@ TOLSAMEDIST = 1.0e-5
 MINHUBDIFF  = 0.3125e-5
 
 # Helpers of (regular) gamma
-def _Gamma12(r12, hub1, hub2):
+def _Gamma12(r12: Tensor, hub1: Tensor, hub2: Tensor) -> Tensor:
+    r"""Computes the off-diagonal elements for the Gamma matrix using the diagonal values
+    
+    Arguments:
+        r12 (Tensor): The interatomic distance to use for the matrix element
+        hub1 (Tensor): The first diagonal element to use for the computation. 
+            Single element tensor of shape (1, )
+        hub2 (Tensor): The second diagonal element to use for the computation.
+            Single element tensor of shape (1, )
+    
+    Returns:
+        result (Tensor): The single element tensor containing the value for the 
+            off-diagonal element
+    
+    Notes: If the distance between the two Hubbard parameters is small enough,
+        the elements are used to calculate a diagonal. Because of the way 
+        orbital types are computed, orb = 'ss' for a single atom is the same as
+        's' for that atom. So for example, in constructing the 'sp' interaction,
+        we would use the 'ss' for atom1 and 'pp' in atom2. The atoms are denoted 
+        in the Zs field of the model_spec.
+    """
     tau1, tau2, smallHubDiff = _Tau1Tau2SmallHubDiff(hub1, hub2)
     if r12 < TOLSAMEDIST:
         return _GammaDiag(hub1, hub2)
@@ -23,31 +45,98 @@ def _Gamma12(r12, hub1, hub2):
         expr = _Expr(r12, tau1, tau2) + _Expr(r12, tau2, tau1)
     return 1.0 / r12 - expr
 
-def _Tau1Tau2SmallHubDiff(hub1, hub2):
-    return 3.2 * hub1, 3.2 * hub2, abs(hub1 - hub2) < MINHUBDIFF
+def _Tau1Tau2SmallHubDiff(hub1: Tensor, hub2: Tensor) -> (Tensor, Tensor, bool):
+    r"""Computes taus and checks whether the Hubbard parameters at the same
+    
+    Arguments:
+        hub1 (Tensor): The first Hubbard parameter
+        hub2 (Tensor): The second Hubbard parameter
+    
+    Returns:
+        tau1 (Tensor): The first tau, computed as 3.2 * hub1
+        tau2 (Tensor): The second tau, computed as 3.2 * hub2
+        difference (bool): Whether the two Hubbard parameters are close
+            enough based on the given tolerance
+    
+    Notes: Use .item() method to just get the value out of the tensor
+        to compare to the MINHUBDIFF
+    """
+    return 3.2 * hub1, 3.2 * hub2, abs(hub1 - hub2).item() < MINHUBDIFF
 
-def _GammaDiag(hub1, hub2):
+def _GammaDiag(hub1: Tensor, hub2: Tensor) -> Tensor:
+    r"""Computes the diagonal element for the Gamma operator matrix
+    
+    Arguments:
+        hub1 (Tensor): The first Hubbard parameter
+        hub2 (Tensor): The second Hubbard parameter
+    
+    Returns:
+        result (Tensor): The computed diagonal element
+    
+    Notes: If the hubbard parameters are close enough, the result is
+        an average. Otherwise, the result is computed based on 
+        the tau values.
+    """
     tau1, tau2, smallHubDiff = _Tau1Tau2SmallHubDiff(hub1, hub2)
     p12, s12 = tau1 * tau2, tau1 + tau2
     pOverS = p12 / s12
     return 0.5 * (hub1 + hub2 if smallHubDiff else pOverS + pOverS**2 / s12)
 
-def _Expr(r12, tau1, tau2):
+def _Expr(r12: Tensor, tau1: Tensor, tau2: Tensor) -> Tensor:
+    r"""Computes the necessary expression for computing the Gamma matrix eleent
+    
+    Arguments:
+        r12 (Tensor): The interatomic distance
+        tau1 (Tensor): The tensor computed from hub1 as 3.2 * hub1
+        tau2 (Tensor): The tensor computed from hub2 as 3.2 * hub2
+    
+    Returns: 
+        expr (Tensor): Value of the expression
+    
+    Notes: None
+    """
     termExp, term1, term2, term3 = _TermsExpr(r12, tau1, tau2)
     return termExp * (term1 - term2 / term3)
 
-def _TermsSmallHubDiff(r12, tau1, tau2):
+def _TermsSmallHubDiff(r12: Tensor, tau1: Tensor, tau2: Tensor) -> (Tensor, Tensor, Tensor, Tensor):
+    r"""Computes the terms for the expression given a small difference in Hubbard parameters
+    
+    Arguments:
+        r12 (Tensor): Interatomic distance
+        tau1 (Tensor): The tensor computed from hub1 as 3.2 * hub1
+        tau2 (Tensor): The tensor computed from hub2 as 3.2 * hub2
+    
+    Returns:
+        tauMean (Tensor): Mean of tau1, tau2
+        termExp (Tensor): The exponential term
+        term1, term2 (Tensor, Tensor): The first two terms of the expansion
+    
+    Notes: None
+    """
     tauMean = 0.5 * (tau1 + tau2)
-    termExp = np.exp(-tauMean * r12)
+    termExp = torch.exp(-tauMean * r12)
     term1 = 1.0 / r12 + 0.6875 * tauMean + 0.1875 * r12 * tauMean**2
     term2 = 0.02083333333333333333 * r12**2 * tauMean**3
     return tauMean, termExp, term1, term2
 
-def _TermsExpr(r12, tau1, tau2):
+def _TermsExpr(r12: Tensor, tau1: Tensor, tau2: Tensor) -> (Tensor, Tensor, Tensor, Tensor):
+    r"""Computes the terms for _Expr
+    
+    Arguments:
+        r12 (Tensor): Interatomic distance to use
+        tau1 (Tensor): The tensor computed from hub1 as 3.2 * hub1
+        tau2 (Tensor): The tensor computed from hub2 as 3.2 * hub2
+    
+    Returns:
+        termExp (Tensor): The exponential term
+        term1, term2, term3 (Tensors): The first three terms of the expansion
+    
+    Notes: None
+    """
     sq1, sq2 = tau1**2, tau2**2
     sq1msq2 = sq1 - sq2
     quad2 = sq2**2
-    termExp = np.exp(-tau1 * r12)
+    termExp = torch.exp(-tau1 * r12)
     term1 = 0.5 * quad2 * tau1 / sq1msq2**2
     term2 = sq2**3 - 3.0 * quad2 * sq1
     term3 = r12 * sq1msq2**3
@@ -202,3 +291,22 @@ class Doublju(object):
             diag += [BMatArr([[ss, sp, sd], [sp.T, pp, pd], [sd.T, pd.T, dd]])]
         return scipy.linalg.block_diag(*diag)
 
+if __name__ == "__main__":
+    """
+    Some simple testing code
+    """
+    import random
+    x = random.uniform(0.7, 1.5)
+    y = random.uniform(0.7, 1.5)
+    r12 = random.uniform(0.7, 5.0)
+    x, y = torch.tensor([x]), torch.tensor([y])
+    x.requires_grad = True
+    y.requires_grad = True
+    res = _Gamma12(r12, x, y)
+    res_lst = list()
+    for i in range(10):
+        res_lst.append(_Gamma12(r12, x, y))
+    print(res)
+    print(res_lst)
+    z = torch.cat(res_lst)
+    print(z)
