@@ -168,7 +168,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 300
+nepochs = 150
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -331,5 +331,5 @@ for loss in all_losses:
     plt.show()
     
 from loss_methods import plot_multi_splines
-double_mods = [mod for mod in all_models.keys() if mod != 'Eref' and len(mod.Zs) == 2]
+double_mods = [mod for mod in all_models.keys() if mod != 'Eref' and mod.oper != 'G' and len(mod.Zs) == 2]
 plot_multi_splines(double_mods, all_models)
