@@ -7,6 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
+from skfwriter import main
 
 #%% Top level variable declaration
 '''
@@ -111,6 +112,24 @@ assert(not(debug and train_ener_per_heavy))
 # Flag indicating whether or not to include the dipole in backprop
 include_dipole_backprop = True
 
+#Constants for writing out skf files
+atom_nums = {
+    6 : 'C',
+    1 : 'H',
+    8 : 'O',
+    7 : 'N',
+    79 : 'Au'
+    }
+
+atom_masses = {
+    6 : 12.01,
+    1 : 1.008,
+    8 : 15.999,
+    7 : 14.007,
+    79 : 196.967
+    }
+ref_direct = 'auorg-1-1'
+
 #%% Precompute
 if not loaded_data:
     print("Getting training and validation molecules")
@@ -144,6 +163,7 @@ feed_generation(validation_feeds, validation_batches, all_losses, all_models, mo
 print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
 
+main(all_models, atom_nums, atom_masses, ref_direct)
 #%% Training loop
 '''
 Two different eig methods are available for the dftblayer now, and they are 

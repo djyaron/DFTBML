@@ -474,7 +474,8 @@ class Input_layer_pairwise_linear:
 
 class Input_layer_pairwise_linear_joined:
 
-    def __init__(self, model: Model, pairwise_linear_model: JoinedSplineModel, par_dict: Dict, ngrid: int = 100, 
+    def __init__(self, model: Model, pairwise_linear_model: JoinedSplineModel, par_dict: Dict,
+                 cutoff: float, ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
         r"""Interface for a joined spline model with flexible and infleixble regions.
         
@@ -489,6 +490,7 @@ class Input_layer_pairwise_linear_joined:
             par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
                 between different elements, indexed by a string 'elem1-elem2'. For example, the
                 Carbon-Carbon interaction is accessed using the key 'C-C'
+            cutoff (float): The cutoff distance for the joined spline
             ngrid (int): The number of points for initially fitting the model to the DFTB
                 parameters. Defaults to 100
             noise_magnitude (float): Factor to distort the DFTB-initialized value by. Can be used
@@ -520,6 +522,7 @@ class Input_layer_pairwise_linear_joined:
         self.variables.requires_grad = True
         self.constant_coefs = torch.from_numpy(fixed_vars)
         self.joined = True #A flag used by later functions to identify joined splines
+        self.cutoff = cutoff #Used later for outputting skf files
         
     def get_variables(self) -> Tensor:
         r"""Returns the trainable coefficients for the given joined spline
@@ -966,7 +969,7 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                       'cutoff' : cutoff_dict[model_spec] if (cutoff_dict is not None) else joined_cutoff,
                       'bconds' : 'natural'}
             spline = JoinedSplineModel(config)
-            model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict)
+            model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
             variables = model.get_variables().detach().numpy()
             if apx_equal(np.sum(variables), 0):
                 return (model, 'noopt')

@@ -25,6 +25,7 @@ Array = np.ndarray
 from typing import Union, List, Optional, Dict, Any, Literal
 import os, os.path
 from functools import partial
+from scipy.interpolate import CubicSpline
 
 #%% Some constants
 atom_nums = {
@@ -45,6 +46,22 @@ atom_masses = {
 ref_direct = 'auorg-1-1'
 
 #%% Header, H, and S block
+def load_file_content(elems: tuple, ref_direc: str, atom_nums: Dict) -> List[List[str]]:
+    r"""Loads the necessary file content
+    """
+    elem1, elem2 = elems
+    atom1, atom2 = atom_nums[elem1], atom_nums[elem2]
+    full_path = os.path.join(ref_direc, f"{atom1}-{atom2}.skf")
+    with open(full_path, "r") as file:
+        content = file.read().splitlines()
+        content = list(map(lambda x : x.split(), content))
+        return content
+    
+def get_grid_info(content: List[List[str]]) -> (float, int):
+    r"""Gets the necessary grid distance and number of grid points for the H,S block
+    """
+    return (float(content[0][0]), int(content[0][1]))
+
 def generate_grid(grid_dist: float, ngrid: int, include_endpoint: bool = True) -> Array:
     r"""Generates a grid with a specified grid_dist and the specified number of grid points
     
@@ -78,40 +95,16 @@ def extract_elem_pairs(all_models: Dict) -> List[tuple]:
                          all_models.keys())
     return list(set(map(lambda x : x.Zs, double_mods)))
 
-def extract_S(elems: tuple, atom_nums: Dict, ref_direc: str) -> (Array, float, int):
-    r"""Returns a list of all the overlap operator values for a given pair
-    
-    Arguments:
-        elems (tuple): The tuple representing the two elements interacting
-        atom_nums (Dict): Dictionary mapping element symbols to their numbers
-        ref_direc (str): String representing the reference directory containing
-            the given skf files
-    
-    Returns:
-        s_vals (Array): An array of the values for the overlap operator taken from
-            the original skf file
-        grid_dist (float): The distance needed for the grids
-        ngrid (int): The number of grid points to use.
-        
-    
-    Notes: Because we are not fitting the overlap operator, the values for S
-        are copied from the original SKF files. The only way for the reference S
-        values to be valid is if the same grid distance and ngridpoints are used.
-        That's why the grid distance and ngrid are returned, so that the 
-        correct number of H values can be made.
+def extract_S_content(elems: tuple, content: List[List[str]], ngrid: int) -> Array:
+    r"""Grabs the S-block from the content of the original skf file
+    ngrid here is the second result from get_grid_info
     """
     elem1, elem2 = elems
-    file_str = os.path.join(ref_direc, f"{atom_nums[elem1]}-{atom_nums[elem2]}.skf")
-    with open(file_str, "r") as file:
-        content = file.read().splitlines()
-    content = list(map(lambda x : x.split(), content))
-    grid_dist, ngrid = float(content[0][0]), int(content[0][1])
     startline = 3 if elem1 == elem2 else 2
-    #pull out the data block
     datablock = content[startline : startline + ngrid]
-    s_vals = list(map(lambda line : line[10:], datablock))
-    assert(len(s_vals) == ngrid)
-    return np.array(s_vals), grid_dist, ngrid
+    svals = list(map(lambda line : line[10:], datablock))
+    assert(len(svals) == ngrid)
+    return np.array(svals)
 
 def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     r"""Given a grid of distances, computes the H values using the given model
@@ -191,7 +184,10 @@ def compute_H(elems : tuple, all_models: Dict, grid_dist: float, ngrid: int,
     Notes: Will compute the necessary two-body interactions; if not specified, 
         the interactions between two orbitals are assumed to be a sigma interaction
     """
-    predicate = lambda mod_spec : not isinstance(mod_spec, str) and mod_spec.Zs == elems and mod_spec.oper == 'H'
+    #Account for the reverse order as well to get all the values 
+    # between the two elements
+    predicate = lambda mod_spec : not isinstance(mod_spec, str) and\
+        (mod_spec.Zs == elems or mod_spec.Zs == (elems[1], elems[0])) and mod_spec.oper == 'H'
     matching_mods = filter(predicate, all_models.keys())
     rgrid = generate_grid(grid_dist, ngrid)
     yval_partial = partial(get_yvals, rgrid = rgrid, all_models = all_models)
@@ -215,12 +211,12 @@ def construct_datablock(h_block: Array, s_block: Array) -> Array:
     datablock = np.hstack((h_block, s_block))
     return datablock.astype('float64')
 
-def obtain_occupation_ds(elems: tuple, ref_direc: str, atom_nums: Dict) -> (Array, Array):
+def obtain_occupation_ds(content: List) -> (Array, Array):
     r"""Gets the ground state orbital occupation for the elements from the reference SKF file
     
     Arguments:
         elems (tuple): A tuple of the atomic numbers of the elements concerned
-        ref_direc (str): The relative path to the directory with the original skf files
+        content (List): The split lines of the file
         atom_nums (Dict): Dictionary mapping atomic numbers to symbols
     
     Returns:
@@ -228,29 +224,24 @@ def obtain_occupation_ds(elems: tuple, ref_direc: str, atom_nums: Dict) -> (Arra
         Ed (Array): On-site energy for the d orbital
         Ud (Array): Hubbard parameter for the d orbital
     """
-    filename = os.path.join(ref_direc, f"{atom_nums[elems[0]]}-{atom_nums[elems[0]]}.skf")
-    with open(filename, "r") as file:
-        content = file.read().splitlines()
-        second_line = content[1]
-        secondline_elems = second_line.split()
-        return (np.array(secondline_elems[7:]).astype('float64'),
-                np.array(secondline_elems[0]).astype('float64'),
-                np.array(secondline_elems[4]).astype('float64'))
+    second_line = content[1]
+    return (np.array(second_line[7:]).astype('float64'),
+            np.array(second_line[0]).astype('float64'),
+            np.array(second_line[4]).astype('float64'))
         
 
-def construct_header(elems : tuple, all_models: Dict, atom_nums: Dict, atom_masses: Dict, 
-                     grid_dist: float, ngrid: int, ref_direc: str,
+def construct_header(elems : tuple, all_models: Dict, atom_masses: Dict, 
+                     grid_dist: float, ngrid: int, content: List,
                      ignore_d: bool = True) -> List:
     r"""Constructs the header block for the two-center skf file for the given elements
     
     Arguments:
         elems (tuple): The elements in this interaction
         all_models (Dict): The dictionary containing references for all models
-        atom_nums (Dict): Dictionary mapping element symbols to atomic numbers
         atom_masses (Dict): Dictionary mapping element number to mass in amu
         grid_dist (float): The grid spacing
         ngrid (int): The number of grid points to use
-        ref_direc(str): The relative path to the directory of original skf files
+        content (List): The content of the reference skf file
         ignore_d (bool): Whether or not to ignore d orbitals. Defaults to True
     
     Returns:
@@ -276,7 +267,7 @@ def construct_header(elems : tuple, all_models: Dict, atom_nums: Dict, atom_mass
         Es = all_models[Model('H', (elem1, ), 's')].variables[0].item()
         Up = 0.0 if elem1 == 1 else all_models[Model('G', (elem1, ), 'pp')].variables[0].item()
         Us = all_models[Model('G', (elem1, ), 'ss')].variables[0].item()
-        occupations, Ed_orig, Ud_orig = obtain_occupation_ds(elems, ref_direc, atom_nums)
+        occupations, Ed_orig, Ud_orig = obtain_occupation_ds(content)
         Ed = Ed_orig if ignore_d else all_models[Model('H', (elem1, ), 'd')].variables[0].item()
         Ud = Ud_orig if ignore_d else all_models[Model('G', (elem1, ), 'dd')].variables[0].item()
         Erun = np.array([Ed, Ep, Es])
@@ -289,14 +280,209 @@ def construct_header(elems : tuple, all_models: Dict, atom_nums: Dict, atom_mass
 
 #%% Spline block
 
+def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array, float):
+    r"""Computes the repulsive spline coefficients for the repulsive block
+    
+    Arguments:
+        elems (tuple): The elements whose repulsive interaction is concerned
+        all_models (Dict): Dictionary referencing all the models
+        ngrid (int): The number of gridpoints to use for the repulsive splines. 
+            Defaults to 50
+    
+    Returns:
+        coeffs (Array): An array of coefficients for the cubic splines of 
+            each segment
+        rgrid (Array): The array that the spline spans
+        cutoff (float): The cutoff distance for the spline
+        
+    Notes: To get the coefficients of the correct form, we perform a scipy interpolate
+        with CubicSplines to get the coeffs.
+    """
+    R_mods = [mod for mod in all_models.keys() if isinstance(mod, Model) and mod.oper == 'R' and\
+              (mod.Zs == elems or mod.Zs == (elems[1], elems[0]))]
+    assert(len(R_mods) == 1) # Should only be one repulsive mod per atom pair
+    r_model = all_models[R_mods[0]]
+    xlow, xhigh = r_model.pairwise_linear_model.r_range()
+    cutoff = r_model.cutoff #Use the cutoff distance from the model itself
+    rgrid = np.linspace(xlow, cutoff, ngrid)
+    r_vals = get_yvals(R_mods[0], rgrid, all_models)
+    #Obtain the spline
+    spl = CubicSpline(rgrid, r_vals)
+    #Coefficients of the spline
+    assert(spl.c.shape[1] == ngrid - 1)
+    return spl.c, rgrid, cutoff
 
+def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
+    r"""Generates the necessary format for the coefficients for the spline
+    
+    Arguments:
+        coeffs (Array): The array of spline coefficients of shape (k, m) where
+            k is the degree and m is the number of intervals 
+        rgrid (Array): The distances that the spline spans
+    
+    Returns:
+        spline_block (List): The correctly formatted spline block; each row of 
+            the block corresponds to one line
+    
+    Notes: The slater-koster file format specifies that the last spline in the
+        block should be a fifth degree spline, but for this purpose we will
+        do cubic splines. Thus, the last line is padded with 0s
+    """
+    intervals = [(rgrid[i], rgrid[i+1]) for i in range(len(rgrid) - 1)]
+    assert(len(intervals) == coeffs.shape[1])
+    rows = []
+    for index, interval in enumerate(intervals):
+        curr_coeffs = list(coeffs[:, index])
+        rows.append([interval[0], interval[1]] + curr_coeffs)
+    rows[-1].extend([0, 0])
+    return rows
 
-
-
-
-
+def assemble_spline_header(rgrid: Array, content: List, ngrid : int, cutoff: float) -> List:
+    r"""Constructs the spline block header
+    Arguments:
+        rgrid (Array): The distances spanned by the spline
+        content (List): The original contents of the file as a list of lists
+        ngrid (int): The number of grid points
+        cutoff (float): The cutoff distance
+    
+    Returns:
+        Header (List): A list of the spline header, where each row is one 
+            line in the spline header
+    
+    The main trick is to get the close-range coefficients out
+    """
+    line1 = ['Spline']
+    line2 = [ngrid - 1, cutoff] #The number of intervals is equal to gridpoints - 1
+    index = 0
+    for i in range(len(content)):
+        if len(content[i]) == 1 and content[i][0] == 'Spline':
+            index = i + 2
+            break
+    line3 = content[index]
+    return [line1, line2, line3]
 
 #%% File Assembly 
+def combine_list_to_str(strlst: List, sep: str = "  ") -> str:
+    r"""Combines a list of strings into a single string
+    
+    Arguments:
+        strlst (List): A list of strings to combine
+        sep (str): The separator for each string element. Defaults to two spaces
+    
+    Returns:
+        combined_str (str): The combined string with the given separator
+    """
+    return sep.join(strlst) + "\n"
+
+def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
+                          atom_masses: Dict, ref_direc: str, str_sep: str = "  ",
+                          spline_ngrid: int = 50, ext: str = None) -> None:
+    r"""Write the skf file for a single atom pair
+    
+    Arguments:
+        elems (tuple): Atom pair to write the skf file for 
+        all_models (Dict): Dictionary containing references to all models
+        atom_nums (Dict): The dictionary mapping atom numbers to their symbols
+        atom_masses (Dict): The dictionary mapping atom numbers to their masses
+        ref_direc (str): The relative path to the directory containing all skf files
+        str_sep (str): The separator for each line
+        spline_ngrid (int): The number of gridpoints ot use for the splines
+        ext (str): Additional save path (e.g., to a directory or something). 
+            Defaults to None
+    
+    Returns:
+        None
+        
+    Notes: For the repulsive splines, the intervals go from xlow -> cutoff, where
+        cutoff is the value assigned to the spline during initialization (this only
+        applies to joined spline models) and xlow is the lowest distance for the 
+        model across all the data
+        
+        The coefficients a1, a2, a3 for the very near-range repulsive interaction, 
+        described by Exp[-a1 * r + a2] + a3 are copied from the initial SKF file
+        
+        For the fifth order spline at the end, the 4th and 5th coefficients are set to
+        0 so all splines are technically cubic splines
+        
+        The number of intervals is equal to spline_ngrid - 1
+        
+        The SPE field is not copied and defaults to zero, since the spin polarization
+        error is not interpreted by DFTB+
+        
+        In the case of heteronuclear interactions, the mass field in line 2 is 
+        defaulted as the mass of the first element in the pair. This does not 
+        matter since mass is a placeholder in heteronuclear cases and is not interpreted
+        
+        If d-orbital values exist for the hubbard parameters, these are copied over 
+        from the original file
+        
+        Because we are not fitting S, the S-block of all skf files are pulled from their
+        respective reference files
+    """
+    #Dealing with the H,S datablock
+    content = load_file_content(elems, ref_direc, atom_nums)
+    grid_dist, ngrid = get_grid_info(content)
+    s_block = extract_S_content(elems, content, ngrid)
+    h_block = compute_H(elems, all_models, grid_dist, ngrid)
+    HS_datablock = construct_datablock(h_block, s_block)
+    HS_header = construct_header(elems, all_models, atom_masses, grid_dist, ngrid, content)
+    
+    #Dealing with the spline datablock and header
+    spline_coeffs, spline_grid, cutoff = compute_spline_repulsive(elems, all_models, spline_ngrid)
+    spline_block = assemble_spline_body_block(spline_coeffs, spline_grid)
+    spline_header = assemble_spline_header(spline_grid, content, spline_ngrid, cutoff)
+    
+    #Final file assembly
+    elem1, elem2 = elems
+    atom1, atom2 = atom_nums[elem1], atom_nums[elem2]
+    save_file_name = f"{atom1}-{atom2}.skf" if ext is None else os.path.join(ext, f"{atom1}-{atom2}.skf")
+    with open(save_file_name, "w+") as handle:
+        for line in HS_header:
+            write_line = list(map(lambda x : str(x), line))
+            combined_str = combine_list_to_str(write_line, str_sep)
+            handle.write(combined_str)
+        
+        for line in HS_datablock:
+            write_line = list(map(lambda x : str(x), line))
+            combined_str = combine_list_to_str(write_line, str_sep)
+            handle.write(combined_str)
+        
+        for line in spline_header:
+            write_line = list(map(lambda x : str(x), line))
+            combined_str = combine_list_to_str(write_line, str_sep)
+            handle.write(combined_str)
+            
+        for line in spline_block:
+            write_line = list(map(lambda x : str(x), line))
+            combined_str = combine_list_to_str(write_line, str_sep)
+            handle.write(combined_str)
+        
+        handle.close()
+
+def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, 
+         ref_direc: str, str_sep: str = "  ", spline_ngrid: int = 50, ext: str = None) -> None:
+    r"""Main method for writing out all the skf files for the given set of models
+    
+    Arguments:
+        elems (tuple): Atom pair to write the skf file for 
+        all_models (Dict): Dictionary containing references to all models
+        atom_nums (Dict): The dictionary mapping atom numbers to their symbols
+        atom_masses (Dict): The dictionary mapping atom numbers to their masses
+        ref_direc (str): The relative path to the directory containing all skf files
+        str_sep (str): The separator for each line
+        spline_ngrid (int): The number of gridpoints ot use for the splines
+        ext (str): Additional save path (e.g., to a directory or something). 
+            Defaults to None
+    
+    Returns:
+        None
+    
+    Notes: See notes for write_single_skf_file
+    """
+    elem_pairs = extract_elem_pairs(all_models)
+    for pair in elem_pairs:
+        write_single_skf_file(pair, all_models, atom_nums, atom_masses, 
+                              ref_direc, str_sep, spline_ngrid, ext)
 
 
 if __name__ == "__main__":
