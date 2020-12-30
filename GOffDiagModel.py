@@ -85,15 +85,16 @@ def get_values(feed: Dict, variables) -> Array:
         results[zero_indices] = onatom
         
     # G between atoms
-    if smallHubDiff:
-        tauMean = 0.5 * (tau1 + tau2)
-        termExp = np.exp(-tauMean * r12)
-        term1 = 1.0/r12 + 0.6875 * tauMean + 0.1875 * r12 * tauMean**2
-        term2 = 0.02083333333333333333 * r12**2 * tauMean**3
-        expr = termExp * (term1 + term2)        
-    else:
-        expr = _Expr(r12, tau1, tau2) + _Expr(r12, tau2, tau1)
-    results[nonzero_indices] = 1.0 / r12 - expr                      
+    if len(nonzero_indices) > 0:
+        if smallHubDiff:
+            tauMean = 0.5 * (tau1 + tau2)
+            termExp = np.exp(-tauMean * r12)
+            term1 = 1.0/r12 + 0.6875 * tauMean + 0.1875 * r12 * tauMean**2
+            term2 = 0.02083333333333333333 * r12**2 * tauMean**3
+            expr = termExp * (term1 + term2)        
+        else:
+            expr = _Expr(r12, tau1, tau2) + _Expr(r12, tau2, tau1)
+        results[nonzero_indices] = 1.0 / r12 - expr                      
         
     return results
 #%%
