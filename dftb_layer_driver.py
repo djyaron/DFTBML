@@ -7,7 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-# from trainedskf import ParDict
+from trainedskf import ParDict
 from skfwriter import main
 
 #%% Top level variable declaration
@@ -164,8 +164,8 @@ feed_generation(validation_feeds, validation_batches, all_losses, all_models, mo
 print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
 
-print("Writing test skf files for debugging")
-main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+# print("Writing test skf files for debugging")
+# main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
 
 #%% Training loop
 '''
@@ -191,7 +191,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 150
+nepochs = 50
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -325,8 +325,8 @@ for i in range(nepochs):
 print(f"Finished with {nepochs} epochs")
 
 # Only write trained skf files if not using the trained pardict
-# print("Writing skf files from trained models")
-# main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+print("Writing skf files from trained models")
+main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
 
 #%% Logging
 #Save the training and validation losses for visualization later
