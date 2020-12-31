@@ -562,7 +562,8 @@ def get_x_y_vals (spline_model, ngrid: int) -> (Array, Array, str):
     title = f"{oper, Zs, orb}"
     return (rgrid, y_vals, title)
 
-def plot_multi_splines(target_models: List[Model], all_models: Dict, ngrid: int = 500, max_per_plot: int = 4):
+def plot_multi_splines(target_models: List[Model], all_models: Dict, ngrid: int = 500, max_per_plot: int = 4,
+                       method: str = 'plot') -> None:
     r"""Plots all the splines whose specs are listed in target_models
     
     Arguments:
@@ -592,7 +593,10 @@ def plot_multi_splines(target_models: List[Model], all_models: Dict, ngrid: int 
             for col in range(num_col):
                 if curr_pos != len(curr_subsection):
                     x_vals, y_vals, title = get_x_y_vals(all_models[curr_subsection[curr_pos]], ngrid)
-                    axs[row, col].plot(x_vals, y_vals)
+                    if method == 'plot':
+                        axs[row, col].plot(x_vals, y_vals)
+                    elif method == 'scatter':
+                        axs[row, col].scatter(x_vals, y_vals)
                     axs[row, col].set_title(title)
                     curr_pos += 1
         fig.tight_layout()

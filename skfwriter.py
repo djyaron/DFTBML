@@ -215,9 +215,14 @@ def compute_H(elems : tuple, all_models: Dict, grid_dist: float, ngrid: int,
     """
     #Account for the reverse order as well to get all the values 
     # between the two elements
+    # Either flip the Zs but the orbital type must be symmetric
     predicate = lambda mod_spec : not isinstance(mod_spec, str) and\
-        (mod_spec.Zs == elems or mod_spec.Zs == (elems[1], elems[0])) and mod_spec.oper == 'H'
-    matching_mods = filter(predicate, all_models.keys())
+        (mod_spec.oper == 'H') and (mod_spec.Zs == elems or mod_spec.Zs == (elems[1], elems[0]))\
+            and (mod_spec.orb in ['ss', 'pp_pi', 'pp_sigma'])
+    # Or ensure equivalence of Zs but the orbital type is not symmetric
+    predicate2 = lambda mod_spec : not isinstance(mod_spec, str) and\
+        (mod_spec.oper == 'H') and (mod_spec.Zs == elems) and (mod_spec.orb in ['sp'])
+    matching_mods = filter(lambda x : (predicate(x) or predicate2(x)), all_models.keys())
     rgrid = generate_grid(grid_dist, ngrid) #rgrid here is in angstroms
     yval_partial = partial(get_yvals, rgrid = rgrid, all_models = all_models)
     vals_and_ind = map(lambda mod : (yval_partial(mod), determine_index(mod)), matching_mods)

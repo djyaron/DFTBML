@@ -1713,6 +1713,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
     """
     for ibatch,feed in enumerate(feeds):
         for model_spec in feed['models']:
+            # print(model_spec)
             if (model_spec not in all_models):
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
                 all_models[model_spec] = mod_res

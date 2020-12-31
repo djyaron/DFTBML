@@ -7,8 +7,9 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-# from trainedskf import ParDict
+from trainedskf import ParDict
 from skfwriter import main
+from dftb import ANGSTROM2BOHR
 
 #%% Top level variable declaration
 '''
@@ -53,8 +54,8 @@ losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
 target_accuracy_dipole = 100 # debye
 target_accuracy_charges = 100
-target_accuracy_convex = 1000
-target_accuracy_monotonic = 1000
+target_accuracy_convex = 1
+target_accuracy_monotonic = 1
 
 losses['Etot'] = target_accuracy_energy
 losses['dipole'] = target_accuracy_dipole 
@@ -159,7 +160,7 @@ all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_
 # new_dict = dict()
 # for mod_spec, dist_range in model_range_dict.items():
 #     original_low, original_high = dist_range
-#     new_dist_range = (0.3, original_high)
+#     new_dist_range = (0.02 / ANGSTROM2BOHR, (0.02 * 500) / ANGSTROM2BOHR)
 #     new_dict[mod_spec] = new_dist_range
 
 # model_range_dict = new_dict
@@ -334,8 +335,8 @@ for i in range(nepochs):
 print(f"Finished with {nepochs} epochs")
 
 # Only write trained skf files if not using the trained pardict
-print("Writing skf files from trained models")
-main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+# print("Writing skf files from trained models")
+# main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
 
 #%% Logging
 #Save the training and validation losses for visualization later
