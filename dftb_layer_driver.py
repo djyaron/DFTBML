@@ -7,6 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
+# from trainedskf import ParDict
 from skfwriter import main
 
 #%% Top level variable declaration
@@ -136,9 +137,9 @@ if not loaded_data:
     training_molecs, validation_molecs = dataset_sorting(dataset, prop_train, transfer_training, transfer_train_params, train_ener_per_heavy)
     
     print("Getting training graphs")
-    training_feeds, training_dftblsts, training_batches = graph_generation(training_molecs, config, allowed_Zs, num_per_batch)
+    training_feeds, training_dftblsts, training_batches = graph_generation(training_molecs, config, allowed_Zs, par_dict, num_per_batch)
     print("Getting validation graphs")
-    validation_feeds, validation_dftblsts, validation_batches = graph_generation(validation_molecs, config, allowed_Zs, num_per_batch)
+    validation_feeds, validation_dftblsts, validation_batches = graph_generation(validation_molecs, config, allowed_Zs, par_dict, num_per_batch)
 
 else: #Loading data
     print("Loading data")
@@ -163,7 +164,9 @@ feed_generation(validation_feeds, validation_batches, all_losses, all_models, mo
 print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
 
-main(all_models, atom_nums, atom_masses, ref_direct)
+print("Writing test skf files for debugging")
+main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+
 #%% Training loop
 '''
 Two different eig methods are available for the dftblayer now, and they are 
@@ -320,6 +323,10 @@ for i in range(nepochs):
     times_per_epoch.append(time.time() - start)
 
 print(f"Finished with {nepochs} epochs")
+
+# Only write trained skf files if not using the trained pardict
+# print("Writing skf files from trained models")
+# main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
 
 #%% Logging
 #Save the training and validation losses for visualization later

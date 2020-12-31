@@ -14,9 +14,7 @@ skf files constructed in this module, the simple format is being used
 
 """
 TODO:
-    1) Figure out how to deal with the required spline format
-    2) Assemble all information into files
-    3) Test out the skfwriter
+    1) Need to go closer with the ranges for the repulsive models
 """
 from batch import Model
 import torch
@@ -26,6 +24,7 @@ from typing import Union, List, Optional, Dict, Any, Literal
 import os, os.path
 from functools import partial
 from scipy.interpolate import CubicSpline
+from dftb import ANGSTROM2BOHR
 
 #%% Some constants
 atom_nums = {
@@ -48,6 +47,15 @@ ref_direct = 'auorg-1-1'
 #%% Header, H, and S block
 def load_file_content(elems: tuple, ref_direc: str, atom_nums: Dict) -> List[List[str]]:
     r"""Loads the necessary file content
+    
+    Arguments:
+        elems (tuple): Atomic numbers of elements whose interaction is being modeled
+        ref_direc (str): The reference directory
+        atom_nums (Dict): Dictionary mapping atomic number to their symbols
+    
+    Returns:
+        content (List[List[str]]): The content of the reference skf file 
+            as a 2D list of strings
     """
     elem1, elem2 = elems
     atom1, atom2 = atom_nums[elem1], atom_nums[elem2]
@@ -59,6 +67,16 @@ def load_file_content(elems: tuple, ref_direc: str, atom_nums: Dict) -> List[Lis
     
 def get_grid_info(content: List[List[str]]) -> (float, int):
     r"""Gets the necessary grid distance and number of grid points for the H,S block
+    
+    Arguments:
+        content (List[List[str]]): The contents of a file as a 2D list
+    
+    Returns:
+        (grid_dist, ngrid) (float, int): The grid distance and the number of grid points
+            for the H and S block
+        
+    Notes: The grid distance is in units of bohr radius, but all calculations 
+        in the model are done using angstroms
     """
     return (float(content[0][0]), int(content[0][1]))
 
@@ -66,19 +84,23 @@ def generate_grid(grid_dist: float, ngrid: int, include_endpoint: bool = True) -
     r"""Generates a grid with a specified grid_dist and the specified number of grid points
     
     Arguments:
-        grid_dist (float): The distance between each grid point
+        grid_dist (float): The distance between each grid point, in bohr radii
         ngrid (int): The number of grid points
         include_endpoint (bool): Whether to include the endpoint or not. Defaults
             to true
     
     Returns:
         rgrid (Array): The distances to evaluate each two-center interaction
-            at
+            at, in angstroms
     
     Notes: Not using np.linspace for precision concerns and the fact that we 
         want to be able to specify a grid distance
+        
+        To convert from bohr-radii to angstroms, we divide the resulting grid
+        by the factor ANGSTROM2BOHR, imported from dftb
     """
     res = [grid_dist + i * grid_dist for i in range(ngrid if include_endpoint else ngrid - 1)]
+    res = np.array(res) / ANGSTROM2BOHR
     return np.array(res)
 
 def extract_elem_pairs(all_models: Dict) -> List[tuple]:
@@ -110,7 +132,7 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     r"""Given a grid of distances, computes the H values using the given model
     
     Arguments:
-        rgrid (Array): Array of distances to get values for
+        rgrid (Array): Array of distances to get values for, must be in angstroms
         model_spec (Model): The named tuple for the current model
         all_models (Dict): Dictionary referencing all existing models
     
@@ -173,7 +195,7 @@ def compute_H(elems : tuple, all_models: Dict, grid_dist: float, ngrid: int,
     Arguments:
         elems (tuple): The elements concerned in the two-center interaction
         all_models (Dict): Dictionary referencing all the models used
-        grid_dist (float): The grid distance to use
+        grid_dist (float): The grid distance to use, in units of bohr radii
         ngrid (int): The number of grid points to use
         ignore_d (bool): Whether or not to ignore d-orbital interactions.
             Defaults to True
@@ -189,7 +211,7 @@ def compute_H(elems : tuple, all_models: Dict, grid_dist: float, ngrid: int,
     predicate = lambda mod_spec : not isinstance(mod_spec, str) and\
         (mod_spec.Zs == elems or mod_spec.Zs == (elems[1], elems[0])) and mod_spec.oper == 'H'
     matching_mods = filter(predicate, all_models.keys())
-    rgrid = generate_grid(grid_dist, ngrid)
+    rgrid = generate_grid(grid_dist, ngrid) #rgrid here is in angstroms
     yval_partial = partial(get_yvals, rgrid = rgrid, all_models = all_models)
     vals_and_ind = map(lambda mod : (yval_partial(mod), determine_index(mod)), matching_mods)
     result = np.zeros((ngrid, 10))
@@ -272,7 +294,7 @@ def construct_header(elems : tuple, all_models: Dict, atom_masses: Dict,
         Ud = Ud_orig if ignore_d else all_models[Model('G', (elem1, ), 'dd')].variables[0].item()
         Erun = np.array([Ed, Ep, Es])
         Urun = np.array([Ud, Up, Us])
-        SPE = np.array([0.0])
+        SPE = np.array([0.0]) #Not interpreted, assumed to be unimportant
         secondline = np.hstack((Erun, SPE, Urun, occupations)).astype('float64')
         return [line1, secondline, massline]
     else:
@@ -291,9 +313,9 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     
     Returns:
         coeffs (Array): An array of coefficients for the cubic splines of 
-            each segment
-        rgrid (Array): The array that the spline spans
-        cutoff (float): The cutoff distance for the spline
+            each segment fit to bohr radius on the x-axis
+        rgrid (Array): The distance array that the spline spans, in angstroms
+        cutoff (float): The cutoff distance for the spline in angstroms
         
     Notes: To get the coefficients of the correct form, we perform a scipy interpolate
         with CubicSplines to get the coeffs.
@@ -304,10 +326,11 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     r_model = all_models[R_mods[0]]
     xlow, xhigh = r_model.pairwise_linear_model.r_range()
     cutoff = r_model.cutoff #Use the cutoff distance from the model itself
-    rgrid = np.linspace(xlow, cutoff, ngrid)
+    rgrid = np.linspace(xlow, cutoff, ngrid) #rgrid here is in angstroms
     r_vals = get_yvals(R_mods[0], rgrid, all_models)
-    #Obtain the spline
-    spl = CubicSpline(rgrid, r_vals)
+    #Obtain the spline, but given the file format we must
+    # fit the spline with units of bohr radii vs hartree
+    spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
     #Coefficients of the spline
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
@@ -318,7 +341,7 @@ def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
     Arguments:
         coeffs (Array): The array of spline coefficients of shape (k, m) where
             k is the degree and m is the number of intervals 
-        rgrid (Array): The distances that the spline spans
+        rgrid (Array): The distances that the spline spans in angstroms
     
     Returns:
         spline_block (List): The correctly formatted spline block; each row of 
@@ -328,6 +351,7 @@ def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
         block should be a fifth degree spline, but for this purpose we will
         do cubic splines. Thus, the last line is padded with 0s
     """
+    rgrid = rgrid * ANGSTROM2BOHR #Convert from angstrom to bohr
     intervals = [(rgrid[i], rgrid[i+1]) for i in range(len(rgrid) - 1)]
     assert(len(intervals) == coeffs.shape[1])
     rows = []
@@ -341,7 +365,7 @@ def assemble_spline_header(rgrid: Array, content: List, ngrid : int, cutoff: flo
     r"""Constructs the spline block header
     Arguments:
         rgrid (Array): The distances spanned by the spline
-        content (List): The original contents of the file as a list of lists
+        content (List): The original contents of the reference file as a list of lists
         ngrid (int): The number of grid points
         cutoff (float): The cutoff distance
     
@@ -352,7 +376,7 @@ def assemble_spline_header(rgrid: Array, content: List, ngrid : int, cutoff: flo
     The main trick is to get the close-range coefficients out
     """
     line1 = ['Spline']
-    line2 = [ngrid - 1, cutoff] #The number of intervals is equal to gridpoints - 1
+    line2 = [ngrid - 1, cutoff * ANGSTROM2BOHR] #The number of intervals is equal to gridpoints - 1
     index = 0
     for i in range(len(content)):
         if len(content[i]) == 1 and content[i][0] == 'Spline':
@@ -421,7 +445,7 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     """
     #Dealing with the H,S datablock
     content = load_file_content(elems, ref_direc, atom_nums)
-    grid_dist, ngrid = get_grid_info(content)
+    grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
     s_block = extract_S_content(elems, content, ngrid)
     h_block = compute_H(elems, all_models, grid_dist, ngrid)
     HS_datablock = construct_datablock(h_block, s_block)
