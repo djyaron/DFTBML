@@ -7,7 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-from trainedskf import ParDict
+# from trainedskf import ParDict
 from skfwriter import main
 
 #%% Top level variable declaration
@@ -154,6 +154,15 @@ print("Initializing models")
 all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
                                                                                                     allowed_Zs, losses)
 
+# Manually fix the range of the models to have a lower starting point so that we can see if that has any benefit 
+# to the spline functional forms
+# new_dict = dict()
+# for mod_spec, dist_range in model_range_dict.items():
+#     original_low, original_high = dist_range
+#     new_dist_range = (0.3, original_high)
+#     new_dict[mod_spec] = new_dist_range
+
+# model_range_dict = new_dict
 #Training feed generation
 print("Generating training feeds")
 feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, debug, loaded_data)
@@ -191,7 +200,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 50
+nepochs = 10
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()

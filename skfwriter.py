@@ -25,6 +25,7 @@ import os, os.path
 from functools import partial
 from scipy.interpolate import CubicSpline
 from dftb import ANGSTROM2BOHR
+import matplotlib.pyplot as plt
 
 #%% Some constants
 atom_nums = {
@@ -150,6 +151,12 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
         fixed_coefs = spline_model.get_fixed().detach().numpy()
         model_variables = np.concatenate((model_variables, fixed_coefs))
     y_vals = np.dot(dgrids_consts[0], model_variables) + dgrids_consts[1]
+    # Plot the values as a scatter to see what's being written to the skf
+    # files as a debugging step
+    fig, ax = plt.subplots()
+    ax.scatter(rgrid, y_vals)
+    ax.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}")
+    plt.show()
     return y_vals 
 
 def determine_index(model_spec: Model) -> int:
@@ -331,6 +338,11 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     #Obtain the spline, but given the file format we must
     # fit the spline with units of bohr radii vs hartree
     spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
+    fig, ax = plt.subplots()
+    #Plot out the cubic spline fit for reference
+    ax.plot(rgrid * ANGSTROM2BOHR, spl(rgrid * ANGSTROM2BOHR))
+    ax.set_title(f"{elems}, rep spline ref")
+    plt.show()
     #Coefficients of the spline
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
@@ -357,6 +369,7 @@ def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
     rows = []
     for index, interval in enumerate(intervals):
         curr_coeffs = list(coeffs[:, index])
+        curr_coeffs.reverse() #Reversal of coefficients in accordance with scipy docs
         rows.append([interval[0], interval[1]] + curr_coeffs)
     rows[-1].extend([0, 0])
     return rows
