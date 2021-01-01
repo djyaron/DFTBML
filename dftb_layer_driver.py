@@ -10,6 +10,7 @@ from dftb_layer_splines_4 import *
 from trainedskf import ParDict
 from skfwriter import main
 from dftb import ANGSTROM2BOHR
+from model_ranges import plot_skf_values
 
 #%% Top level variable declaration
 '''
@@ -54,8 +55,8 @@ losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
 target_accuracy_dipole = 100 # debye
 target_accuracy_charges = 100
-target_accuracy_convex = 1
-target_accuracy_monotonic = 1
+target_accuracy_convex = 1000
+target_accuracy_monotonic = 1000
 
 losses['Etot'] = target_accuracy_energy
 losses['dipole'] = target_accuracy_dipole 
@@ -159,11 +160,17 @@ all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_
 # to the spline functional forms
 # new_dict = dict()
 # for mod_spec, dist_range in model_range_dict.items():
-#     original_low, original_high = dist_range
-#     new_dist_range = (0.02 / ANGSTROM2BOHR, (0.02 * 500) / ANGSTROM2BOHR)
+#     x_low, x_high = dist_range
+#     x_low_bohr = x_low * ANGSTROM2BOHR
+#     x_low_bohr = (x_low_bohr - (x_low_bohr % 0.02) - 4 * 0.02) # Very hacky solution, but proves the problem
+#     x_low_new = x_low_bohr / ANGSTROM2BOHR
+#     new_dist_range = (x_low_new, x_high)
 #     new_dict[mod_spec] = new_dist_range
 
 # model_range_dict = new_dict
+
+# plot_skf_values(training_feeds + validation_feeds, par_dict)
+
 #Training feed generation
 print("Generating training feeds")
 feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, debug, loaded_data)

@@ -1428,6 +1428,7 @@ def create_spline_config_dict(data_dict_lst: List[Dict]) -> Dict:
                     model_range_dict[model_spec] = (new_min, new_max)
     return model_range_dict
 
+
 #%% Refactored functions for the top-level code
 def load_data(train_molec_file: str, train_batch_file: str, 
                        valid_molec_file: str, valid_batch_file: str,
@@ -1713,7 +1714,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
     """
     for ibatch,feed in enumerate(feeds):
         for model_spec in feed['models']:
-            # print(model_spec)
+            print(model_spec)
             if (model_spec not in all_models):
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
                 all_models[model_spec] = mod_res
