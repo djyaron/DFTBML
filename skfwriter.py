@@ -151,6 +151,14 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
         fixed_coefs = spline_model.get_fixed().detach().numpy()
         model_variables = np.concatenate((model_variables, fixed_coefs))
     y_vals = np.dot(dgrids_consts[0], model_variables) + dgrids_consts[1]
+    # Instead of 0's, pad the front dummy values with the first non-zero 
+    # values to allow for smoother spline interpolation
+    ind = 0
+    for index, elem in enumerate(y_vals):
+        if elem != 0:
+            ind = index
+            break
+    y_vals[:ind] = y_vals[ind]
     # Plot the values as a scatter to see what's being written to the skf
     # files as a debugging step
     fig, ax = plt.subplots()

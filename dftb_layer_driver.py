@@ -7,7 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-from trainedskf import ParDict
+from trainedskf import ParDict #Comment this line if using auorg-1-1
 from skfwriter import main
 from dftb import ANGSTROM2BOHR
 from model_ranges import plot_skf_values
@@ -25,7 +25,7 @@ max_config = 10
 target = {'Etot' : 'dt',
           'dipole' : 'wb97x_dz.dipole',
           'charges' : 'wb97x_dz.cm5_charges'}
-exclude = ['O3', 'N2O1', 'H1N1O3']
+exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
 # Parameters for configuring the spline
 num_knots = 50
 max_val = None
@@ -133,6 +133,7 @@ atom_masses = {
     }
 ref_direct = 'auorg-1-1'
 
+
 #%% Precompute
 if not loaded_data:
     print("Getting training and validation molecules")
@@ -156,8 +157,7 @@ print("Initializing models")
 all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
                                                                                                     allowed_Zs, losses)
 
-# Manually fix the range of the models to have a lower starting point so that we can see if that has any benefit 
-# to the spline functional forms
+# Manual correction by extending lower range by some set amount
 # new_dict = dict()
 # for mod_spec, dist_range in model_range_dict.items():
 #     x_low, x_high = dist_range
@@ -168,6 +168,34 @@ all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_
 #     new_dict[mod_spec] = new_dist_range
 
 # model_range_dict = new_dict
+
+# Hardcoded values for model_range_dict based on analyzing ANI-1 interatomic distance distributions
+# Purposefully exclude (1, 1), use the previous range
+# cutoff_dict encodes the lower bound of the distance ranges for each atomic pair
+cutoff_dict = {
+    (6, 6) : 1.04,
+    (1, 6) : 0.602,
+    (7, 7) : 0.986,
+    (6, 7) : 0.948,
+    (1, 7) : 0.573,
+    (1, 8) : 0.599,
+    (6, 8) : 1.005,
+    (7, 8) : 0.933,
+    (8, 8) : 1.062
+    }
+
+new_dict = dict()
+
+for mod, dist_range in model_range_dict.items():
+    xlow, xhigh = dist_range
+    Zs, Zs_rev = mod.Zs, (mod.Zs[1], mod.Zs[0])
+    if Zs in cutoff_dict:
+        xlow = cutoff_dict[Zs]
+    elif Zs_rev in cutoff_dict:
+        xlow = cutoff_dict[Zs_rev]
+    new_dict[mod] = (xlow, xhigh)
+
+model_range_dict = new_dict
 
 # plot_skf_values(training_feeds + validation_feeds, par_dict)
 
@@ -208,7 +236,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 10
+nepochs = 150
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
