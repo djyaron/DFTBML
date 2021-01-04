@@ -54,7 +54,8 @@ from batch import Model, RawData
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
 from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2
+from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2,\
+    ReferenceEnergyLoss
 
 from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
 from functools import partial
@@ -862,7 +863,8 @@ class OffDiagModel2:
 class Reference_energy:
 
     #TODO: add const to this
-    def __init__(self, allowed_Zs: List[int], prev_values: List[float] = []) -> None:
+    def __init__(self, allowed_Zs: List[int], 
+                 prev_values: List[float] = [ -0.2281031771, -36.3322337483, -52.3242899533, -71.8345630247]) -> None:
         r"""Initializes the reference energy model.
         
         Arguments:

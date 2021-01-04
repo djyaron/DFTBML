@@ -7,7 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-from trainedskf import ParDict #Comment this line if using auorg-1-1
+# from trainedskf import ParDict #Comment this line if using auorg-1-1
 from skfwriter import main
 from dftb import ANGSTROM2BOHR
 from model_ranges import plot_skf_values
@@ -22,9 +22,9 @@ heavy_atoms = [1,2,3,4,5]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 10
 # target = 'dt'
-target = {'Etot' : 'dt',
-          'dipole' : 'wb97x_dz.dipole',
-          'charges' : 'wb97x_dz.cm5_charges'}
+target = {'Etot' : 'cc',
+           'dipole' : 'wb97x_dz.dipole',
+           'charges' : 'wb97x_dz.cm5_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
 # Parameters for configuring the spline
 num_knots = 50
@@ -212,6 +212,83 @@ total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels'
 # print("Writing test skf files for debugging")
 # main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
 
+#%% Finding initial reference energy parameters
+"""
+Only one loop should be run at a time! Here, the only variables
+being optimized are the reference energy parameters to account for the difference
+between dftb energies and CC energies. The difference between the two energies
+is as follows:
+
+E_cc = E_dftb + sum_z[N_z * C_z]
+
+where N_z is the number of atoms of element z and C_z is the reference
+energy parameter for element z, and the summation goes over all elements z. 
+This is done for each molecule.
+
+In this case, we are interested in learning C_z. Because we are not optimizing the energy parameters,
+these initial C_z may be sub-optimal. This is fine, as we are only interested in procuring a 
+good starting point.
+"""
+# Set only the reference energy parameters to be optimized
+new_dict = dict()
+for mod in model_variables:
+    if mod == 'Eref':
+        new_dict[mod] = model_variables[mod]
+
+model_variables = new_dict
+
+dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = eig_method)
+learning_rate = 1e-3
+optimizer= optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = True)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01)
+target_loss = ReferenceEnergyLoss()
+
+times_per_epoch = list()
+nepochs = 500
+for i in range(nepochs):
+    start = time.time()
+    
+    validation_loss = 0
+    for elem in validation_feeds:
+        with torch.no_grad():
+            output = dftblayer(elem, all_models)
+            loss = target_loss.get_value(output, elem) #Find reference energy based on E_molec, not E_atom
+            validation_loss += loss.item()
+
+    avg_valid_loss = validation_loss / len(validation_feeds)
+    print("Avg ref energy validation loss", i, avg_valid_loss)
+    validation_losses.append(avg_valid_loss)
+    
+    temp = list(zip(validation_feeds, validation_dftblsts))
+    random.shuffle(temp)
+    validation_feeds, validation_dftblsts = zip(*temp)
+    validation_feeds, validation_dftblsts = list(validation_feeds), list(validation_dftblsts)
+    
+    epoch_loss = 0
+    for feed in training_feeds:
+        optimizer.zero_grad()
+        output = dftblayer(feed, all_models)
+        loss = target_loss.get_value(output, feed)
+        epoch_loss += loss.item()
+        loss.backward()
+        optimizer.step()
+    scheduler.step(epoch_loss)
+    
+    avg_train_loss = epoch_loss / len(training_feeds)
+    print("Avg ref energy training loss", i, avg_train_loss)
+    training_losses.append(avg_train_loss)
+    
+    temp = list(zip(training_feeds, training_dftblsts))
+    random.shuffle(temp)
+    training_feeds, training_dftblsts = zip(*temp)
+    training_feeds, training_dftblsts = list(training_feeds), list(training_dftblsts)
+    
+    times_per_epoch.append(time.time() - start)
+
+print(f"Finished with {nepochs} epochs of reference energy training")
+print(f"The final reference energy variables are as follows:")
+print(all_models['Eref'].get_variables())
+
 #%% Training loop
 '''
 Two different eig methods are available for the dftblayer now, and they are 
@@ -236,7 +313,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 
 times_per_epoch = list()
 
-nepochs = 150
+nepochs = 1500
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -405,3 +482,6 @@ for loss in all_losses:
 from loss_methods import plot_multi_splines
 double_mods = [mod for mod in all_models.keys() if mod != 'Eref' and mod.oper != 'G' and len(mod.Zs) == 2]
 plot_multi_splines(double_mods, all_models)
+
+with open("target_losses.p", "wb") as handle:
+    pickle.dump(loss_tracker, handle)

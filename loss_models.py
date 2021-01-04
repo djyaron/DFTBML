@@ -381,7 +381,7 @@ class TotalEnergyLoss(LossModel):
                 heavy_dict[bsize] = np.array(heavy_lst)
             feed['nheavy'] = heavy_dict
     
-    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool) -> float:
+    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool) -> Tensor:
         r"""Computes the loss for the total energy
         
         Arguments:
@@ -391,7 +391,7 @@ class TotalEnergyLoss(LossModel):
                 per heavy atom basis
             
         Returns:
-            loss (float): The value for the total energy loss with gradients
+            loss (Tensor): The value for the total energy loss with gradients
                 attached that allow backpropagation
         
         Notes: If total energy is computed per heavy atom, torch.div is used
@@ -418,7 +418,62 @@ class TotalEnergyLoss(LossModel):
         total_computed = torch.cat(computed_tensors)
         # RMS loss for total energy
         return torch.sqrt(loss_criterion(total_computed, total_targets))
+
+class ReferenceEnergyLoss(TotalEnergyLoss):
+    r""" Loss model for training the reference energy only
     
+    Because the reference enregy is a part of the total energy, the 
+    same components are needed for the feed, hence the class inheritance. 
+    The only difference is in get_value, where we are interested in backpropagating along
+    E['ref'] only. 
+    """
+    
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def get_value(self, output: Dict, feed: Dict) -> Tensor:
+        r"""Computes the reference energy loss
+        
+        Arguments: 
+            output (Dict): Output dictionary from the DFTB layer
+            feed (Dict): The original feed dictionary
+        
+        Returns:
+            loss (Tensor): The value of the reference energy loss
+        
+        Notes: We are interested in learning the set of parameters C_z such that
+            E_method2 = E_method1 + Sum_z[N_z * C_z], where z indexes over all element 
+            types in a molecule and N_z is the number of that atom in the molecule.
+            
+            Because total energy is computed as E_tot = Eelec + Erep + Eref, we
+            will take E_method1 to be Eelec + Erep and subtract it from E_method2, giving
+            E_ref = E_method2 - E_method1
+            
+            We then backpropagate along Eref. This will give a crude starting point 
+            for the reference energy parameters. Because we are interested in 
+            learning the true starting point of reference energy for each
+            molecule, we will find the reference energies for E_molec
+            rather than for E_atom, so that when using the TotalEnergyLoss, we
+            do not end up dividing by the number of heavy atoms twice
+        """
+        all_bsizes = feed['basis_sizes']
+        loss_criterion = nn.MSELoss()
+        target_tensors, computed_tensors = list(), list()
+        for bsize in all_bsizes:
+            Elec_rep = output['Erep'][bsize] + output['Eelec'][bsize]
+            true_energy = feed['Etot'][bsize]
+            true_ref = true_energy - Elec_rep #Crude estimate of Eref
+            computed_ref = output['Eref'][bsize]
+            if len(true_ref.shape) == 0:
+                true_ref = true_ref.unsqueeze(0)
+            if len(computed_ref.shape) == 0:
+                computed_ref = computed_ref.unsqueeze(0)
+            target_tensors.append(true_ref)
+            computed_tensors.append(computed_ref)
+        total_targets = torch.cat(target_tensors)
+        total_computed = torch.cat(computed_tensors)
+        return torch.sqrt(loss_criterion(total_computed, total_targets))
+            
 class FormPenaltyLoss(LossModel):
     
     seen_dgrid_dict = dict()
@@ -500,7 +555,7 @@ class FormPenaltyLoss(LossModel):
                     FormPenaltyLoss.seen_dgrid_dict[model_spec] = dgrids
             feed['form_penalty'] = final_dict
     
-    def get_value(self, output: Dict, feed: Dict) -> float:
+    def get_value(self, output: Dict, feed: Dict) -> Tensor:
         r"""Computes the form penalty for the spline functional form
         
         Arguments:
@@ -508,7 +563,7 @@ class FormPenaltyLoss(LossModel):
             feed (Dict): The original feed into the DFTB layer
         
         Returns:
-            loss (float): The value for the form penalty loss with gradients
+            loss (Tensor): The value for the form penalty loss with gradients
                 attached that allow backpropagation
         
         Notes: None
@@ -715,7 +770,7 @@ class DipoleLoss2(LossModel):
                 feed['dipoles'] = real_dipvecs
         pass
     
-    def get_value(self, output: Dict, feed: Dict) -> float:
+    def get_value(self, output: Dict, feed: Dict) -> Tensor:
         r"""Computes the penalty for the dipoles
         
         Arguments:
@@ -723,7 +778,7 @@ class DipoleLoss2(LossModel):
             feed (Dict): The original feed into the DFTB layer
         
         Returns:
-            loss (float): The value for the dipole loss with gradients 
+            loss (Tensor): The value for the dipole loss with gradients 
                 attached for backpropagation
         
         Notes: Dipoles are computed from the predicted values for dQ as 
@@ -841,7 +896,7 @@ class ChargeLoss(LossModel):
                     charge_dict[bsize] = total_charges
                 feed['charges'] = charge_dict
     
-    def get_value(self, output: Dict, feed: Dict) -> float:
+    def get_value(self, output: Dict, feed: Dict) -> Tensor:
         r"""Computes the loss for charges
         
         Arguments:
@@ -849,7 +904,7 @@ class ChargeLoss(LossModel):
             feed (Dict): The original feed into the DFTB layer
         
         Returns:
-            loss (float): The value for the dipole loss with gradients 
+            loss (Tensor): The value for the dipole loss with gradients 
                 attached for backpropagation
         
         Notes: Charges are compouted by summing the orbital-resolved charge fluctuations
