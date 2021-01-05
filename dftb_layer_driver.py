@@ -11,6 +11,7 @@ from trainedskf import ParDict #Comment this line if using auorg-1-1
 from skfwriter import main
 from dftb import ANGSTROM2BOHR
 from model_ranges import plot_skf_values
+from predictiongen import PredictionGen
 
 #%% Top level variable declaration
 '''
@@ -101,7 +102,7 @@ transfer_train_params = {
 
 # Flag indicates whether or not to fit to the total energy per molecule or the 
 # total energy as a function of the number of heavy atoms. 
-train_ener_per_heavy = True
+train_ener_per_heavy = False
 
 # Debug flag. If set to true, get_feeds() for the loss models adds data based on
 # dftb results rather than from ANI-1
@@ -486,6 +487,44 @@ print(f"Finished with {nepochs} epochs")
 # Only write trained skf files if not using the trained pardict
 print("Writing skf files from trained models")
 main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+
+#%% Saving predictions
+"""
+After training the models, save the target predictions for each molecule. The
+targets are total energy, charge, and dipole. 
+
+Basically runs all the feeds through the dftblayer again with torch.no_grad(), 
+and save the target predictions for each molecule
+"""
+
+#We will need the validation and training batches first, as we will be 
+# updating the target values for the original molecules (the coordinates do 
+# not change)
+dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = eig_method)
+
+prediction_generator = PredictionGen()
+training_predictions = list()
+validation_predictions = list()
+for feed in training_feeds:
+    with torch.no_grad():
+        output = dftblayer(feed, all_models)
+        predictions = prediction_generator.generate_new_molecs(output, feed)
+        for molec in predictions: 
+            molec['tag'] = 'Train'
+        training_predictions += predictions
+
+for feed in validation_feeds:
+    with torch.no_grad():
+        output = dftblayer(feed, all_models)
+        predictions = prediction_generator.generate_new_molecs(output, feed)
+        for molec in predictions:
+            molec['tag'] = 'Validate'
+        validation_predictions += predictions
+
+with open("predictions.p", "wb") as handle:
+    pickle.dump(training_predictions, handle)
+    pickle.dump(validation_predictions, handle)
+
 
 #%% Logging
 #Save the training and validation losses for visualization later
