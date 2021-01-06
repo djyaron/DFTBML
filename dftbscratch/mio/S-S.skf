@@ -570,56 +570,86 @@ Spline
     <Creation>April 1998</Creation>
     <Element1>S</Element1>
     <Md5sum>eb3d816f3f94b96840b2ff6ec82364ab</Md5sum>
-    <Svn_Id>$Id: S-S.skf 2622 2007-07-27 14:04:01Z aradi $</Svn_Id>
-    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-1-1/S-S.skf $</Svn_URL>
+    <Svn_Id>$Id: S-S.skf 2131 2006-11-10 12:15:26Z niehaus $</Svn_Id>
+    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-0-1/S-S.skf $</Svn_URL>
     <Compatibility>
-       <Partner Identifier="S-O.skf">
+       <Partner  Identifier="S-O.skf">
     	   <Element1>S</Element1>
     	   <Element2>O</Element2>
            <Md5sum>08d0b2d874c17efa0c36e501a00826b5</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="O-S.skf">
+       <Partner  Identifier="O-S.skf">
     	   <Element1>O</Element1>
     	   <Element2>S</Element2>
            <Md5sum>b9d20eeefc03432119fb43ed4a842ae6</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="S-N.skf">
+       <Partner  Identifier="S-N.skf">
     	   <Element1>S</Element1>
     	   <Element2>N</Element2>
            <Md5sum>d20bf5688876eb79279b825fa188b7b4</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="N-S.skf">
+       <Partner  Identifier="N-S.skf">
     	   <Element1>N</Element1>
     	   <Element2>S</Element2>
            <Md5sum>d33505d190fa3618505d1c273921a957</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="S-C.skf">
+       <Partner  Identifier="S-C.skf">
     	   <Element1>S</Element1>
     	   <Element2>C</Element2>
            <Md5sum>42a668079b2c4e836f306feaae0a61a7</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="C-S.skf">
+       <Partner  Identifier="C-S.skf">
     	   <Element1>C</Element1>
     	   <Element2>S</Element2>
            <Md5sum>7509e94aebc7bac312da7496a0889d6d</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="S-H.skf">
+       <Partner  Identifier="S-H.skf">
     	   <Element1>S</Element1>
     	   <Element2>H</Element2>
            <Md5sum>50ad30730cb40b75770d48b229f94098</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="H-S.skf">
-    	   <Element1>H</Element1>
+       <Partner  Identifier="S-As.skf">
+    	   <Element1>S</Element1>
+    	   <Element2>As</Element2>
+           <Md5sum>81b42038071c0ea675aee4b648b4a3b2</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="As-S.skf">
+    	   <Element1>As</Element1>
     	   <Element2>S</Element2>
-           <Md5sum>50ad30730cb40b75770d48b229f94098</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <Md5sum>ea923bf9ae1258c2c89bed74cb5437a0</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="S-Ga.skf">
+    	   <Element1>S</Element1>
+    	   <Element2>Ga</Element2>
+           <Md5sum>00e255732c8bf29162138985717b8323</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="Ga-S.skf">
+    	   <Element1>Ga</Element1>
+    	   <Element2>S</Element2>
+           <Md5sum>d6aa02bb5385151c7d4bc81680701db0</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="S-Si.skf">
+    	   <Element1>S</Element1>
+    	   <Element2>Si</Element2>
+           <Md5sum>51fad88fd58608c2977b246f38606113</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="Si-S.skf">
+    	   <Element1>Si</Element1>
+    	   <Element2>S</Element2>
+           <Md5sum>aedfe059b0d460bc2d7c4b39b77ed6e9</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
        </Partner>
     </Compatibility>
   </General>
@@ -627,7 +657,7 @@ Spline
     <Code>twocnt</Code>
     <Functional>pbe</Functional>
     <Superposition>dense</Superposition>
-    <Basis atom="1">
+    <Basis atom="1" >
       <Shells>3s 3p 3d</Shells>
       <Exponents>0.50 1.19 2.83 6.73 16.0</Exponents>
       <Power>2</Power>
@@ -655,13 +685,13 @@ Spline
       <Fit>Niehaus T.A., Elstner M., Frauenheim T., Suhai S.;
            J. Mol. Struct.-THEOCHEM;541; pp. 185 (2001)
       </Fit>
-      <Other id="1">Daminelli G., Widany J., Di Carlo A., Lugli P.;
+      <Other id="1" >Daminelli G., Widany J., Di Carlo A., Lugli P.;
                      J. Chem. Phys.; 115; pp. 4919 (2001) 
       </Other>
-      <Other id="2">Fabian J., Diaz L.A., Seifert G., Niehaus T.A.;
+      <Other id="2" >Fabian J., Diaz L.A., Seifert G., Niehaus T.A.;
                      J. Mol. Struct.-THEOCHEM; 594; pp. 41 (2002)
       </Other>
-      <Other id="3">Joswig J.O., Seifert G., Niehaus T.A., Springborg M.;
+      <Other id="3" >Joswig J.O., Seifert G., Niehaus T.A., Springborg M.;
                      J. Phys. Chem. B; 107; pp. 2897 (2003)
       </Other>
     </Publications>
@@ -673,3 +703,4 @@ Spline
     </Notes>
   </Misc>
 </Documentation>
+

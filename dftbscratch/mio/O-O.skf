@@ -572,56 +572,74 @@ Spline
     <Creation>April 1997</Creation>
     <Element1>O</Element1>
     <Md5sum>1307bccbc31ef5eca3b6ffdd0eb53197</Md5sum>
-    <Svn_Id>$Id: O-O.skf 2622 2007-07-27 14:04:01Z aradi $</Svn_Id>
-    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-1-1/O-O.skf $</Svn_URL>
+    <Svn_Id>$Id: O-O.skf 2131 2006-11-10 12:15:26Z niehaus $</Svn_Id>
+    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-0-1/O-O.skf $</Svn_URL>
     <Compatibility>
-       <Partner Identifier="O-S.skf">
+       <Partner  Identifier="O-S.skf">
     	   <Element1>O</Element1>
     	   <Element2>S</Element2>
            <Md5sum>b9d20eeefc03432119fb43ed4a842ae6</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="S-O.skf">
+       <Partner  Identifier="S-O.skf">
     	   <Element1>S</Element1>
     	   <Element2>O</Element2>
            <Md5sum>08d0b2d874c17efa0c36e501a00826b5</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="O-N.skf">
+       <Partner  Identifier="O-N.skf">
     	   <Element1>O</Element1>
     	   <Element2>N</Element2>
            <Md5sum>48159e851673b5405b368f2d50034963</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="N-O.skf">
+       <Partner  Identifier="N-O.skf">
     	   <Element1>N</Element1>
     	   <Element2>O</Element2>
            <Md5sum>7479317f510416a8878d9e611f1b873e</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="O-C.skf">
+       <Partner  Identifier="O-C.skf">
     	   <Element1>O</Element1>
     	   <Element2>C</Element2>
            <Md5sum>760a97a980516a986b6398677fe888d6</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="C-O.skf">
+       <Partner  Identifier="C-O.skf">
     	   <Element1>C</Element1>
     	   <Element2>O</Element2>
            <Md5sum>d36ad1b099e1aca1e55e4054a69cc72c</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="O-H.skf">
+       <Partner  Identifier="O-H.skf">
     	   <Element1>O</Element1>
     	   <Element2>H</Element2>
            <Md5sum>38707214cbb1ec7e75890bcba6a969bf</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="H-O.skf">
-    	   <Element1>H</Element1>
+       <Partner  Identifier="O-Ag.skf">
+    	   <Element1>O</Element1>
+    	   <Element2>Ag</Element2>
+           <Md5sum>021b7ad4721aa3ec90d4eebf11f1f61b</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="Ag-O.skf">
+    	   <Element1>Ag</Element1>
     	   <Element2>O</Element2>
-           <Md5sum>38707214cbb1ec7e75890bcba6a969bf</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <Md5sum>147e05a8c400497d60356844b503884c</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="Ga-O.skf">
+    	   <Element1>Ga</Element1>
+    	   <Element2>O</Element2>
+           <Md5sum>d7172a1add1afb66831aa0984eb12fc8</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
+       </Partner>
+       <Partner  Identifier="O-Ga.skf">
+    	   <Element1>O</Element1>
+    	   <Element2>Ga</Element2>
+           <Md5sum>71441cd7b803da68a01b8dbcb2cd02e9</Md5sum>
+           <SvnLoc>trunk/skful/hyb</SvnLoc> 
        </Partner>
     </Compatibility>
   </General>
@@ -629,12 +647,12 @@ Spline
     <Code>twocnt</Code>
     <Functional>pbe</Functional>
     <Superposition>dense</Superposition>
-    <Basis atom="1">
+    <Basis atom="1" >
       <Shells>2s 2p </Shells>
       <Exponents>0.50 1.26 3.17 8.0</Exponents>
       <Power>2</Power>
       <Potential>2</Potential>
-      <Density>9.0</Density>
+      <Density>11.0</Density>
       <Wavefunction>2.3 2.3 </Wavefunction>
     </Basis>
     <Hubbard>td</Hubbard>
@@ -656,7 +674,7 @@ Spline
     <Publications>
       <Fit>Elstner M. Dissertation an der Universitaet Paderborn
       </Fit>
-      <Other id="1">
+      <Other id="1" >
                     M. Elstner et al., Phys. Rev. B  58 (1998) 7260. 
       </Other>
     </Publications>
@@ -667,3 +685,4 @@ Spline
     </Notes>
   </Misc>
 </Documentation>
+

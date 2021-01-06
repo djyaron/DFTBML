@@ -554,18 +554,18 @@ Spline
     <Element1>O</Element1>
     <Element2>H</Element2>
     <Md5sum>38707214cbb1ec7e75890bcba6a969bf</Md5sum>
-    <Svn_Id>$Id: O-H.skf 2622 2007-07-27 14:04:01Z aradi $</Svn_Id>
-    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-1-1/O-H.skf $</Svn_URL>
+    <Svn_Id>$Id: O-H.skf 2131 2006-11-10 12:15:26Z niehaus $</Svn_Id>
+    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-0-1/O-H.skf $</Svn_URL>
     <Compatibility>
-       <Partner Identifier="O-O.skf">
+       <Partner  Identifier="O-O.skf">
     	   <Element1>O</Element1>
            <Md5sum>1307bccbc31ef5eca3b6ffdd0eb53197</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc>
+           <SvnLoc>trunk/skful/bio</SvnLoc>
        </Partner> 
-       <Partner Identifier="H-H.skf">
+       <Partner  Identifier="H-H.skf">
     	   <Element1>H</Element1>
            <Md5sum>899f0bca0d424a7e655b640ab49cedc1</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc>
+           <SvnLoc>trunk/skful/bio</SvnLoc>
        </Partner> 
     </Compatibility>
   </General>
@@ -573,7 +573,7 @@ Spline
     <Code>twocnt</Code>
     <Functional>pbe</Functional>
     <Superposition>dense</Superposition>
-    <Basis atom="1">
+    <Basis atom="1" >
       <Shells>2s 2p </Shells>
       <Exponents>0.50 1.26 3.17 8.0</Exponents>
       <Power>2</Power>
@@ -581,7 +581,7 @@ Spline
       <Density>11.0</Density>
       <Wavefunction>2.3 2.3 </Wavefunction>
     </Basis>
-    <Basis atom="2">
+    <Basis atom="2" >
       <Shells>1s</Shells>
       <Exponents>0.50 1.0 2.0</Exponents>
       <Power>2</Power>
@@ -604,11 +604,11 @@ Spline
     lengths and of  about 2 degree in bond angles. Vibrational frequencies show mean errors
     of 5-7 % , although several modes show larger errors (e.g. C-C stretching modes).
     </Accuracy>
-    <Failures/>
+    <Failures></Failures>
     <Publications>
       <Fit>Elstner M. Dissertation an der Universitaet Paderborn
       </Fit>
-      <Other id="1">
+      <Other id="1" >
        M. Elstner et al., Phys. Rev. B  58 (1998) 7260.
       </Other> 
     </Publications>
@@ -619,3 +619,4 @@ Spline
     </Notes>
   </Misc>
 </Documentation>
+

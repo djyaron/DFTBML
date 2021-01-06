@@ -547,55 +547,31 @@ Spline
     <Element1>H</Element1>
     <Md5sum>899f0bca0d424a7e655b640ab49cedc1</Md5sum>
     <Svn_Id>$Id: H-H.skf 2131 2006-11-10 12:15:26Z niehaus $</Svn_Id>
-    <Svn_URL>$URL: svn+ssh://svn/slako/trunk/skful/mio/H-H.skf $</Svn_URL>
+    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-0-1/H-H.skf $</Svn_URL>
     <Compatibility>
-       <Partner Identifier="S-H.skf">
+       <Partner  Identifier="S-H.skf">
     	   <Element1>S</Element1>
     	   <Element2>H</Element2>
            <Md5sum>50ad30730cb40b75770d48b229f94098</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="H-S.skf">
-    	   <Element1>H</Element1>
-    	   <Element2>S</Element2>
-           <Md5sum>50ad30730cb40b75770d48b229f94098</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
-       </Partner>
-       <Partner Identifier="O-H.skf">
+       <Partner  Identifier="O-H.skf">
     	   <Element1>O</Element1>
     	   <Element2>H</Element2>
            <Md5sum>38707214cbb1ec7e75890bcba6a969bf</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="H-O.skf">
-    	   <Element1>H</Element1>
-    	   <Element2>O</Element2>
-           <Md5sum>38707214cbb1ec7e75890bcba6a969bf</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
-       </Partner>
-       <Partner Identifier="N-H.skf">
+       <Partner  Identifier="N-H.skf">
     	   <Element1>N</Element1>
     	   <Element2>H</Element2>
            <Md5sum>80cf79bc146a95b23476f1e6721968e8</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="H-N.skf">
-    	   <Element1>H</Element1>
-    	   <Element2>N</Element2>
-           <Md5sum>80cf79bc146a95b23476f1e6721968e8</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
-       </Partner>
-       <Partner Identifier="C-H.skf">
+       <Partner  Identifier="C-H.skf">
     	   <Element1>C</Element1>
     	   <Element2>H</Element2>
            <Md5sum>5e2e109a0b7eb08a36f6d774599a524b</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
-       </Partner>
-       <Partner Identifier="H-C.skf">
-    	   <Element1>H</Element1>
-    	   <Element2>C</Element2>
-           <Md5sum>5e2e109a0b7eb08a36f6d774599a524b</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc>
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
     </Compatibility>
   </General>
@@ -603,7 +579,7 @@ Spline
     <Code>twocnt</Code>
     <Functional>pbe</Functional>
     <Superposition>dense</Superposition>
-    <Basis atom="1">
+    <Basis atom="1" >
       <Shells>1s </Shells>
       <Exponents>0.50 1.0 2.0</Exponents>
       <Power>2</Power>
@@ -630,7 +606,7 @@ Spline
     <Publications>
       <Fit>Elstner M. Dissertation an der Universitaet Paderborn
       </Fit>
-      <Other id="1">
+      <Other id="1" >
                     M. Elstner et al., Phys. Rev. B  58 (1998) 7260. 
       </Other>
     </Publications>
@@ -644,3 +620,4 @@ Spline
     </Notes>
   </Misc>
 </Documentation>
+

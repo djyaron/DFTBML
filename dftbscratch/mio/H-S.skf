@@ -549,21 +549,21 @@ Spline
     <Identifier>S-H.skf</Identifier>
     <Author>Thomas Niehaus (niehaus@phys.uni-paderborn.de)</Author>
     <Creation>April 1998</Creation>
-    <Element1>H</Element1>
-    <Element2>S</Element2>
+    <Element1>S</Element1>
+    <Element2>H</Element2>
     <Md5sum>50ad30730cb40b75770d48b229f94098</Md5sum>
     <Svn_Id>$Id: S-H.skf 2131 2006-11-10 12:15:26Z niehaus $</Svn_Id>
-    <Svn_URL>$URL: svn+ssh://svn/slako/trunk/skful/mio/S-H.skf $</Svn_URL>
+    <Svn_URL>$URL: svn+ssh://svn/slako/tags/skful/mio-0-1/S-H.skf $</Svn_URL>
     <Compatibility>
-       <Partner Identifier="S-S.skf">
+       <Partner  Identifier="S-S.skf">
     	   <Element1>S</Element1>
            <Md5sum>eb3d816f3f94b96840b2ff6ec82364ab</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc> 
+           <SvnLoc>trunk/skful/bio</SvnLoc> 
        </Partner>
-       <Partner Identifier="H-H.skf">
+       <Partner  Identifier="H-H.skf">
     	   <Element1>H</Element1>
            <Md5sum>899f0bca0d424a7e655b640ab49cedc1</Md5sum>
-           <SvnLoc>trunk/skful/mio</SvnLoc>
+           <SvnLoc>trunk/skful/bio</SvnLoc>
        </Partner> 
     </Compatibility>
   </General>
@@ -571,15 +571,7 @@ Spline
     <Code>twocnt</Code>
     <Functional>pbe</Functional>
     <Superposition>dense</Superposition>
-    <Basis atom="1">
-      <Shells>1s</Shells>
-      <Exponents>0.50 1.0 2.0</Exponents>
-      <Power>2</Power>
-      <Potential>2</Potential>
-      <Density>2.5</Density>
-      <Wavefunction>3.0</Wavefunction>
-    </Basis> 
-    <Basis atom="2">
+    <Basis atom="1" >
       <Shells>3s 3p 3d</Shells>
       <Exponents>0.50 1.19 2.83 6.73 16.0</Exponents>
       <Power>2</Power>
@@ -587,6 +579,14 @@ Spline
       <Density>9.0</Density>
       <Wavefunction>3.8 3.8 4.4</Wavefunction>
     </Basis>
+    <Basis atom="2" >
+      <Shells>1s</Shells>
+      <Exponents>0.50 1.0 2.0</Exponents>
+      <Power>2</Power>
+      <Potential>2</Potential>
+      <Density>2.5</Density>
+      <Wavefunction>3.0</Wavefunction>
+    </Basis> 
   </SK_table>
   <E_rep>
     <Storage>spline </Storage>
@@ -605,13 +605,13 @@ Spline
       <Fit>Niehaus T.A., Elstner M., Frauenheim T., Suhai S.;
            J. Mol. Struct.-THEOCHEM;541; pp. 185 (2001)
       </Fit>
-      <Other id="1">Daminelli G., Widany J., Di Carlo A., Lugli P.;
+      <Other id="1" >Daminelli G., Widany J., Di Carlo A., Lugli P.;
                      J. Chem. Phys.; 115; pp. 4919 (2001) 
       </Other>
-      <Other id="2">Fabian J., Diaz L.A., Seifert G., Niehaus T.A.;
+      <Other id="2" >Fabian J., Diaz L.A., Seifert G., Niehaus T.A.;
                      J. Mol. Struct.-THEOCHEM; 594; pp. 41 (2002)
       </Other>
-      <Other id="3">Joswig J.O., Seifert G., Niehaus T.A., Springborg M.;
+      <Other id="3" >Joswig J.O., Seifert G., Niehaus T.A., Springborg M.;
                      J. Phys. Chem. B; 107; pp. 2897 (2003)
       </Other>
     </Publications>
@@ -623,3 +623,5 @@ Spline
     </Notes>
   </Misc>
 </Documentation>
+
+
