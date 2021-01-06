@@ -1,0 +1,29 @@
+Geometry = xyzFormat {
+ <<< "mol.xyz"
+}
+
+Driver = {}
+
+Hamiltonian = DFTB {
+  Scc = Yes
+  ShellResolvedSCC = No
+  SlaterKosterFiles = Type2FileNames {
+    Prefix = "skf/"
+    Separator = "-"
+    Suffix = ".skf"
+  }
+  MaxAngularMomentum {
+  H = "s"
+  C = "p"
+  }
+}
+
+Options {}
+
+Analysis {
+  CalculateForces = No
+}
+
+ParserOptions {
+  ParserVersion = 9
+}
