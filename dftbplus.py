@@ -69,41 +69,50 @@ def write_dftb_in_hsd(Zs, rcart_angstroms, scratch_dir):
     rcart = rcart_angstroms
     natom = len(Zs)
     max_angular_momentum = {1: 'H = "s"', 6: 'C = "p"', 7: 'N = "p"', 8: 'O = "p"'}
-    
+    Ztypes = np.unique(Zs)
+    ZtoType = {Z:(i+1) for i,Z in enumerate(Ztypes)}
     with open(os.path.join(scratch_dir,'dftb_in.hsd'),'w') as dftbfile:
-        dftbfile.write(r'Geometry = xyzFormat {' + '\n')
-        dftbfile.write(str(natom)+ '\n')
-        dftbfile.write(r'junk' + '\n')
+        dftbfile.write(r'Geometry = {' + '\n')
+        line = r'  TypeNames = {'
+        for Z in Ztypes:
+            line += r' "' + ELEMENTS[Z].symbol + r'" '
+        line += r'}'
+        dftbfile.write(line + '\n')
+        dftbfile.write(r'   TypesAndCoordinates [Angstrom] = {' + '\n')
         for iatom,Z in enumerate(Zs):
-            line = ELEMENTS[Z].symbol 
+            line = r'      ' + str(ZtoType[Z])
             line += ' %.8f' % rcart[iatom,0] + ' %.8f' % rcart[iatom,1] \
-                + ' %.8f' % rcart[iatom,2] + ' 0.0'
+                + ' %.8f' % rcart[iatom,2]
             dftbfile.write(line+ '\n')
+        dftbfile.write(r'   }' + '\n')
         dftbfile.write(r'}' + '\n')
         dftbfile.write(
             r'Driver = {}' + '\n' +
             r'Hamiltonian = DFTB {' + '\n' +
-            r'Scc = Yes' + '\n' +
-            r'ShellResolvedSCC = Yes' + '\n' +
-            r'SlaterKosterFiles = Type2FileNames {' + '\n' +
-            r'Prefix = "skf/"' + '\n' +
-            r'Separator = "-"' + '\n' +
-            r'Suffix = ".skf"' + '\n' +
-            r'}' + '\n' +
-            r'MaxAngularMomentum {' + '\n'
+            r'   Scc = Yes' + '\n' +
+            r'   OrbitalResolvedSCC = Yes' + '\n' +
+            r'   SlaterKosterFiles = Type2FileNames {' + '\n' +
+            r'      Prefix = "skf/"' + '\n' +
+            r'      Separator = "-"' + '\n' +
+            r'      Suffix = ".skf"' + '\n' +
+            r'   }' + '\n' +
+            r'   MaxAngularMomentum {' + '\n'
             )
         # required because DFTB+ wants ang momentum listed only for elements
         # actually in the molecule        
         for Z, ang_str in max_angular_momentum.items():
             if Z in Zs:
-                dftbfile.write(ang_str + '\n')
+                dftbfile.write(r'      ' + ang_str + '\n')
         dftbfile.write(
-            r'}' + '\n' +
+            r'   }' + '\n' +
             r'}'+ '\n' +
             r'Options {}'  + '\n' +
             r'Analysis {' + '\n' +
-            r'CalculateForces = No' + '\n' +
-            r'}'+ '\n' 
+            r'   CalculateForces = No' + '\n' +
+            r'}' + '\n' 
+            r'ParserOptions {' + '\n' 
+            r'   Parserversion = 5' + '\n' 
+            r'}'
             )
 
 def read_dftb_out(scratch_dir):
@@ -136,7 +145,7 @@ scratch_dir = "/home/yaron/code/dftbtorch/dftbscratch"
 
 
 allowed_Zs = [1,6,7,8]
-maxheavy = 8
+maxheavy = 3
 pkl_file = 'heavy' + str(maxheavy) + '.pk'
 
 if not os.path.exists(pkl_file):    
