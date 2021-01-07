@@ -1265,7 +1265,7 @@ class DFTB_Layer(nn.Module):
                     Svals, Svecs = symeig(S1, 'cond')
                 elif self.method == 'old':
                     Svals, Svecs = torch.symeig(S1, eigenvectors = True)
-                phiS = torch.matmul(Svecs, torch.diag(torch.pow(Svals, -0.5).view(-1)))
+                phiS = torch.matmul(Svecs, torch.diag_embed(torch.pow(Svals, -0.5))) #Changed this to get the diagonalization and multiplication to work
             else:
                 phiS = data_input['phiS'][bsize]
             fockp = torch.matmul(torch.transpose(phiS, -2, -1), torch.matmul(fock, phiS))
