@@ -7,7 +7,7 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-# from trainedskf import ParDict #Comment this line if using auorg-1-1
+from trainedskf import ParDict #Comment this line if using auorg-1-1
 from skfwriter import main
 from dftb import ANGSTROM2BOHR
 from model_ranges import plot_skf_values
@@ -211,7 +211,7 @@ print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
 
 # print("Writing test skf files for debugging")
-# main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+# main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
 
 #%% Finding initial reference energy parameters
 """
@@ -315,43 +315,43 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, thres
 times_per_epoch = list()
 
 #First charge update
-# print("running training set charge update")
-# for j in range(len(training_feeds)):
-#     # Charge update for training_feeds
-#     feed = training_feeds[j]
-#     dftb_list = training_dftblsts[j]
-#     op_dict = assemble_ops_for_charges(feed, all_models)
-#     try:
-#         update_charges(feed, op_dict, dftb_list)
-#     except Exception as e:
-#         print(e)
-#         glabels = feed['glabels']
-#         basis_sizes = feed['basis_sizes']
-#         result_lst = []
-#         for bsize in basis_sizes:
-#             result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
-#         print("Charge update failed for")
-#         print(result_lst)
-# print("training charge update done, doing validation set")
-# for k in range(len(validation_feeds)):
-#     # Charge update for validation_feeds
-#     feed = validation_feeds[k]
-#     dftb_list = validation_dftblsts[k]
-#     op_dict = assemble_ops_for_charges(feed, all_models)
-#     try:
-#         update_charges(feed, op_dict, dftb_list)
-#     except Exception as e:
-#         print(e)
-#         glabels = feed['glabels']
-#         basis_sizes = feed['basis_sizes']
-#         result_lst = []
-#         for bsize in basis_sizes:
-#             result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
-#         print("Charge update failed for")
-#         print(result_lst)
-# print(f"charge updates done for start")
+print("running training set charge update")
+for j in range(len(training_feeds)):
+    # Charge update for training_feeds
+    feed = training_feeds[j]
+    dftb_list = training_dftblsts[j]
+    op_dict = assemble_ops_for_charges(feed, all_models)
+    try:
+        update_charges(feed, op_dict, dftb_list)
+    except Exception as e:
+        print(e)
+        glabels = feed['glabels']
+        basis_sizes = feed['basis_sizes']
+        result_lst = []
+        for bsize in basis_sizes:
+            result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
+        print("Charge update failed for")
+        print(result_lst)
+print("training charge update done, doing validation set")
+for k in range(len(validation_feeds)):
+    # Charge update for validation_feeds
+    feed = validation_feeds[k]
+    dftb_list = validation_dftblsts[k]
+    op_dict = assemble_ops_for_charges(feed, all_models)
+    try:
+        update_charges(feed, op_dict, dftb_list)
+    except Exception as e:
+        print(e)
+        glabels = feed['glabels']
+        basis_sizes = feed['basis_sizes']
+        result_lst = []
+        for bsize in basis_sizes:
+            result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
+        print("Charge update failed for")
+        print(result_lst)
+print(f"charge updates done for start")
 
-nepochs = 150
+nepochs = 75
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -485,8 +485,8 @@ for i in range(nepochs):
 print(f"Finished with {nepochs} epochs")
 
 # Only write trained skf files if not using the trained pardict
-# print("Writing skf files from trained models")
-# main(all_models, atom_nums, atom_masses, ref_direct, ext = 'newskf')
+print("Writing skf files from trained models")
+main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
 
 #%% Saving predictions
 """

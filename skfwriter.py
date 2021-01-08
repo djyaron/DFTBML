@@ -203,6 +203,39 @@ def determine_index(model_spec: Model) -> int:
         elif sym is None: #No symmetry is treated as sigma (should never happen)
             return 5
 
+def compute_S(elems: tuple, all_models: Dict, grid_dist: float, ngrid : int, 
+              ignore_d: bool = True) -> Array:
+    r"""Computes values for the overlap operator block, S
+    
+    Arguments:
+        elems (tuple): The elements concerned in the two-center interaction
+        all_models (Dict): Dictionary referencing all the models used
+        grid_dist (float): The grid distance to use, in units of bohr radii
+        ngrid (int): The number of grid points to use
+        ignore_d (bool): Whether or not to ignore d-orbital interactions. 
+            Defaults to True
+    
+    Returns:
+        s_vals (Array): The values for the overlapoperator, ordered
+            by the interaction. Order specified in slater-koster file format
+    
+    Notes: Logic is very similar to that of compute_H
+    """
+    predicate = lambda mod_spec : not isinstance(mod_spec, str) and\
+        (mod_spec.oper == 'S') and (mod_spec.Zs == elems or mod_spec.Zs == (elems[1], elems[0]))\
+            and (mod_spec.orb in ['ss', 'pp_pi', 'pp_sigma'])
+    # Or ensure equivalence of Zs but the orbital type is not symmetric
+    predicate2 = lambda mod_spec : not isinstance(mod_spec, str) and\
+        (mod_spec.oper == 'S') and (mod_spec.Zs == elems) and (mod_spec.orb in ['sp'])
+    matching_mods = filter(lambda x : (predicate(x) or predicate2(x)), all_models.keys())
+    rgrid = generate_grid(grid_dist, ngrid) #rgrid here is in angstroms
+    yval_partial = partial(get_yvals, rgrid = rgrid, all_models = all_models)
+    vals_and_ind = map(lambda mod : (yval_partial(mod), determine_index(mod)), matching_mods)
+    result = np.zeros((ngrid, 10))
+    for val_arr, ind in vals_and_ind:
+        result[:, ind] = val_arr
+    return result
+
 def compute_H(elems : tuple, all_models: Dict, grid_dist: float, ngrid: int,
               ignore_d: bool = True) -> Array:
     r"""Computes the H-values for each of the two-center interactions
@@ -425,7 +458,7 @@ def combine_list_to_str(strlst: List, sep: str = "  ") -> str:
     return sep.join(strlst) + "\n"
 
 def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
-                          atom_masses: Dict, ref_direc: str, str_sep: str = "  ",
+                          atom_masses: Dict, compute_S_block: bool, ref_direc: str, str_sep: str = "  ",
                           spline_ngrid: int = 50, ext: str = None) -> None:
     r"""Write the skf file for a single atom pair
     
@@ -434,6 +467,8 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         all_models (Dict): Dictionary containing references to all models
         atom_nums (Dict): The dictionary mapping atom numbers to their symbols
         atom_masses (Dict): The dictionary mapping atom numbers to their masses
+        compute_S_block (bool): Whether or not to compute values for the overlap operator
+            S.
         ref_direc (str): The relative path to the directory containing all skf files
         str_sep (str): The separator for each line
         spline_ngrid (int): The number of gridpoints ot use for the splines
@@ -472,7 +507,10 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     #Dealing with the H,S datablock
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
-    s_block = extract_S_content(elems, content, ngrid)
+    if compute_S_block: #When fitting S
+        s_block = compute_S(elems, all_models, grid_dist, ngrid)
+    else:
+        s_block = extract_S_content(elems, content, ngrid)
     h_block = compute_H(elems, all_models, grid_dist, ngrid)
     HS_datablock = construct_datablock(h_block, s_block)
     HS_header = construct_header(elems, all_models, atom_masses, grid_dist, ngrid, content)
@@ -509,18 +547,20 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         
         handle.close()
 
-def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, 
+def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: bool,
          ref_direc: str, str_sep: str = "  ", spline_ngrid: int = 50, ext: str = None) -> None:
     r"""Main method for writing out all the skf files for the given set of models
     
     Arguments:
-        elems (tuple): Atom pair to write the skf file for 
         all_models (Dict): Dictionary containing references to all models
         atom_nums (Dict): The dictionary mapping atom numbers to their symbols
         atom_masses (Dict): The dictionary mapping atom numbers to their masses
+        compute_S (bool): Whether to compute values for overlap operator or
+            extract them from reference file
         ref_direc (str): The relative path to the directory containing all skf files
-        str_sep (str): The separator for each line
-        spline_ngrid (int): The number of gridpoints ot use for the splines
+        str_sep (str): The separator for each line, defaults to two spaces
+        spline_ngrid (int): The number of gridpoints ot use for the splines.
+            Defaults to 50
         ext (str): Additional save path (e.g., to a directory or something). 
             Defaults to None
     
@@ -531,7 +571,7 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict,
     """
     elem_pairs = extract_elem_pairs(all_models)
     for pair in elem_pairs:
-        write_single_skf_file(pair, all_models, atom_nums, atom_masses, 
+        write_single_skf_file(pair, all_models, atom_nums, atom_masses, compute_S_block, 
                               ref_direc, str_sep, spline_ngrid, ext)
 
 

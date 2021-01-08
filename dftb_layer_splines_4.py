@@ -864,7 +864,7 @@ class Reference_energy:
 
     #TODO: add const to this
     def __init__(self, allowed_Zs: List[int], 
-                 prev_values: List[float] = [ -0.232768881196305, -36.32869539183362, -52.320137947804675, -71.83827403611998]) -> None:
+                 prev_values: List[float] = [ -0.2323322747, -36.3256865272, -52.3187836247, -71.8383273595]) -> None:
         r"""Initializes the reference energy model.
         
         Arguments:
