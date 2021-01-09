@@ -153,7 +153,7 @@ def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int,
             for i in range(len(target_alias)):
                 targ_key = target_alias[i]
                 batch['targets'][targ_key] = all_targets[name][i][iconfig]
-            batches.append([batch])
+            batches.append(batch)
     return batches
 
 def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int], par_dict: Dict) -> (Dict, DFTBList):
@@ -1509,7 +1509,7 @@ def dataset_sorting(dataset: List[Dict], prop_train: float, transfer_training: b
     
     cleaned_dataset = list()
     for index, item in enumerate(dataset, 0):
-        cleaned_dataset.append(item[0])
+        cleaned_dataset.append(item)
             
     print('Number of total molecules', len(cleaned_dataset))
 
@@ -1587,6 +1587,27 @@ def dataset_sorting(dataset: List[Dict], prop_train: float, transfer_training: b
     
     return training_molecs, validation_molecs
 
+def generate_cv_folds(dataset: List[Dict], num_folds: int, shuffle: bool = True) -> List[Array]:
+    r"""Generates num_folds many folds from the dataset, performs a shuffle first
+    
+    Arguments:
+        dataset (List[Dict]): A list of dictionaries returned by get_ani1data in dftb_layer_splines_4.py
+        num_folds (int): The number of folds to generate
+        shuffle (bool): If bool, will shuffle the dataset before splitting into folds
+    
+    Returns:
+        folds (List[Array]): A list of arrays of indices representing the folds created from the 
+            initial dataset
+    
+    Notes: This approach for generating folds works for non-transfer training, 
+        this is also a very simple cv scheme
+    """
+    if shuffle:
+        random.shuffle(dataset)
+    indices = np.arange(len(dataset))
+    folds = np.array_split(indices, num_folds)
+    return folds
+
 def graph_generation(molecules: List[Dict], config: Dict, allowed_Zs: List[int], 
                      par_dict: Dict, num_per_batch: int = 10) -> (List[Dict], List[DFTBList], List[List[Dict]]):
     r"""Generates the initial feed dictionaries for the given set of molecules
@@ -1632,7 +1653,7 @@ def graph_generation(molecules: List[Dict], config: Dict, allowed_Zs: List[int],
     
     return feeds, feed_dftblsts, feed_batches
 
-def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List[Dict], allowed_Zs: List[int], losses: Dict) -> tuple:
+def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List[Dict], allowed_Zs: List[int], losses: Dict, ref_ener_start: List = None) -> tuple:
     r"""Initializes the losses and generates the models and model_variables dictionaries
     
     Arguments:
@@ -1640,6 +1661,8 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
         validation_feeds (List[Dict]): The validation feed dictionaries
         allowed_Zs (List[int]): The atomic numbers of allowed elements
         losses (Dict): Dictionary of the targets and their target accuracies
+        ref_ener_start (List): A list of starting value for the reference energy model.
+            Defaults to None
     
     Returns:
         all_models (Dict): Dictionary that will contain references to all models
@@ -1654,11 +1677,13 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
     
     Notes: Everything is aliased so that the same set of models is being optimized
         across all feed dictionaries.
+        
+        The default previous values are best suited for fitting the couple-clustered energy
     """
     all_models = dict()
     model_variables = dict() #This is used for the optimizer later on
     
-    all_models['Eref'] = Reference_energy(allowed_Zs)
+    all_models['Eref'] = Reference_energy(allowed_Zs) if (ref_ener_start is None) else Reference_energy(allowed_Zs, prev_values = ref_ener_start)
     model_variables['Eref'] = all_models['Eref'].get_variables()
     
     #More nuanced construction of config dictionary
@@ -1716,7 +1741,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
     """
     for ibatch,feed in enumerate(feeds):
         for model_spec in feed['models']:
-            print(model_spec)
+            # print(model_spec)
             if (model_spec not in all_models):
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
                 all_models[model_spec] = mod_res

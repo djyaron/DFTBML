@@ -23,7 +23,7 @@ heavy_atoms = [1,2,3,4,5]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 10
 # target = 'dt'
-target = {'Etot' : 'cc',
+target = {'Etot' : 'ht',
            'dipole' : 'wb97x_dz.dipole',
            'charges' : 'wb97x_dz.cm5_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
@@ -485,8 +485,8 @@ for i in range(nepochs):
 print(f"Finished with {nepochs} epochs")
 
 # Only write trained skf files if not using the trained pardict
-print("Writing skf files from trained models")
-main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
+# print("Writing skf files from trained models")
+# main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
 
 #%% Saving predictions
 """
