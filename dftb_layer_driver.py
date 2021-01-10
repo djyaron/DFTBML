@@ -7,11 +7,12 @@ Created on Wed Dec 23 20:59:17 2020
 Driver test for dftb_layer
 """
 from dftb_layer_splines_4 import *
-from trainedskf import ParDict #Comment this line if using auorg-1-1
+# from trainedskf import ParDict #Comment this line if using auorg-1-1
 from skfwriter import main
 from dftb import ANGSTROM2BOHR
 from model_ranges import plot_skf_values
 from predictiongen import PredictionGen
+import numpy as np
 
 #%% Top level variable declaration
 '''
@@ -40,6 +41,12 @@ prop_train = 0.8
 prop_valid = 0.2
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
+reference_energy_starting_point = [-4.6333576745e-02, -3.0198463989e+01, -4.4971460636e+01,
+        -6.3558934330e+01, -2.8466603245e+01]
+
+lst_sq_ref_ener = [-2.07616501e-01 -3.61579105e+01 -5.20915629e+01 -7.15611237e+01
+ -5.01610610e-03] #Obtained from least squares ref fit
+
 training_losses = list()
 validation_losses = list()
 times = collections.OrderedDict()
@@ -102,7 +109,7 @@ transfer_train_params = {
 
 # Flag indicates whether or not to fit to the total energy per molecule or the 
 # total energy as a function of the number of heavy atoms. 
-train_ener_per_heavy = True
+train_ener_per_heavy = False
 
 # Debug flag. If set to true, get_feeds() for the loss models adds data based on
 # dftb results rather than from ANI-1
@@ -156,7 +163,8 @@ else: #Loading data
     
 print("Initializing models")
 all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
-                                                                                                    allowed_Zs, losses)
+                                                                                                    allowed_Zs, losses, 
+                                                                                                    ref_ener_start = reference_energy_starting_point) #Update this when optimizing reference energies
 
 # Manual correction by extending lower range by some set amount
 # new_dict = dict()
@@ -213,21 +221,21 @@ total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels'
 # print("Writing test skf files for debugging")
 # main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
 
-#%% Finding initial reference energy parameters
+#%% Finding initial reference energy parameters PyTorch optimization
 """
 Only one loop should be run at a time! Here, the only variables
 being optimized are the reference energy parameters to account for the difference
 between dftb energies and CC energies. The difference between the two energies
 is as follows:
 
-E_cc = E_dftb + sum_z[N_z * C_z]
+E_cc = E_dftb + sum_z[N_z * C_z] + C_0
 
 where N_z is the number of atoms of element z and C_z is the reference
 energy parameter for element z, and the summation goes over all elements z. 
-This is done for each molecule.
+This is done for each molecule. There is also  a C_0 term added on to the end
 
-In this case, we are interested in learning C_z. Because we are not optimizing the energy parameters,
-these initial C_z may be sub-optimal. This is fine, as we are only interested in procuring a 
+In this case, we are interested in learning C_z and C_0. Because we are not optimizing the energy parameters,
+these initial parameters may be sub-optimal. This is fine, as we are only interested in procuring a 
 good starting point.
 """
 # Set only the reference energy parameters to be optimized
@@ -289,6 +297,62 @@ for i in range(nepochs):
 print(f"Finished with {nepochs} epochs of reference energy training")
 print(f"The final reference energy variables are as follows:")
 print(all_models['Eref'].get_variables())
+
+#%% Find initial ref energy parameters lst squares
+"""
+The reference energy is a correction between two methods, so we could solve for 
+the reference energy parameters by pulling two sets of equivalent data with alternate
+targets for energy and using that difference in energy to solve a least squares 
+equation in the number of atoms of each type in the molecule. This is
+the approach used in dftbplus.py
+
+The 'dt' energy target is what we are emulating since we are doing dftb, so 
+using that as the starting point. Thus, we find Eref as 
+
+E_method2 = E_dftb + Eref => Eref = E_method2 - E_dftb
+
+and Eref = N @ C where N is a matrix of the number of atoms and C is the coefficients
+we are trying to solve for. Then, the equation is
+
+N @ C = E_method2 - E_dftb, and we can solve this in least squares
+"""
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5]
+max_config = 10
+exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
+
+iZ = {x : i for i, x in enumerate(allowed_Zs)}
+
+target = {'dt' : 'dt', 'dr': 'dr', 'pt' : 'pt', 'pe' : 'pe', 'pr' : 'pr',
+              'cc' : 'cc', 'ht' : 'ht',
+               'dipole' : 'wb97x_dz.dipole',
+               'charges' : 'wb97x_dz.cm5_charges'}
+
+method1_target = 'dt'
+method2_target = 'ht'
+
+all_mol = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude = exclude)
+random.shuffle(all_mol)
+nmol = len(all_mol)
+XX = np.zeros([nmol,len(allowed_Zs)+1])
+method1_mat = np.zeros([nmol])
+method2_mat = np.zeros([nmol])
+
+for imol,mol in enumerate(all_mol):
+    Zc = collections.Counter(mol['atomic_numbers'])
+    for Z,count in Zc.items():
+        XX[imol, iZ[Z]] = count
+        XX[imol, len(allowed_Zs)] = 1.0
+    method1_mat[imol] = mol['targets'][method1_target]
+    method2_mat[imol] = mol['targets'][method2_target]
+
+yy = method2_mat - method1_mat
+lsq_res = np.linalg.lstsq(XX, yy, rcond = None)
+coefs = lsq_res[0]
+print(f"Least squares energies are {coefs}")
+
+
+
 
 #%% Training loop
 '''

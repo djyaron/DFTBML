@@ -140,12 +140,12 @@ def read_dftb_out(scratch_dir):
     return Ehartree
         
 
-dftb_exec = "/home/yaron//code/dftbplusexe/dftbplus-20.2.1/bin/dftb+"
-scratch_dir = "/home/yaron/code/dftbtorch/dftbscratch"
+dftb_exec = "C:\\Users\\Frank\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+scratch_dir = "dftbscratch"
 
 
 allowed_Zs = [1,6,7,8]
-maxheavy = 3
+maxheavy = 8
 pkl_file = 'heavy' + str(maxheavy) + '.pk'
 
 if not os.path.exists(pkl_file):    
@@ -154,7 +154,7 @@ if not os.path.exists(pkl_file):
     max_config = 10 
     # target = 'dt'
     target = {'dt' : 'dt', 'dr': 'dr', 'pt' : 'pt', 'pe' : 'pe', 'pr' : 'pr',
-              'cc' : 'cc',
+              'cc' : 'cc', 'ht': 'ht',
                'dipole' : 'wb97x_dz.dipole',
                'charges' : 'wb97x_dz.cm5_charges'}
     exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
@@ -176,7 +176,7 @@ if not os.path.exists(pkl_file):
     #             transfer_training, transfer_train_params, train_ener_per_heavy)
     
     #mol = pkl.load(open('mtest.pk','rb'))
-    all_mol = [x[0] for x in dataset]
+    all_mol = dataset
     print('generating data for', len(all_mol),'molecules')
     
     for skf_type in ['mio','ml']:
@@ -204,6 +204,7 @@ nmol = len(all_mol)
 XX = np.zeros([nmol,len(allowed_Zs)+1])
 mio = np.zeros([nmol])
 cc  = np.zeros([nmol])
+ht = np.zeros([nmol])
 ml  = np.zeros([nmol])
 pt  = np.zeros([nmol])
 for imol,mol in enumerate(all_mol):
@@ -212,31 +213,32 @@ for imol,mol in enumerate(all_mol):
         XX[imol, iZ[Z]] = count
         XX[imol, len(allowed_Zs)] = 1.0
     cc[imol] = mol['targets']['cc']
+    ht[imol] = mol['targets']['ht']
     mio[imol] = mol['mio']
     ml[imol] = mol['ml']
     pt[imol] = mol['targets']['pt']
 
-yy = cc - mio
+yy = ht - mio
 lsq_res = np.linalg.lstsq(XX, yy, rcond=None)
 coefs = lsq_res[0]
 pred = mio + np.dot(XX,coefs)
 
 print(len(pred),'molecules')
-mae_mio = np.mean(np.abs(pred - cc)) * 627.509
+mae_mio = np.mean(np.abs(pred - ht)) * 627.509
 print('mio: mae of preds',mae_mio)
 
-yy = cc - pt
+yy = ht - pt
 lsq_res = np.linalg.lstsq(XX, yy, rcond=None)
 coefs = lsq_res[0]
 pred = pt + np.dot(XX,coefs)
-mae_pt = np.mean(np.abs(pred - cc)) * 627.509
+mae_pt = np.mean(np.abs(pred - ht)) * 627.509
 print('pt: mae of preds',mae_pt)
 
-yy = cc - ml
+yy = ht - ml
 lsq_res = np.linalg.lstsq(XX, yy, rcond=None)
 coefs = lsq_res[0]
 pred = ml + np.dot(XX,coefs)
-mae_ml = np.mean(np.abs(pred - cc)) * 627.509
+mae_ml = np.mean(np.abs(pred - ht)) * 627.509
 print('ml: mae of preds',mae_ml)
 
 #%%

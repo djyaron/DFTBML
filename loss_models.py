@@ -24,6 +24,7 @@ import re
 from typing import Union, List, Optional, Dict, Any, Literal
 Array = np.ndarray
 Tensor = torch.Tensor
+import math
 
 #%% External Functions
 # The determination of concavity is independent of the current implementations of the 
@@ -159,6 +160,60 @@ class ModelPenalty:
                 self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 1)
         else:
             self.dgrid = dgrid
+            
+    def compute_inflection_point(self, x_val: Tensor) -> Tensor:
+        r"""Computes the value of the inflection point based on the optimized variable x_val
+        
+        Arguments:
+            x_val (Tensor): Optimized variable for computing the inflection point
+        
+        Returns:
+            inflection_point (Tensor): The position of the inflection point in 
+                angstroms
+        
+        Notes: The inflection point is computed from the x_val using the following
+            formula: 
+            
+            r_inflect = lrow + ((rhigh - rlow) / 2) * ((atan(x) / (pi/2)) + 1)
+            
+            The arctangent function is used for smooth differentiability on backpropagation.
+            Division by pi/2 fixes the range such that x can range from (-inf, inf) but
+            r_inflect will range from (rlow, rhigh)
+        """
+        rlow, rhigh = self.input_pairwise_lin.pairwise_linear_model.r_range()
+        first_term = (rhigh - rlow) / 2
+        const = torch.tensor([math.pi / 2])
+        second_term = (torch.atan(x_val) / const) + 1
+        return rlow + (first_term * second_term)
+    
+    def compute_penalty_vec(self, x_val: Tensor, num_grid: int) -> Tensor:
+        r"""Computes the penalty vector to multiply p_convex by based on atan approach
+        
+        Arguments:
+            x_val (Tensor): The variable used to compute the value of the 
+                inflection point in compute_inflection_point()
+            num_grid (int): The number of grid points to use for the x_grid
+        
+        Returns:
+            penalty_grid (Tensor): The penalty grid computed using atan approach,
+                which will be multiplied by p_convex
+        
+        Notes: The penalty grid is computed as 
+            
+            p_i = arctan(10 * (r_i - r_inflect))
+            
+            Where p_i is the penalty for the r_i point, and r_inflect is computed
+            as the defined in compute_inflection_point. This penalty grid is then
+            multiplied into p_convex. This ensures that smooth curvatures withn consistent
+            second derivatives are not penalized, and accounts for one inflection point, 
+            which occurs in the short range for the models of the overlap operator S
+        """
+        rlow, rhigh = self.input_pairwise_lin.pairwise_linear_model.r_range()
+        xgrid = torch.from_numpy(np.linspace(rlow, rhigh, num_grid))
+        r_inflect = self.compute_inflection_point(x_val)
+        corrected_xgrid = xgrid - r_inflect
+        penalty_grid = torch.atan(10 * corrected_xgrid)
+        return penalty_grid
     
     # Now some methods for computing the different penalties
     def get_monotonic_penalty(self) -> float:

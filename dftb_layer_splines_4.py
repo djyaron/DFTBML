@@ -862,15 +862,14 @@ class OffDiagModel2:
         
 class Reference_energy:
 
-    #TODO: add const to this
     def __init__(self, allowed_Zs: List[int], 
-                 prev_values: List[float] = [ -0.2323322747, -36.3256865272, -52.3187836247, -71.8383273595]) -> None:
+                 prev_values: List[float] = None) -> None:
         r"""Initializes the reference energy model.
         
         Arguments:
             allowed_Zs (List[int]): List of the allowed atomic numbers
             prev_values (List[float]): Previous values for the reference energy to start from.
-                Defaults to []
+                Defaults to None
         
         Returns:
             None
@@ -894,10 +893,19 @@ class Reference_energy:
             This gives a vector of (ngeom, 1) with the reference energy terms for each 
             variable. natom here does not mean the number of atoms in the molecule, but the
             number of unique atom types across all molecules in the data.
+            
+            An additional constant needs to be added since the reference energy 
+            contains an additional constant term. Will work on adding this in, so that the 
+            reference energy is computed as 
+            
+            Eref = Sum_z[C_z * N_z] + C_0, where the sum goes over all atom types z in the 
+            dataset, C_z is the coefficient for element z, N_z is the number of that element 
+            in the molecule, and C_0 is the additional coefficient.
         """
         self.allowed_Zs = np.sort(np.array(allowed_Zs))
         self.values = np.zeros(self.allowed_Zs.shape)
-        if len(prev_values) > 0:
+        self.values = np.append(self.values, np.array([0]))
+        if (not (prev_values is None)) and  len(prev_values) > 0:
             #Load previous values if they are given
             #FOR DEBUGGING PURPOSES ONLY
             assert(len(prev_values) == len(self.values))
@@ -1299,7 +1307,11 @@ class DFTB_Layer(nn.Module):
             ener2 = ener2.view(ener2.size()[0])
             calc['Eelec'][bsize] = ener1 + ener2
             ref_energy_variables = all_models['Eref'].get_variables()
-            ref_res = torch.matmul(data_input['zcounts'][bsize], ref_energy_variables.unsqueeze(1))
+            zcount_vec = data_input['zcounts'][bsize]
+            ones_vec = torch.tensor([1.0])
+            ones_vec = ones_vec.repeat(zcount_vec.shape[0]).unsqueeze(1)
+            zcount_vec = torch.cat((zcount_vec, ones_vec), dim = 1)
+            ref_res = torch.matmul(zcount_vec, ref_energy_variables.unsqueeze(1))
             calc['Eref'][bsize] = ref_res.squeeze(1)
         return calc
 

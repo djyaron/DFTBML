@@ -36,7 +36,7 @@ dataset_path_str = os.path.join("data", "ANI-1ccx_clean_fullentry.h5")
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 10
 # target = 'dt'
-target = {'Etot' : 'cc',
+target = {'Etot' : 'ht',
            'dipole' : 'wb97x_dz.dipole',
            'charges' : 'wb97x_dz.cm5_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
@@ -56,7 +56,10 @@ eig_method = 'new'
 prop_train = 0.8
 prop_valid = 0.2
 
-reference_energy_start = [ -0.2323322747, -36.3256865272, -52.3187836247, -71.8383273595] #'cc' reference energies
+#'cc' reference energies sorted in terms of atomic numbers H, C, N, O
+# Will likely change with the addition of a constant
+reference_energy_start = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
+ -5.01610610e-03] #Computed through least squares method for 'ht' target against 'dt'
 training_losses = list()
 validation_losses = list()
 times = collections.OrderedDict()
@@ -167,7 +170,7 @@ def energy_correction(molec: Dict) -> None:
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
 
 folds_cv = get_folds_cv_limited(allowed_Zs, heavy_atoms, dataset_path_str, num_folds, max_config, 
-                                exclude = exclude, reverse = False if cv_mode == 'normal' else True)
+                                exclude = exclude, shuffle = (1, 1), reverse = False if cv_mode == 'normal' else True)
         
 for ind, fold in enumerate(folds_cv):
     print(f"Performing train and validation on fold {ind}")
@@ -178,6 +181,7 @@ for ind, fold in enumerate(folds_cv):
     print("Getting validation, training molecules")
     training_molecs, validation_molecs = extract_data_for_molecs(fold, target, dataset_path_str)
     assert(len(training_molecs) + len(validation_molecs) == len(dataset))
+    print(f"{len(training_molecs)} training molecules, {len(validation_molecs)} validation molecules")
     if train_ener_per_heavy:
         for molec in training_molecs:
             energy_correction(molec)
@@ -278,7 +282,7 @@ for ind, fold in enumerate(folds_cv):
             print(result_lst)
     print(f"charge updates done for start")
     
-    nepochs = 75
+    nepochs = 150
     for i in range(nepochs):
         #Initialize epoch timer
         start = time.time()
