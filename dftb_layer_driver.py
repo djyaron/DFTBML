@@ -41,10 +41,10 @@ prop_train = 0.8
 prop_valid = 0.2
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
-reference_energy_starting_point = [-4.6333576745e-02, -3.0198463989e+01, -4.4971460636e+01,
-        -6.3558934330e+01, -2.8466603245e+01]
+reference_energy_starting_point = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
+ -5.01610610e-03]
 
-lst_sq_ref_ener = [-2.07616501e-01 -3.61579105e+01 -5.20915629e+01 -7.15611237e+01
+lst_sq_ref_ener = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
  -5.01610610e-03] #Obtained from least squares ref fit
 
 training_losses = list()
@@ -70,7 +70,7 @@ losses['Etot'] = target_accuracy_energy
 losses['dipole'] = target_accuracy_dipole 
 losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
-losses['monotonic'] = target_accuracy_monotonic
+# losses['monotonic'] = target_accuracy_monotonic
 
 #Initialize the parameter dictionary
 par_dict = ParDict()
@@ -109,7 +109,7 @@ transfer_train_params = {
 
 # Flag indicates whether or not to fit to the total energy per molecule or the 
 # total energy as a function of the number of heavy atoms. 
-train_ener_per_heavy = False
+train_ener_per_heavy = True
 
 # Debug flag. If set to true, get_feeds() for the loss models adds data based on
 # dftb results rather than from ANI-1
@@ -415,7 +415,7 @@ for k in range(len(validation_feeds)):
         print(result_lst)
 print(f"charge updates done for start")
 
-nepochs = 75
+nepochs = 250
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()

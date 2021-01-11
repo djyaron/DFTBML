@@ -25,6 +25,7 @@ import random
 import pickle
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
+import math
 
 from collections import OrderedDict
 import collections
@@ -480,7 +481,7 @@ class Input_layer_pairwise_linear:
 class Input_layer_pairwise_linear_joined:
 
     def __init__(self, model: Model, pairwise_linear_model: JoinedSplineModel, par_dict: Dict,
-                 cutoff: float, ngrid: int = 100, 
+                 cutoff: float, inflection_point_var: List[float] = [], ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
         r"""Interface for a joined spline model with flexible and infleixble regions.
         
@@ -496,6 +497,9 @@ class Input_layer_pairwise_linear_joined:
                 between different elements, indexed by a string 'elem1-elem2'. For example, the
                 Carbon-Carbon interaction is accessed using the key 'C-C'
             cutoff (float): The cutoff distance for the joined spline
+            inflection_point_var (list[float]): The list of length 1 containing the 
+                variable used to compute the inflection point. Defaults to [], in which case
+                there is no inflection point.
             ngrid (int): The number of points for initially fitting the model to the DFTB
                 parameters. Defaults to 100
             noise_magnitude (float): Factor to distort the DFTB-initialized value by. Can be used
@@ -513,6 +517,11 @@ class Input_layer_pairwise_linear_joined:
             y = concatenate(coeffs, c_fixed) + b. Because we only want the model to train the variable
             portion of the spline, only the vector for coeffs is converted to a PyTorch tensor that 
             is optimizable.
+            
+            The inflection point variable is optional, and is only used when the model in question 
+            has a very strongly defined inflection point (commonly seen among models of the overlap operator S).
+            This variable is returned separately from the normal coefficients of the model, and is only 
+            used internally for the calculation of the convex/monotonic penalties.
         """
         self.model = model
         self.pairwise_linear_model = pairwise_linear_model
@@ -528,6 +537,11 @@ class Input_layer_pairwise_linear_joined:
         self.constant_coefs = torch.from_numpy(fixed_vars)
         self.joined = True #A flag used by later functions to identify joined splines
         self.cutoff = cutoff #Used later for outputting skf files
+        if len(inflection_point_var) == 1:
+            self.inflection_point_var = torch.tensor(inflection_point_var, dtype = self.variables.dtype)
+            self.inflection_point_var.requires_grad = True #Requires gradient
+        else:
+            self.inflection_point_var = None
         
     def get_variables(self) -> Tensor:
         r"""Returns the trainable coefficients for the given joined spline
@@ -571,6 +585,21 @@ class Input_layer_pairwise_linear_joined:
             tensor will also have gradients enabled.
         """
         return torch.cat([self.variables, self.constant_coefs])
+    
+    def get_inflection_pt(self) -> Tensor:
+        r"""Returns the inflection point variable if there is one created
+        
+        Arguments:
+            None
+        
+        Returns:
+            inflec_var (Tensor): The variable tensor used to compute the location
+                of the inflection point
+                
+        Note: In the case of there not being an inflection point variable, the
+            NoneType is returned instead
+        """
+        return self.inflection_point_var
     
     def get_feed(self, mod_raw: List[RawData]) -> Dict:
         r"""Returns the necessary information for the feed dictionaries into the DFTB layer
@@ -1065,6 +1094,27 @@ class data_loader:
             self.shuffle_batches()
             raise StopIteration
 
+def solve_for_inflect_var(rlow: float, rhigh: float, r_target: float) -> float:
+    r"""Solves the inflection point equation for the variable x
+    
+    Arguments:
+        rlow (float): lower bound of distance range
+        rhigh (float): upper bound of distance range
+        r_target (float): The target starting guess for the inflection point
+    
+    Returns:
+        x_val (float): The value of the variable for computing the inflection point
+    
+    Notes: This function solves the following equation for x:
+        r_target = rlow + ((rhigh - rlow) / 2) * ((atan(x)/pi/2) + 1)
+    """
+    first_term = r_target - rlow
+    second_term = 2 / (rhigh - rlow)
+    pi_const = math.pi / 2
+    operand = ((first_term * second_term) - 1) * pi_const
+    x_val = math.tan(operand)
+    return x_val
+
 def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict, num_knots: int = 50, 
                              num_grid: int = 200, buffer: float = 0.0, 
                              joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
@@ -1123,7 +1173,12 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                       'cutoff' : cutoff_dict[model_spec] if (cutoff_dict is not None) else joined_cutoff,
                       'bconds' : 'natural'}
             spline = JoinedSplineModel(config)
-            model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
+            if model_spec.oper == 'S': #Inflection points are only instantiated for the overlap operator
+                inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 6) #Approximate guess for initial inflection point var
+                inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
+                model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var])
+            else:
+                model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
             variables = model.get_variables().detach().numpy()
             if apx_equal(np.sum(variables), 0):
                 return (model, 'noopt')
@@ -1762,6 +1817,10 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
                     # Do not add redundant variables for the OffDiagModel. Nothing
                     # is done for off-diagonal model variables
                     model_variables[model_spec] = all_models[model_spec].get_variables()
+                    if (hasattr(mod_res, "inflection_point_var")) and (mod_res.inflection_point_var is not None):
+                        old_oper, old_zs, old_orb = model_spec
+                        new_mod = Model(old_oper, old_zs, old_orb + '_inflect')
+                        model_variables[new_mod] = all_models[model_spec].get_inflection_pt()
                 # Detach it from the computational graph (unnecessary)
                 elif tag == 'noopt':
                     all_models[model_spec].variables.requires_grad = False

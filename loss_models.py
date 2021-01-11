@@ -89,17 +89,29 @@ def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
     concavity_dict = dict()
     for model_spec in model_spline_dict:
         mod_dict = model_spline_dict[model_spec]
-        y_vals = np.dot(mod_dict['X'][2], mod_dict['coefs']) + mod_dict['const'][2]
+        y_vals_deriv1 = np.dot(mod_dict['X'][1], mod_dict['coefs']) + mod_dict['const'][1]
+        y_vals_deriv0 = np.dot(mod_dict['X'][0], mod_dict['coefs']) + mod_dict['const'][0]
         #Assume also that the mean will take care of it, and that the mean should not be 0
-        concavity = np.sign(np.mean(y_vals))
+        concavity_deriv1 = np.sign(np.mean(y_vals_deriv1))
+        concavity_deriv0 = np.sign(np.mean(y_vals_deriv0))
         #Positive mean value means it should be concave up
-        if concavity == 1:
-            concavity_dict[model_spec] = False
-        #Negative mean value means it should be concave down
-        elif concavity == -1:
+        if (concavity_deriv1 == 1) and (concavity_deriv0 == -1):
+            #Concave down should have negative values and positive first derivative
             concavity_dict[model_spec] = True
-        else:
+        elif (concavity_deriv1 == -1) and (concavity_deriv0 == 1):
+            #Concave up should have positive values and negative first derivative
+            concavity_dict[model_spec] = False
+        elif (concavity_deriv1 == 0) and (concavity_deriv0 == 0):
+            #Flat splines with no value other than 0 are ignored by optimization
             print(f"Zero concavity detected for {model_spec}")
+        elif concavity_deriv1 == concavity_deriv0:
+            #Should not happen
+            print(f"Concavity mismatch for {model_spec}")
+        # xs = [i for i in range(len(y_vals_deriv0))]
+        # fig, axs = plt.subplots()
+        # axs.scatter(xs, y_vals_deriv0)
+        # axs.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}, {concavity_deriv1}, {concavity_deriv0}, {True if (concavity_deriv1 == 1 and concavity_deriv0 == -1) else False}")
+        # plt.show()
     return concavity_dict
 
 #%% Adaptation of spline penalties
@@ -123,7 +135,8 @@ TODO: Figure out system for classifying if model should concave up or concave do
 '''
 class ModelPenalty:
 
-    def __init__ (self, input_pairwise_linear, penalty: str, dgrid: (Array, Array), n_grid: int = 500, neg_integral: bool = False) -> None:
+    def __init__ (self, input_pairwise_linear, penalty: str, dgrid: (Array, Array), inflect_point_val: Tensor = None,
+                  n_grid: int = 500, neg_integral: bool = False) -> None:
         r"""Initializes the ModelPenalty object for computing the spline functional form penalty
         
         Arguments:
@@ -132,6 +145,8 @@ class ModelPenalty:
             penalty (str): The pnalty to be computed. One of "convex", "monotonic", "smooth"
             dgrid (Array, Array): The matrix A and vector b for doing y = Ax + b. Depending on 
                 the penalty,it's either the first or second derivative
+            inflect_point_val (Tensor): The tensor containing the value used to compute the
+                inflection point. Defaults to None
             n_grid (int): Number of grid points to use. Defaults to 500
             neg_integral (bool): Whether the spline is concave down. Defaults to False (concave up)
         
@@ -146,6 +161,7 @@ class ModelPenalty:
         self.input_pairwise_lin = input_pairwise_linear
         self.penalty = penalty
         self.neg_integral = neg_integral
+        self.n_grid = n_grid
         
         #Compute the x-grid
         r_low, r_high = self.input_pairwise_lin.pairwise_linear_model.r_range()
@@ -160,12 +176,13 @@ class ModelPenalty:
                 self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 1)
         else:
             self.dgrid = dgrid
+        self.inflect_x_val = inflect_point_val #Either tensor or nonetype
             
-    def compute_inflection_point(self, x_val: Tensor) -> Tensor:
+    def compute_inflection_point(self) -> Tensor:
         r"""Computes the value of the inflection point based on the optimized variable x_val
         
         Arguments:
-            x_val (Tensor): Optimized variable for computing the inflection point
+            None
         
         Returns:
             inflection_point (Tensor): The position of the inflection point in 
@@ -179,20 +196,21 @@ class ModelPenalty:
             The arctangent function is used for smooth differentiability on backpropagation.
             Division by pi/2 fixes the range such that x can range from (-inf, inf) but
             r_inflect will range from (rlow, rhigh)
+            
+            This method should only be invoked if it is confirmed that
+            self.inflect_x_val is not None
         """
         rlow, rhigh = self.input_pairwise_lin.pairwise_linear_model.r_range()
         first_term = (rhigh - rlow) / 2
         const = torch.tensor([math.pi / 2])
-        second_term = (torch.atan(x_val) / const) + 1
+        second_term = (torch.atan(self.inflect_x_val) / const) + 1
         return rlow + (first_term * second_term)
     
-    def compute_penalty_vec(self, x_val: Tensor, num_grid: int) -> Tensor:
+    def compute_penalty_vec(self) -> Tensor:
         r"""Computes the penalty vector to multiply p_convex by based on atan approach
         
         Arguments:
-            x_val (Tensor): The variable used to compute the value of the 
-                inflection point in compute_inflection_point()
-            num_grid (int): The number of grid points to use for the x_grid
+            None
         
         Returns:
             penalty_grid (Tensor): The penalty grid computed using atan approach,
@@ -208,10 +226,9 @@ class ModelPenalty:
             second derivatives are not penalized, and accounts for one inflection point, 
             which occurs in the short range for the models of the overlap operator S
         """
-        rlow, rhigh = self.input_pairwise_lin.pairwise_linear_model.r_range()
-        xgrid = torch.from_numpy(np.linspace(rlow, rhigh, num_grid))
-        r_inflect = self.compute_inflection_point(x_val)
-        corrected_xgrid = xgrid - r_inflect
+        r_inflect = self.compute_inflection_point()
+        torch_xgrid = torch.from_numpy(self.xgrid)
+        corrected_xgrid = torch_xgrid - r_inflect
         penalty_grid = torch.atan(10 * corrected_xgrid)
         return penalty_grid
     
@@ -272,6 +289,9 @@ class ModelPenalty:
         Notes: The convex penalty deals with the second derivative. For a concave up function,
             we enforce that v''(r) > 0, and for a concave down function we enforce that v''(r) < 0. 
             This us achieved again through the use of ReLU.
+            
+            In the case of an inflection point, we allow for smooth curvatures on either side
+            by multiplying p_convex by a tensor of values computed using compute_penalty_vec
         """
         convex_penalty = 0
         m = torch.nn.ReLU()
@@ -282,6 +302,9 @@ class ModelPenalty:
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv), torch.tensor(consts)
         p_convex = torch.einsum('j,ij->i', c, deriv) + consts
+        if (self.inflect_x_val is not None): #Compute the penalty grid if an inflection point is present
+            penalty_grid = self.compute_penalty_vec()
+            p_convex = torch.einsum('i,i->i', p_convex, penalty_grid)
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
             p_convex = m(p_convex)
@@ -628,11 +651,17 @@ class FormPenaltyLoss(LossModel):
         for model_spec in form_penalty_dict:
             # if model_spec.oper != 'G':
             pairwise_lin_mod, concavity, dgrids = form_penalty_dict[model_spec]
+            if (hasattr(pairwise_lin_mod, "inflection_point_var")) and (pairwise_lin_mod.inflection_point_var is not None):
+                # print(f"{model_spec} has inflection point variable")
+                inflection_point_val = pairwise_lin_mod.get_inflection_pt()
+            else:
+                # print(f"{model_spec} does not have inflection point variable")
+                inflection_point_val = None
             penalty_model = None
             if self.type == "convex" or self.type == "smooth":
-                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], n_grid = self.density, neg_integral = concavity)
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity)
             elif self.type == "monotonic":
-                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], n_grid = self.density, neg_integral = concavity)
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity)
             total_loss += penalty_model.get_loss()
             # DEBUGGING CODE
             # if (model_spec == FormPenaltyLoss.tst_mod) and (self.type == FormPenaltyLoss.tst_penalty):
