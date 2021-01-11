@@ -139,14 +139,17 @@ def read_dftb_out(scratch_dir):
         print("WARNING: RESULTS NOT FOUND")
     return Ehartree
         
-
-dftb_exec = "C:\\Users\\Frank\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+if os.getenv("USER") == "yaron":
+    dftb_exec = "/home/yaron/code/dftbplusexe/dftbplus-20.2.1/bin/dftb+"
+else:
+    dftb_exec = "C:\\Users\\Frank\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
 scratch_dir = "dftbscratch"
 
 
 allowed_Zs = [1,6,7,8]
-maxheavy = 8
-pkl_file = 'heavy' + str(maxheavy) + '.pk'
+maxheavy = 2
+skf_test = 'ANI1rep1'
+pkl_file = os.path.join('dftbscratch',skf_test,'_heavy' + str(maxheavy) + '.pk')
 
 if not os.path.exists(pkl_file):    
     heavy_atoms = [x for x in range(1,maxheavy+1)]
@@ -179,7 +182,7 @@ if not os.path.exists(pkl_file):
     all_mol = dataset
     print('generating data for', len(all_mol),'molecules')
     
-    for skf_type in ['mio','ml']:
+    for skf_type in ['mio',skf_test]:
         copyskf(os.path.join(scratch_dir,skf_type), os.path.join(scratch_dir,'skf'))
 
         for imol,mol in enumerate(all_mol):
@@ -215,7 +218,7 @@ for imol,mol in enumerate(all_mol):
     cc[imol] = mol['targets']['cc']
     ht[imol] = mol['targets']['ht']
     mio[imol] = mol['mio']
-    ml[imol] = mol['ml']
+    ml[imol] = mol[skf_test]
     pt[imol] = mol['targets']['pt']
 
 yy = ht - mio
