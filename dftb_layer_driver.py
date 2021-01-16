@@ -13,6 +13,7 @@ from dftb import ANGSTROM2BOHR
 from model_ranges import plot_skf_values
 from predictiongen import PredictionGen
 import numpy as np
+from plottingutil import plot_spline
 
 #%% Top level variable declaration
 '''
@@ -58,6 +59,10 @@ print('number of molecules retrieved', len(dataset))
 config = dict()
 config['opers_to_model'] = ['H', 'R', 'G', 'S'] #This actually matters now
 
+#Parameters for type and degree of spline
+spline_mode = 'joined'
+spline_deg = 3
+
 #loss weights
 losses = dict()
 target_accuracy_energy = 6270 #Ha^-1
@@ -69,7 +74,7 @@ target_accuracy_monotonic = 1000
 losses['Etot'] = target_accuracy_energy
 losses['dipole'] = target_accuracy_dipole 
 losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
-losses['convex'] = target_accuracy_convex
+# losses['convex'] = target_accuracy_convex
 # losses['monotonic'] = target_accuracy_monotonic
 
 #Initialize the parameter dictionary
@@ -147,6 +152,19 @@ if not loaded_data:
     print("Getting training and validation molecules")
     training_molecs, validation_molecs = dataset_sorting(dataset, prop_train, transfer_training, transfer_train_params, train_ener_per_heavy)
     
+    # print("Saving training and validation molecules for debugging purposes")
+    # with open("testing.p", "wb") as handle:
+    #     pickle.dump(training_molecs, handle)
+    #     pickle.dump(validation_molecs, handle)
+    
+    print("Loading training and validation molecules for debugging purposes")
+    with open("testing.p", "rb") as handle:
+        training_molecs = pickle.load(handle)
+        validation_molecs = pickle.load(handle)
+    
+    print(len(training_molecs), len(validation_molecs))
+    
+    
     print("Getting training graphs")
     training_feeds, training_dftblsts, training_batches = graph_generation(training_molecs, config, allowed_Zs, par_dict, num_per_batch)
     print("Getting validation graphs")
@@ -210,13 +228,24 @@ model_range_dict = new_dict
 
 #Training feed generation
 print("Generating training feeds")
-feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, debug, loaded_data)
+feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
 #Validation feed generation
 print("Generating validation feeds")
-feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, debug, loaded_data)
+feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
 
 print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
+
+for model in all_models:
+    if model != 'Eref' and model.oper != 'G' and len(model.Zs) == 2:
+        plot_spline(all_models[model])
+
+print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
+print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
+print(f"len of s_mods: {len([mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S'])}")
+print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
+print("losses")
+print(losses)
 
 # print("Writing test skf files for debugging")
 # main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
@@ -351,9 +380,15 @@ lsq_res = np.linalg.lstsq(XX, yy, rcond = None)
 coefs = lsq_res[0]
 print(f"Least squares energies are {coefs}")
 
+#%%Loading data for debugging from pickle file
+# with open("testing.p", "rb") as handle:
+#     training_feeds = pickle.load(handle)
+#     training_dftblsts = pickle.load(handle)
+#     validation_feeds = pickle.load(handle)
+#     validation_dftblsts = pickle.load(handle)
 
-
-
+# assert(len(training_feeds) == len(training_dftblsts) == 91)
+# assert(len(validation_feeds) == len(validation_dftblsts) == 23)
 #%% Training loop
 '''
 Two different eig methods are available for the dftblayer now, and they are 
@@ -415,7 +450,7 @@ for k in range(len(validation_feeds)):
         print(result_lst)
 print(f"charge updates done for start")
 
-nepochs = 250
+nepochs = 100
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -591,6 +626,8 @@ with open("predictions.p", "wb") as handle:
 
 
 #%% Logging
+# main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
+
 #Save the training and validation losses for visualization later
 with open("losses.p", "wb") as handle:
     pickle.dump(training_losses, handle)
@@ -619,9 +656,9 @@ for loss in all_losses:
     axs.legend()
     plt.show()
     
-from loss_methods import plot_multi_splines
+from plottingutil import plot_multi_splines
 double_mods = [mod for mod in all_models.keys() if mod != 'Eref' and mod.oper != 'G' and len(mod.Zs) == 2]
-plot_multi_splines(double_mods, all_models)
+plot_multi_splines(double_mods, all_models, method = 'scatter')
 
 with open("target_losses.p", "wb") as handle:
     pickle.dump(loss_tracker, handle)

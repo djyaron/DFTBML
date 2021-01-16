@@ -52,14 +52,23 @@ cv_mode = 'normal' #one of 'normal' cv, 'reversed' cv
 #Method for eigenvalue decomposition
 eig_method = 'new'
 
+#Parameters for spline mode and degree
+spline_mode = 'joined'
+spline_deg = 3
+
 #Proportion for training and validation
 prop_train = 0.8
 prop_valid = 0.2
 
-#'cc' reference energies sorted in terms of atomic numbers H, C, N, O
+#'ht' reference energies sorted in terms of atomic numbers H, C, N, O
 # Will likely change with the addition of a constant
 reference_energy_start = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
  -5.01610610e-03] #Computed through least squares method for 'ht' target against 'dt'
+
+#Dictionary containing the inflection point variables, update and re-use the variables
+# between folds
+inflection_point_var_start = dict()
+
 training_losses = list()
 validation_losses = list()
 times = collections.OrderedDict()
@@ -83,7 +92,7 @@ losses['Etot'] = target_accuracy_energy
 losses['dipole'] = target_accuracy_dipole 
 losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
 losses['convex'] = target_accuracy_convex
-losses['monotonic'] = target_accuracy_monotonic
+# losses['monotonic'] = target_accuracy_monotonic
 
 all_loss_trackers = list() #List used to store all loss trackers
 
@@ -225,15 +234,26 @@ for ind, fold in enumerate(folds_cv):
     
     model_range_dict = new_dict
     
+    print("Inflection variable correction")
+    
     print("Generating training feeds")
-    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, debug, loaded_data)
+    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
     print("Generating validation feeds")
-    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, debug, loaded_data)
+    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
 
     print("Performing type conversion")
     total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
     
-    
+    if inflection_point_var_start: #non-empty dictionaries evaluate to True
+        print("Correcting inflection point variables")
+        for model_spec in all_models:
+            if model_spec in inflection_point_var_start:
+                all_models[model_spec].set_inflection_pt(inflection_point_var_start[model_spec])
+                oper, Zs, orb = model_spec
+                orb += '_inflect'
+                inflect_mod = Model(oper, Zs, orb)
+                model_variables[inflect_mod] = all_models[model_spec].get_inflection_pt()
+
 #%% Training loop
     dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = eig_method)
     learning_rate = 1.0e-5
@@ -282,7 +302,7 @@ for ind, fold in enumerate(folds_cv):
             print(result_lst)
     print(f"charge updates done for start")
     
-    nepochs = 150
+    nepochs = 200
     for i in range(nepochs):
         #Initialize epoch timer
         start = time.time()
@@ -424,6 +444,15 @@ for ind, fold in enumerate(folds_cv):
     
     print("Saving loss_tracker")
     all_loss_trackers.append(loss_tracker)
+    
+    print("Saving the new inflection point variable values")
+    #TODO: Save inflection point variable values and reuse between folds
+    for model_spec in all_models:
+        inflect_point_var = all_models[model_spec].get_inflection_pt()
+        if inflect_point_var is not None:
+            true_val = inflect_point_var.detach().numpy() #Should be a tensor of one element
+            assert(len(true_val) == 1)
+            inflection_point_var_start[model_spec] = [true_val[0]]
     
     print(f"Done with fold {ind}")
 

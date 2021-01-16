@@ -374,7 +374,8 @@ class Input_layer_value:
    
 class Input_layer_pairwise_linear:
 
-    def __init__(self, model: Model, pairwise_linear_model: SplineModel, par_dict: Dict, ngrid: int = 100, 
+    def __init__(self, model: Model, pairwise_linear_model: SplineModel, par_dict: Dict,
+                 inflection_point_var: List[float] = [], ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
         r"""Creates a cubic spline model that is allowed to vary over the entire spanned distance
         
@@ -390,6 +391,8 @@ class Input_layer_pairwise_linear:
             par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
                 between different elements, indexed by a string 'elem1-elem2'. For example, the
                 Carbon-Carbon interaction is accessed using the key 'C-C'
+            inflection_point_var (List[float]): The variable value used to compute the 
+                inflection point for the model. Defaults to []
             ngrid: (int): The number of points for initially fitting the model to the DFTB
                 parameters. Defaults to 100
             noise_magnitude (float): Factor to distort the DFTB-initialized value by. Can be used
@@ -419,6 +422,11 @@ class Input_layer_pairwise_linear:
         model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) 
         self.variables = torch.from_numpy(model_vars)
         self.variables.requires_grad = True
+        if len(inflection_point_var) == 1:
+            self.inflection_point_var = torch.tensor(inflection_point_var, dtype = self.variables.dtype)
+            self.inflection_point_var.requires_grad = True
+        else:
+            self.inflection_point_var = None
 
     def get_variables(self) -> Tensor:
         r"""Returns the coefficient vector for the spline model.
@@ -435,6 +443,34 @@ class Input_layer_pairwise_linear:
             be recomputed for each derivative.
         """
         return self.variables
+    
+    def get_inflection_pt(self) -> Tensor:
+        r"""Returns the inflection point variable if there is one created
+        
+        Arguments:
+            None
+        
+        Returns:
+            inflec_var (Tensor): The variable tensor used to compute the location
+                of the inflection point
+                
+        Note: In the case of there not being an inflection point variable, the
+            NoneType is returned instead
+        """
+        return self.inflection_point_var
+    
+    def set_inflection_pt(self, value: List[float]) -> None:
+        r"""Sets the inflection point variable value for the given model
+        
+        Arguments:
+            value (List[float]): A 1 element list containing the value for the inflection point variable
+        
+        Returns:
+            None
+        """
+        if len(value) == 1:
+            self.inflection_point_var = torch.tensor(value, dtype = self.variables.dtype)
+            self.inflection_point_var.requires_grad = True
 
     def get_feed(self, mod_raw: List[RawData]) -> Dict:
         r"""Returns the necessary information for the feed dictionaries into the DFTB layer
@@ -529,6 +565,10 @@ class Input_layer_pairwise_linear_joined:
         rgrid = np.linspace(rlow, rhigh, ngrid)
         ygrid = get_dftb_vals(model, par_dict, rgrid)
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
+        # fig, axs = plt.subplots()
+        # axs.scatter(rgrid, ygrid)
+        # axs.set_title(f"{model}")
+        # plt.show()
         variable_vars, fixed_vars = pairwise_linear_model.fit_model(rgrid, ygrid)
         #Initialize the optimizable torch tensor for the variable coefficients
         # of the spline and the fixed part that's cat'd on each time
@@ -600,6 +640,19 @@ class Input_layer_pairwise_linear_joined:
             NoneType is returned instead
         """
         return self.inflection_point_var
+    
+    def set_inflection_pt(self, value: List[float]) -> None:
+        r"""Sets the inflection point variable value for the given model
+        
+        Arguments:
+            value (List[float]): A 1 element list containing the value for the inflection point variable
+        
+        Returns:
+            None
+        """
+        if len(value) == 1:
+            self.inflection_point_var = torch.tensor(value, dtype = self.variables.dtype)
+            self.inflection_point_var.requires_grad = True
     
     def get_feed(self, mod_raw: List[RawData]) -> Dict:
         r"""Returns the necessary information for the feed dictionaries into the DFTB layer
@@ -1115,9 +1168,10 @@ def solve_for_inflect_var(rlow: float, rhigh: float, r_target: float) -> float:
     x_val = math.tan(operand)
     return x_val
 
-def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict, num_knots: int = 50, 
-                             num_grid: int = 200, buffer: float = 0.0, 
+def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict, 
+                             num_knots: int = 50, buffer: float = 0.0, 
                              joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
+                             spline_mode: str = 'joined', spline_deg: int = 3,
                              off_diag_opers: List[str] = ["G"]) -> (Input_layer_pairwise_linear_joined, str):
     r"""Generates a joined spline model for the given model_spec
     
@@ -1131,8 +1185,6 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
             between different elements, indexed by a string 'elem1-elem2'. For example, the
             Carbon-Carbon interaction is accessed using the key 'C-C'
         num_knots (int): The number of knots to use for the spline. Defaults to 50
-        num_grid (int): The number of grid points, used for old approach for identifying
-            if the spline is completely 0. Defaults to 200
         buffer (float): The value to shift the starting and ending distance by. The starting distance
             is rlow - buffer, and the ending distance is rhigh + buffer, where rlow, rhigh are the 
             minimum and maximum distances for the spline from the spline_dict. Defaults to 0.0 angstroms
@@ -1140,6 +1192,8 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
             regions of the spline. Defaults to 3.0 angstroms
         cutoff_dict (Dict): Dictionary of cutoffs to use for each joined spline model, indexed
             by the model_spec. Defaults to None, in which case the joined_cutoff default of 3.0 angstroms is used
+        spline_mode (str): The type of spline to use, one of 'joined', 'non-joined'. Defaults to 'joined'
+        spline_deg (int): The degree of splines to use. Defaults to 3
         off_diag_opers (List[str]): A list of the operators to model using the 
             OffDiagModel. Defaults to ['G']
     
@@ -1152,9 +1206,12 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
     Notes: The tag is included because if a spline is flat at 0 (i.e., no interactions), then the 
         spline is not optimized. 
         
-        The inclusion of model_variables is for the OffDiag model. It is assumed that by the time
+        The inclusion of model_variables is for the OffDiag2 model. It is assumed that by the time
         a two-body interaction is encountered (e.g. G, (1,6), sp) that all the one-body interactions for
         that model have been handled. Right now, it seems like that is a safe assumption.
+        
+        Specifying the degree of the splines only affects the non-joined splines, as joined-splines only work
+        with third degree splines
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
@@ -1167,18 +1224,29 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
             minimum_value -= buffer
             maximum_value += buffer
             xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
+            print(f"number of knots: {len(xknots)}")
             # Joined splines for all operators
             config = {'xknots' : xknots,
                       'equal_knots' : False,
                       'cutoff' : cutoff_dict[model_spec] if (cutoff_dict is not None) else joined_cutoff,
-                      'bconds' : 'natural'}
-            spline = JoinedSplineModel(config)
+                      'bconds' : 'natural',
+                      'deg' : spline_deg}
+            if spline_mode == 'joined':
+                spline = JoinedSplineModel(config)
+            elif spline_mode == 'non-joined':
+                spline = SplineModel(config)
             if model_spec.oper == 'S': #Inflection points are only instantiated for the overlap operator
-                inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 6) #Approximate guess for initial inflection point var
+                inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 10) #Approximate guess for initial inflection point var
                 inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
-                model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var])
+                if spline_mode == 'joined':
+                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [])
+                elif spline_mode == 'non-joined':
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, inflection_point_var = [])
             else:
-                model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
+                if spline_mode == 'joined':
+                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
+                elif spline_mode == 'non-joined':
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
             variables = model.get_variables().detach().numpy()
             if apx_equal(np.sum(variables), 0):
                 return (model, 'noopt')
@@ -1782,8 +1850,9 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
     return all_models, model_variables, loss_tracker, all_losses, model_range_dict
     
 def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losses: Dict, 
-                    all_models: Dict, model_variables: Dict, model_range_dict: Dict, 
-                    par_dict: Dict, debug: bool = False, loaded_data: bool = False) -> None:
+                    all_models: Dict, model_variables: Dict, model_range_dict: Dict,
+                    par_dict: Dict, spline_mode: str, spline_deg: int,
+                    debug: bool = False, loaded_data: bool = False) -> None:
     r"""Destructively adds all the necessary information to each feed dictionary
     
     Arguments:
@@ -1798,19 +1867,22 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
         par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
             between different elements, indexed by a string 'elem1-elem2'. For example, the
             Carbon-Carbon interaction is accessed using the key 'C-C'
+        spline_mode (str): The type of spline to use, one of 'joined' or 'non-joined'
+        spline_deg (int): The degree of the spline to use.
         debug (bool): Whether or not to use debug mode. Defaults to False
         loaded_data (bool): Whether or not using pre-loaded data. Defaults to False
     
     Returns:
         None
     
-    Notes: None
+    Notes: The spline_deg parameter only matters if the spline_mode is 'non-joined'
     """
     for ibatch,feed in enumerate(feeds):
         for model_spec in feed['models']:
             # print(model_spec)
             if (model_spec not in all_models):
-                mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
+                mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict,
+                                                        spline_mode = spline_mode, spline_deg = spline_deg)
                 all_models[model_spec] = mod_res
                 #all_models[model_spec] = get_model_dftb(model_spec)
                 if tag != 'noopt' and not isinstance(mod_res, OffDiagModel2):

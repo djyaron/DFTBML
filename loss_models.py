@@ -304,7 +304,7 @@ class ModelPenalty:
         p_convex = torch.einsum('j,ij->i', c, deriv) + consts
         if (self.inflect_x_val is not None): #Compute the penalty grid if an inflection point is present
             penalty_grid = self.compute_penalty_vec()
-            p_convex = torch.einsum('i,i->i', p_convex, penalty_grid)
+            p_convex = torch.einsum('i,i->i', p_convex, penalty_grid) #Multiply the p_convex by the penalty_grid
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
             p_convex = m(p_convex)
@@ -651,12 +651,8 @@ class FormPenaltyLoss(LossModel):
         for model_spec in form_penalty_dict:
             # if model_spec.oper != 'G':
             pairwise_lin_mod, concavity, dgrids = form_penalty_dict[model_spec]
-            if (hasattr(pairwise_lin_mod, "inflection_point_var")) and (pairwise_lin_mod.inflection_point_var is not None):
-                # print(f"{model_spec} has inflection point variable")
-                inflection_point_val = pairwise_lin_mod.get_inflection_pt()
-            else:
-                # print(f"{model_spec} does not have inflection point variable")
-                inflection_point_val = None
+            inflection_point_val = pairwise_lin_mod.get_inflection_pt()
+            # print(model_spec, inflection_point_val)
             penalty_model = None
             if self.type == "convex" or self.type == "smooth":
                 penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity)

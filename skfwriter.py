@@ -378,7 +378,7 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     assert(len(R_mods) == 1) # Should only be one repulsive mod per atom pair
     r_model = all_models[R_mods[0]]
     xlow, xhigh = r_model.pairwise_linear_model.r_range()
-    cutoff = r_model.cutoff #Use the cutoff distance from the model itself
+    cutoff = 3.0 #r_model.cutoff #Use the cutoff distance from the model itself (only works for joined splines)
     rgrid = np.linspace(xlow, cutoff, ngrid) #rgrid here is in angstroms
     r_vals = get_yvals(R_mods[0], rgrid, all_models)
     #Obtain the spline, but given the file format we must
@@ -508,8 +508,10 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
     if compute_S_block: #When fitting S
+        print("Computing S block")
         s_block = compute_S(elems, all_models, grid_dist, ngrid)
     else:
+        print("Extracting S block")
         s_block = extract_S_content(elems, content, ngrid)
     h_block = compute_H(elems, all_models, grid_dist, ngrid)
     HS_datablock = construct_datablock(h_block, s_block)
