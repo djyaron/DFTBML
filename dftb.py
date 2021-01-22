@@ -52,7 +52,7 @@ class DFTB:
             and make corresponding changes to the PDoS function.
     """
     
-    _maxSCFIter = 200
+    _maxSCFIter = 400
     _thrRmsDens = _thrRmsComm = 1.0e-8
     _thrMaxDens = _thrMaxComm = 1.0e-6
 
@@ -736,7 +736,7 @@ class DFTB:
                   f'\tDensity  RMS: {dm_rms:{i}} ({self._thrRmsDens:{i}})\n'
                   f'\tDensity  Max: {dm_max:{i}} ({self._thrMaxDens:{i}})')
 
-            if com:  # Commuter convergence status
+            if com.all():  # Commuter convergence status
                 print(f'\tCommuter RMS: {com_rms:{i}} ({self._thrRmsComm:{i}})\n'
                       f'\tCommuter Max: {com_max:{i}} ({self._thrMaxComm:{i}})')
 
@@ -749,12 +749,15 @@ class DFTB:
         return sum([[qneut / len(bas)] * len(bas) for qneut, bas in zip(qnShell, sbasis)], [])
 
 
-    def get_dQ_from_H(self, newH, newG = None):
+    def get_dQ_from_H(self, newH, newG = None, newS = None):
         Hsave = self._coreH
         self._coreH = newH
         if newG is not None:
             Gsave = self._gamma
             self._gamma = self.FullBasisToShell(newG)
+        if newS is not None:
+            Ssave = self._overlap
+            self._overlap = newS
         E,Flist,rholist, occ_rho_mask = self.SCF(get_occ_rho_mask=True)                            
         S  = self.GetOverlap()
         rho = 2.0 * rholist[0]
@@ -769,6 +772,9 @@ class DFTB:
             entropy_term = 0.0
         if newG is not None:
             self._gamma = Gsave
+        #Reset S to the original value
+        if newS is not None:
+            self._overlap = Ssave
         return self._qN - GOP, occ_rho_mask, entropy_term
         
     def dQ(self, Flist, rholist):
