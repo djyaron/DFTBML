@@ -36,7 +36,7 @@ dataset_path_str = os.path.join("data", "ANI-1ccx_clean_fullentry.h5")
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 10
 # target = 'dt'
-target = {'Etot' : 'ht',
+target = {'Etot' : 'cc',
            'dipole' : 'wb97x_dz.dipole',
            'charges' : 'wb97x_dz.cm5_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
@@ -60,10 +60,6 @@ spline_deg = 3
 prop_train = 0.8
 prop_valid = 0.2
 
-#'ht' reference energies sorted in terms of atomic numbers H, C, N, O
-# Will likely change with the addition of a constant
-reference_energy_start = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
- -5.01610610e-03] #Computed through least squares method for 'ht' target against 'dt'
 
 #Dictionary containing the inflection point variables, update and re-use the variables
 # between folds
@@ -178,6 +174,18 @@ def energy_correction(molec: Dict) -> None:
     num_heavy = sum(heavy_counts)
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
 
+# Variables to hold on to all_models, loss_tracker, etc. between folds; only write out
+# skf files at the very end
+established_models = None #Holder for all_models
+established_variables = None #Holder for model_variables
+established_range_dict = None #Holder for model_range_dict
+
+
+#'cc' reference energies sorted in terms of atomic numbers H, C, N, O
+# Will likely change with the addition of a constant
+reference_energy_start = [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
+  1.27026973e-03] #Computed through least squares method for 'cc' target against 'dt'
+
 folds_cv = get_folds_cv_limited(allowed_Zs, heavy_atoms, dataset_path_str, num_folds, max_config, 
                                 exclude = exclude, shuffle = (1, 1), reverse = False if cv_mode == 'normal' else True)
         
@@ -185,7 +193,7 @@ for ind, fold in enumerate(folds_cv):
     print(f"Performing train and validation on fold {ind}")
     print("Reinitialize the parameter dictionary")
     #Initialize the parameter dictionary
-    par_dict = auorg_1_1.ParDict() if ind == 0 else trainedskf.ParDict()
+    par_dict = auorg_1_1.ParDict() 
     print(par_dict.keys())
     print("Getting validation, training molecules")
     training_molecs, validation_molecs = extract_data_for_molecs(fold, target, dataset_path_str)
@@ -207,6 +215,22 @@ for ind, fold in enumerate(folds_cv):
     print("Initializing models")
     all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
                                                                                allowed_Zs, losses, ref_ener_start = reference_energy_start)
+    if ind > 0:
+        # If not the first fold, carry over the models and variables that are already initialized
+        # Can do this since the complete set of molecules in the dataset should remain constant
+        # The loss_tracker and all_losses can continue to be initialized from the feeds
+        print("Loading established models, variables, and ranges")
+        all_models = established_models
+        model_variables = established_variables
+        model_range_dict = established_range_dict
+        print(model_variables[Model(oper='S', Zs=(1, 6), orb='sp')])
+        print(model_variables[Model(oper='S', Zs=(1, 6), orb='sp_inflect')])
+        print(model_variables['Eref'])
+        assert(model_variables[Model(oper='S', Zs=(1, 6), orb='sp')] is established_variables[Model(oper='S', Zs=(1, 6), orb='sp')])
+        assert(model_variables['Eref'] is established_variables['Eref'])
+        assert(established_models is all_models)
+        assert(established_variables is model_variables)
+        assert(established_range_dict is model_range_dict)
     
     print("Model range correction")
     cutoff_dict = {
@@ -234,7 +258,7 @@ for ind, fold in enumerate(folds_cv):
     
     model_range_dict = new_dict
     
-    print("Inflection variable correction")
+    # print("Inflection variable correction")
     
     print("Generating training feeds")
     feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
@@ -244,15 +268,23 @@ for ind, fold in enumerate(folds_cv):
     print("Performing type conversion")
     total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
     
-    if inflection_point_var_start: #non-empty dictionaries evaluate to True
-        print("Correcting inflection point variables")
-        for model_spec in all_models:
-            if model_spec in inflection_point_var_start:
-                all_models[model_spec].set_inflection_pt(inflection_point_var_start[model_spec])
-                oper, Zs, orb = model_spec
-                orb += '_inflect'
-                inflect_mod = Model(oper, Zs, orb)
-                model_variables[inflect_mod] = all_models[model_spec].get_inflection_pt()
+    print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
+    print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
+    print(f"len of s_mods: {len([mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S'])}")
+    print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
+    print("losses")
+    print(losses)
+    
+    # if inflection_point_var_start: #non-empty dictionaries evaluate to True
+    #     print("Correcting inflection point variables")
+    #     for model_spec in all_models:
+    #         if model_spec in inflection_point_var_start:
+    #             print(f"Correcting inflection point for {model_spec}")
+    #             all_models[model_spec].set_inflection_pt(inflection_point_var_start[model_spec])
+    #             oper, Zs, orb = model_spec
+    #             orb += '_inflect'
+    #             inflect_mod = Model(oper, Zs, orb)
+    #             model_variables[inflect_mod] = all_models[model_spec].get_inflection_pt()
 
 #%% Training loop
     dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = eig_method)
@@ -302,7 +334,7 @@ for ind, fold in enumerate(folds_cv):
             print(result_lst)
     print(f"charge updates done for start")
     
-    nepochs = 200
+    nepochs = 150
     for i in range(nepochs):
         #Initialize epoch timer
         start = time.time()
@@ -435,24 +467,40 @@ for ind, fold in enumerate(folds_cv):
     
     print(f"Finished with {nepochs} epochs")
     
-    # Only write trained skf files if not using the trained pardict
-    print("Writing skf files from trained models")
-    main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
-    
     print("Saving reference energy parameters")
     reference_energy_start = list(model_variables['Eref'].detach().numpy())
     
     print("Saving loss_tracker")
     all_loss_trackers.append(loss_tracker)
     
-    print("Saving the new inflection point variable values")
-    #TODO: Save inflection point variable values and reuse between folds
-    for model_spec in all_models:
-        inflect_point_var = all_models[model_spec].get_inflection_pt()
-        if inflect_point_var is not None:
-            true_val = inflect_point_var.detach().numpy() #Should be a tensor of one element
-            assert(len(true_val) == 1)
-            inflection_point_var_start[model_spec] = [true_val[0]]
+    # print("Saving the new inflection point variable values")
+    # #TODO: Save inflection point variable values and reuse between folds
+    # for model_spec in all_models:
+    #     if model_spec != 'Eref' and len(model_spec.Zs) == 2 and model_spec.oper != 'G':
+    #         inflect_point_var = all_models[model_spec].get_inflection_pt()
+    #         if inflect_point_var is not None:
+    #             print(f"Saving inflection point for {model_spec}")
+    #             true_val = inflect_point_var.detach().numpy() #Should be a tensor of one element
+    #             assert(len(true_val) == 1)
+    #             inflection_point_var_start[model_spec] = [true_val[0]]
+    
+
+    print("Saving models, variables, and ranges")
+    established_models = all_models
+    established_variables = model_variables
+    established_range_dict = model_range_dict
+    print(model_variables[Model(oper='S', Zs=(1, 6), orb='sp')])
+    print(model_variables[Model(oper='S', Zs=(1, 6), orb='sp_inflect')])
+    print(model_variables['Eref'])
+    assert(model_variables[Model(oper='S', Zs=(1, 6), orb='sp')] is established_variables[Model(oper='S', Zs=(1, 6), orb='sp')])
+    assert(model_variables['Eref'] is established_variables['Eref'])
+    assert(established_models is all_models)
+    assert(established_variables is model_variables)
+    assert(established_range_dict is model_range_dict)
+    
+    if ind == num_folds - 1:
+        print("Writing skf files from trained models")
+        main(all_models, atom_nums, atom_masses, True, ref_direct, ext = 'newskf')
     
     print(f"Done with fold {ind}")
 

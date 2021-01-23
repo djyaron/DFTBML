@@ -25,12 +25,12 @@ heavy_atoms = [1,2,3,4,5]
 #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
 max_config = 10
 # target = 'dt'
-target = {'Etot' : 'ht',
+target = {'Etot' : 'cc',
            'dipole' : 'wb97x_dz.dipole',
            'charges' : 'wb97x_dz.cm5_charges'}
 exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
 # Parameters for configuring the spline
-num_knots = 50
+num_knots = 69
 max_val = None
 num_per_batch = 10
 
@@ -42,8 +42,8 @@ prop_train = 0.8
 prop_valid = 0.2
 
 reference_energies = list() # Save the reference energies to see how the losses are really changing
-reference_energy_starting_point = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
- -5.01610610e-03]
+reference_energy_starting_point = [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
+  1.27026973e-03]
 
 lst_sq_ref_ener = [-2.07616501e-01, -3.61579105e+01, -5.20915629e+01, -7.15611237e+01,
  -5.01610610e-03] #Obtained from least squares ref fit
@@ -74,7 +74,7 @@ target_accuracy_monotonic = 1000
 losses['Etot'] = target_accuracy_energy
 losses['dipole'] = target_accuracy_dipole 
 losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
-# losses['convex'] = target_accuracy_convex
+losses['convex'] = target_accuracy_convex
 # losses['monotonic'] = target_accuracy_monotonic
 
 #Initialize the parameter dictionary
@@ -146,7 +146,6 @@ atom_masses = {
     }
 ref_direct = 'auorg-1-1'
 
-
 #%% Precompute
 if not loaded_data:
     print("Getting training and validation molecules")
@@ -157,10 +156,10 @@ if not loaded_data:
     #     pickle.dump(training_molecs, handle)
     #     pickle.dump(validation_molecs, handle)
     
-    print("Loading training and validation molecules for debugging purposes")
-    with open("testing.p", "rb") as handle:
-        training_molecs = pickle.load(handle)
-        validation_molecs = pickle.load(handle)
+    # print("Loading training and validation molecules for debugging purposes")
+    # with open("testing.p", "rb") as handle:
+    #     training_molecs = pickle.load(handle)
+    #     validation_molecs = pickle.load(handle)
     
     print(len(training_molecs), len(validation_molecs))
     
@@ -183,6 +182,7 @@ print("Initializing models")
 all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
                                                                                                     allowed_Zs, losses, 
                                                                                                     ref_ener_start = reference_energy_starting_point) #Update this when optimizing reference energies
+
 
 # Manual correction by extending lower range by some set amount
 # new_dict = dict()
@@ -226,19 +226,41 @@ model_range_dict = new_dict
 
 # plot_skf_values(training_feeds + validation_feeds, par_dict)
 
+CUTOFFS_SRT = {('S', (1, 1)) : 2.10,
+               ('S', (1, 6)) : 1.60,
+               ('S', (1, 7)) : 1.60,
+               ('S', (1, 8)) : 1.50,
+               ('S', (6, 6)) : 1.80,
+               ('S', (6, 7)) : 1.80,
+               ('S', (6, 8)) : 1.80,
+               ('S', (7, 7)) : 1.80,
+               ('S', (7, 8)) : 1.80,
+               ('S', (8, 8)) : 1.80,
+               
+               ('R', (1, 1)) : 2.10,
+               ('R', (1, 6)) : 1.60,
+               ('R', (1, 7)) : 1.60,
+               ('R', (1, 8)) : 1.50,
+               ('R', (6, 6)) : 1.80,
+               ('R', (6, 7)) : 1.80,
+               ('R', (6, 8)) : 1.80,
+               ('R', (7, 7)) : 1.80,
+               ('R', (7, 8)) : 1.80,
+               ('R', (8, 8)) : 1.80}
+
 #Training feed generation
 print("Generating training feeds")
-feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
+feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data, cutoff_dict = CUTOFFS_SRT)
 #Validation feed generation
 print("Generating validation feeds")
-feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data)
+feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data, cutoff_dict = CUTOFFS_SRT)
 
 print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
 
-for model in all_models:
-    if model != 'Eref' and model.oper != 'G' and len(model.Zs) == 2:
-        plot_spline(all_models[model])
+# for model in all_models:
+#     if model != 'Eref' and model.oper != 'G' and len(model.Zs) == 2:
+#         plot_spline(all_models[model])
 
 print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
 print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
@@ -346,7 +368,7 @@ we are trying to solve for. Then, the equation is
 N @ C = E_method2 - E_dftb, and we can solve this in least squares
 """
 allowed_Zs = [1,6,7,8]
-heavy_atoms = [1,2,3,4,5]
+heavy_atoms = [1,2,3,4,5,6,7,8]
 max_config = 10
 exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
 
@@ -358,7 +380,7 @@ target = {'dt' : 'dt', 'dr': 'dr', 'pt' : 'pt', 'pe' : 'pe', 'pr' : 'pr',
                'charges' : 'wb97x_dz.cm5_charges'}
 
 method1_target = 'dt'
-method2_target = 'ht'
+method2_target = 'cc'
 
 all_mol = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude = exclude)
 random.shuffle(all_mol)
@@ -421,7 +443,7 @@ for j in range(len(training_feeds)):
     dftb_list = training_dftblsts[j]
     op_dict = assemble_ops_for_charges(feed, all_models)
     try:
-        update_charges(feed, op_dict, dftb_list)
+        update_charges(feed, op_dict, dftb_list, config['opers_to_model'])
     except Exception as e:
         print(e)
         glabels = feed['glabels']
@@ -438,7 +460,7 @@ for k in range(len(validation_feeds)):
     dftb_list = validation_dftblsts[k]
     op_dict = assemble_ops_for_charges(feed, all_models)
     try:
-        update_charges(feed, op_dict, dftb_list)
+        update_charges(feed, op_dict, dftb_list, config['opers_to_model'])
     except Exception as e:
         print(e)
         glabels = feed['glabels']
@@ -450,7 +472,7 @@ for k in range(len(validation_feeds)):
         print(result_lst)
 print(f"charge updates done for start")
 
-nepochs = 100
+nepochs = 175
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()
@@ -550,7 +572,7 @@ for i in range(nepochs):
             dftb_list = training_dftblsts[j]
             op_dict = assemble_ops_for_charges(feed, all_models)
             try:
-                update_charges(feed, op_dict, dftb_list)
+                update_charges(feed, op_dict, dftb_list, config['opers_to_model'])
             except Exception as e:
                 print(e)
                 glabels = feed['glabels']
@@ -567,7 +589,7 @@ for i in range(nepochs):
             dftb_list = validation_dftblsts[k]
             op_dict = assemble_ops_for_charges(feed, all_models)
             try:
-                update_charges(feed, op_dict, dftb_list)
+                update_charges(feed, op_dict, dftb_list, config['opers_to_model'])
             except Exception as e:
                 print(e)
                 glabels = feed['glabels']
