@@ -52,7 +52,7 @@ class DFTB:
             and make corresponding changes to the PDoS function.
     """
     
-    _maxSCFIter = 400
+    _maxSCFIter = 200
     _thrRmsDens = _thrRmsComm = 1.0e-8
     _thrMaxDens = _thrMaxComm = 1.0e-6
 
@@ -736,7 +736,7 @@ class DFTB:
                   f'\tDensity  RMS: {dm_rms:{i}} ({self._thrRmsDens:{i}})\n'
                   f'\tDensity  Max: {dm_max:{i}} ({self._thrMaxDens:{i}})')
 
-            if com.all():  # Commuter convergence status
+            if com:  # Commuter convergence status
                 print(f'\tCommuter RMS: {com_rms:{i}} ({self._thrRmsComm:{i}})\n'
                       f'\tCommuter Max: {com_max:{i}} ({self._thrMaxComm:{i}})')
 
