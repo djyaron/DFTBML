@@ -222,7 +222,20 @@ for mod, dist_range in model_range_dict.items():
         xlow = cutoff_dict[Zs_rev]
     new_dict[mod] = (xlow, xhigh)
 
-model_range_dict = new_dict
+first_version = new_dict
+second_version = model_range_correction(model_range_dict, cutoff_dict)
+assert(first_version == second_version)
+for key in first_version:
+    assert(key in second_version)
+    assert(first_version[key] == second_version[key])
+
+first_keys = set(first_version.keys())
+second_keys = set(second_version.keys())
+assert(first_keys == second_keys)
+
+model_range_dict = first_version
+
+
 
 # plot_skf_values(training_feeds + validation_feeds, par_dict)
 
@@ -250,10 +263,10 @@ CUTOFFS_SRT = {('S', (1, 1)) : 2.10,
 
 #Training feed generation
 print("Generating training feeds")
-feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data, cutoff_dict = CUTOFFS_SRT)
+feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data, cutoff_dict = CUTOFFS_SRT, off_diag_opers = ['G'], include_inflect = True)
 #Validation feed generation
 print("Generating validation feeds")
-feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data, cutoff_dict = CUTOFFS_SRT)
+feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, spline_mode, spline_deg, debug, loaded_data, cutoff_dict = CUTOFFS_SRT, off_diag_opers = ['G'], include_inflect = True)
 
 print("Performing type conversion")
 total_type_conversion(training_feeds, validation_feeds, ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat'])
@@ -472,7 +485,7 @@ for k in range(len(validation_feeds)):
         print(result_lst)
 print(f"charge updates done for start")
 
-nepochs = 175
+nepochs = 150
 for i in range(nepochs):
     #Initialize epoch timer
     start = time.time()

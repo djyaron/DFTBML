@@ -83,7 +83,7 @@ def apx_equal(x: Union[float, int], y: Union[float, int], tol: float = 1e-12) ->
     return abs(x - y) < tol
 
 def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int, 
-                 target: Dict[str, str], exclude: List[str] = []) -> List[Dict]:
+                 target: Dict[str, str], ani1_path: str = ani1_path, exclude: List[str] = []) -> List[Dict]:
     r"""Extracts data from the ANI-1 data files
     
     Arguments:
@@ -96,6 +96,8 @@ def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int,
         target (Dict[str,str]): entries specify the targets to extract
             key: target_name name assigned to the target
             value: key that the ANI-1 file assigns to this target
+        ani1_path (str): The relative path to the data file. Defaults to
+            'data/ANI-1ccx_clean_fullentry.h5'
         exclude (List[str], optional): Exclude these molecule names from the
             returned molecules
             Defaults to [].
@@ -120,6 +122,7 @@ def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int,
         in the dictionary, along with the data for that individual molecular
         structure.
     """
+    print(f"data file path is {ani1_path}")
     target_alias, h5keys = zip(*target.items())
     target_alias, h5keys = list(target_alias), list(h5keys)
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path)
@@ -1261,6 +1264,15 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                 inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
                 if spline_mode == 'joined':
                     model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    
+                    #Inflection point should be in the region of variation, i.e. less than cutoff
+                    try:
+                        assert(inflect_point_target < model.cutoff)
+                        print(f"Inflection point less than cutoff for {model_spec}")
+                        print(f"Inflection point: {inflect_point_target}, cutoff: {model.cutoff}")
+                    except:
+                        print(f"Warning: inflection point not less than cutoff for {model_spec}")
+                        
                 elif spline_mode == 'non-joined':
                     model = Input_layer_pairwise_linear(model_spec, spline, par_dict, inflection_point_var = [inflect_point_var] if include_inflect else [])
             else:
@@ -1559,6 +1571,10 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, modeled_opers: 
             curr_H = np_Hs[i]
             curr_G = np_Gs[i] if np_Gs is not None else None
             curr_S = np_Ss[i] if np_Ss is not None else None
+            if (curr_G is None):
+                print("G is not included in charge update")
+            if (curr_S is None):
+                print("S is not included in charge update")
             newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G, newS = curr_S) #Modelling both S and G
             newQ, occ_rho_mask_upd = torch.tensor(newQ).unsqueeze(1), torch.tensor(occ_rho_mask_upd)
             feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
@@ -2052,6 +2068,21 @@ def model_range_correction(model_range_dict: Dict, correction_dict: Dict) -> Dic
             xlow = correction_dict[Zs_rev]
         new_dict[mod] = (xlow, xhigh)
     return new_dict
+
+def energy_correction(molec: Dict) -> None:
+    r"""Performs in-place total energy correction for the given molecule by dividing Etot/nheavy
+    
+    Arguments:
+        molec (Dict): The dictionary in need of correction
+    
+    Returns:
+        None
+    """
+    zcount = collections.Counter(molec['atomic_numbers'])
+    ztypes = list(zcount.keys())
+    heavy_counts = [zcount[x] for x in ztypes if x > 1]
+    num_heavy = sum(heavy_counts)
+    molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
 
 
 #%% Top level variable declaration
