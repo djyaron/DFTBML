@@ -8,23 +8,13 @@ Created on Tue Jan  5 11:39:16 2021
 
 from dftb_layer_splines_4 import get_ani1data
 
-from skfwriter import main
-from dftb import ANGSTROM2BOHR
-from model_ranges import plot_skf_values
-from pathlib import Path
-import glob
-import os, shutil
-import errno
+
+import os
 from subprocess import call
 import re
 from elements import ELEMENTS
-import pickle as pkl
-from mio_0_1 import ParDict
 import numpy as np
-import collections
 from h5py import File
-#from trainedskf import ParDict #Comment this line if using auorg-1-1
-from numbers import Real
 from typing import Union, List, Optional, Dict, Any, Literal
 Array = np.ndarray
 
@@ -53,32 +43,6 @@ def named_re(name: str,  respec: str,
     res = ws[before] + "(?P<" + name + ">" + respec + ")" + ws[after]
     
     return res
-
-# def copyskf(src: str, dst: str):
-#     r"""
-#     Copy skf files from src to dist path.
-    
-#     Arguments: 
-#         src: path
-    
-#     # (1) makes dst or deletes dst/*.skf and (2) copies src/*.skf to dst
-    
-
-#     """
-#     # from: http://stackoverflow.com/questions/273192
-#     #    prevents raise conditions versus os.path.exists()
-#     try:
-#         os.makedirs(dst)
-#     except OSError as exception:
-#         if exception.errno != errno.EEXIST:
-#             raise
-#     for item in glob.glob(os.path.join(dst,'*.skf')):
-#         os.remove(item)
-    
-#     for item_src in glob.glob(os.path.join(src,'*.skf')):
-#         _, filename = os.path.split(item_src)
-#         item_dest = os.path.join(dst, filename)
-#         shutil.copyfile(item_src, item_dest)
 
 def write_dftb_infile(Zs: List[int], rcart_angstroms: Array, 
                       file_path: str, skf_dir: str,
@@ -112,7 +76,6 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
     # use of a.u. (DFTB+ uses a.u. for most quantities, so use of a.u. here may
     # be a common error.)
     rcart = rcart_angstroms
-    natom = len(Zs)
     #HSD input requires list of element types, and their max ang momentum, only
     #for elements in this molecule.
     Ztypes = np.unique(Zs)
@@ -325,7 +288,13 @@ for imol,mol in enumerate(dataset):
     #  #f" diff resolved(kcal/mol) {np.abs(Ehartree-mol['targets']['dt'])*627.0:7.3e}" \
     #  f" not resolved {np.abs(Ehartree-mol['targets']['pt'])*627.0:7.3e}" )
 
-# print summary of Au results
+#%% print summary of Au results
+conv = [x for x in dataset if x['dconv'] and x['pconv']]
+diff = np.array([x['dt'] - x['pt'] for x in conv]) * 627.0
+print(f"rms diff us and DFTB+ {np.sqrt(np.average(np.square(diff)))} kcal/mol")
+print(f"max diff us and DFTB+ {np.max(np.abs(diff))} kcal/mol")
+
+
 failed = dict()
 failed['our dftb'] = [x['name'] for x in dataset if not x['dconv'] and x['pconv']]
 failed['dftb+'] = [x['name'] for x in dataset if not x['pconv'] and x['dconv']]
@@ -334,8 +303,7 @@ failed['both'] = [x['name'] for x in dataset if not x['pconv'] and not x['dconv'
 for ftype,names in failed.items():
     print(f"{len(names)} molecules failed {ftype}")
     print(names)
-    
-        
+         
 
 
 
