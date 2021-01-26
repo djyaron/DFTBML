@@ -5,20 +5,33 @@ Created on Sat Jan 23 16:54:02 2021
 @author: Frank
 
 When running on PSC, the default will be to load data in rather than 
-generating the data as usual. For this reason, 
-"""
+generating the data as usual.
 
+TODO:
+    1) Test and verify that pre-compute and loading data work
+    2) Fill in code for the training loop
+    3) Devise process for saving and loading data for folds
+"""
+from __future__ import print_function #__future__ imports must occur at the beginning of the file
 import argparse
 import json
+import torch
+import time
+import torch.optim as optim
 from typing import Dict, List, Union
 from dftb_layer_splines_4 import load_data, dataset_sorting, graph_generation, model_loss_initialization,\
-    feed_generation, saving_data, total_type_conversion, model_range_correction, get_ani1data, energy_correction
+    feed_generation, saving_data, total_type_conversion, model_range_correction, get_ani1data, energy_correction,\
+        assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2, DFTB_Layer
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 import importlib
 import os, os.path
 import random
-from __future__ import print_function
+from batch import Model, RawData, DFTBList
+from skfwriter import main
+import pickle
 
+#Trick for toggling print statements globally, code was found here:
+# https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
 def print(*args, **kwargs):
     if enable_print:
         return __builtins__.print(*args, **kwargs)
@@ -148,7 +161,10 @@ def get_graph_data_noCV(s: Settings, par_dict: Dict):
     Notes: If loading data, the validation and training batches are returned as empty lists
     """
     if not s.loaded_data:
-        print("Getting training and validation molecules")
+        print(f"Getting training and validation molecules from {s.ani1_path}")
+        print(f"Heavy atoms: {s.heavy_atoms}, allowed_Zs: {s.allowed_Zs}, max_config: {s.max_config}")
+        print(f"The following targets are used: {s.target}")
+        print(f"The following molecules are excluded: {s.exclude}")
         dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.ani1_path, exclude = s.exclude)
         training_molecs, validation_molecs = dataset_sorting(dataset, s.prop_train, s.transfer_training, s.transfer_train_params, s.train_ener_per_heavy)
         print(f"number of training molecules: {len(training_molecs)}")
@@ -219,6 +235,329 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple):
     
     return training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches
 
+def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, established_models: Dict = None,
+                      established_variables: Dict = None, established_range_dict = None):
+    r"""Performs the precompute stage of the calculations
+    
+    Arguments:
+        s (Settings): The settings object containing values for all the hyperparameters
+        par_dict (Dict): Dictionary of skf parameters
+        fold (Fold): The current fold object.
+        established_models (Dict): The all_models dictionary from a previous fold
+        established_variables (Dict): The model_variables dictionary from a previous fold
+        established_range_dict (Dict): The model_range_dict from a previous fold
+    
+    Returns:
+        all_models (Dict): Dictionary containing references to all the necessary models
+        model_variables (Dict): Dictionary containing references to all the model_variables 
+            that will be optimized during training
+        training_feeds (List[Dict]): List of dictionaries containing the training feeds
+        validation_feeds (List[Dict]): List of dictionaries containing the validation feeds
+        training_dftblsts (List[DFTBList]): List of DFTBList objects for each of the training feeds
+        validation_dftblsts (List[DFTBList]): List of DFTBList objects for each of the validation feeds
+        losses (Dict): Dictionary of loss targets and their associated weights
+        all_losses (Dict): Dictionary of the loss objects, mapped by their aliases (e.g. 'Etot' : TotalEnergyLoss())
+        loss_tracker (Dict): A dictionary that will be populated with loss information
+    
+    Notes: The fold is an optional argument since it is only applicable in the case of
+        computation involving CV. Similarly, the established_models, established_variables, and 
+        established_range_dict arguments only apply in the case of the driver being in CV mode.
+        
+        All returned information here is necessary for the training loop stage of the computation
+    """
+    if s.driver_mode == 'non-CV':
+        print("Using non-cv method for generating molecules and graphs")
+        training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_noCV(s, par_dict)
+    elif s.driver_mode == 'CV':
+        print("Using cv method for generating molecules and graphs")
+        training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_CV(s, par_dict)
+    
+    print("Creating loss dictionary")
+    losses = dict()
+    for loss in s.losses:
+        #s.losses is a list of strings representing the different losses to factor into backpropagation
+        if loss == 'Etot':
+            losses[loss] = s.target_accuracy_energy
+        elif loss == 'dipole':
+            losses[loss] = s.target_accuracy_dipole
+        elif loss == 'charges':
+            losses[loss] = s.target_accuracy_charges
+        elif loss == 'convex':
+            losses[loss] = s.target_accuracy_convex
+        elif loss == 'monotonic':
+            losses[loss] = s.target_accuracy_monotonic
+        else:
+            raise ValueError("Unsupported loss type")
+    
+    print("Initializing models")
+    all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
+                                                                                                    s.allowed_Zs, losses, 
+                                                                                                    ref_ener_start = s.reference_energy_starting_point)
+    
+    if (established_models is not None) and (established_variables is not None) and (established_range_dict is not None):
+        print("Loading in previous models, variables, and ranges")
+        all_models = established_models
+        model_variables = established_variables
+        model_range_dict = established_range_dict
+    
+    print("Performing model range correction")
+    corrected_lowend_cutoff = dictionary_tuple_correction(s.low_end_correction_dict)
+    model_range_dict = model_range_correction(model_range_dict, corrected_lowend_cutoff)
+    
+    print("Generating training feeds")
+    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
+                    s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
+    
+    print("Generating validation feeds")
+    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
+                    s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
+    
+    print("Performing type conversion to tensors")
+    total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys)
+    
+    print("Some information:")
+    print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
+    print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
+    print(f"len of s_mods: {len([mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S'])}")
+    print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
+    print("losses")
+    print(losses)
+    
+    return all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker
+
+def charge_update_subroutine(s: Settings, training_feeds: List[Dict], 
+                             training_dftblsts: List[DFTBList],
+                             validation_feeds: List[Dict],
+                             validation_dftblsts: List[DFTBList], all_models: Dict,
+                             epoch: int = -1) -> None:
+    r"""Updates charges directly in each feed
+    
+    Arguments:
+        s (Settings): Settings object containing all necessary hyperparameters
+        training_feeds (List[Dict]): List of training feed dictionaries
+        training_dftblsts (List[DFTBList]): List of training feed DFTBLists
+        validation_feeds (list[Dict]): List of validation feed dictionaries
+        validation_dftblsts (List[DFTBList]): List of validation feed DFTBLists
+        all_models (Dict): Dictionary of all models
+        epoch (int): The epoch indicating 
+    
+    Returns:
+        None
+    
+    Notes: Charge updates are done for all training and validation feeds 
+        and uses the H, G, and S operators (if all three are modeled; at the
+        very least, the H operators is requires).
+        
+        Failed charge updates are reported, and the print statements there
+        are set to always print.
+    """
+    print("Running training set charge update")
+    for j in range(len(training_feeds)):
+        # Charge update for training_feeds
+        feed = training_feeds[j]
+        dftb_list = training_dftblsts[j]
+        op_dict = assemble_ops_for_charges(feed, all_models)
+        try:
+            update_charges(feed, op_dict, dftb_list, s.opers_to_model)
+        except Exception as e:
+            print(e, enable_print = 1)
+            glabels = feed['glabels']
+            basis_sizes = feed['basis_sizes']
+            result_lst = []
+            for bsize in basis_sizes:
+                result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
+            print("Charge update failed for", enable_print = 1)
+            print(result_lst, enable_print = 1)
+    print("Training charge update done, doing validation set")
+    for k in range(len(validation_feeds)):
+        # Charge update for validation_feeds
+        feed = validation_feeds[k]
+        dftb_list = validation_dftblsts[k]
+        op_dict = assemble_ops_for_charges(feed, all_models)
+        try:
+            update_charges(feed, op_dict, dftb_list, s.opers_to_model)
+        except Exception as e:
+            print(e, enable_print = 1)
+            glabels = feed['glabels']
+            basis_sizes = feed['basis_sizes']
+            result_lst = []
+            for bsize in basis_sizes:
+                result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
+            print("Charge update failed for", enable_print = 1)
+            print(result_lst, enable_print = 1)
+    if epoch > -1:
+        print(f"Charge updates done for epoch {epoch}")
+    else:
+        print("Charge updates done")
+        
+def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
+    r"""Shuffles two lists while maintaining element-wise corresponding ordering
+    
+    Arguments:
+        lst_1 (List): The first list to shuffle
+        lst_2 (List): The second list to shuffle
+    
+    Returns:
+        lst_1 (List): THe first list shuffled
+        lst_2 (List): The second list shuffled
+    """
+    temp = list(zip(lst_1, lst_2))
+    random.shuffle(temp)
+    lst_1, lst_2 = zip(*temp)
+    lst_1, lst_2 = list(lst_1), list(lst_2)
+    return lst_1, lst_2
+
+def training_loop(s: Settings, all_models: Dict, model_variables: Dict, 
+                  training_feeds: List[Dict], validation_feeds: List[Dict], 
+                  training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
+                  losses: Dict, all_losses: Dict, loss_tracker: Dict):
+    r"""Training loop portion of the calculation
+    
+    Arguments:
+        s (Settings): Settings object containing all necessary hyperparameters
+        all_models (Dict): The dictionary containing references to the
+            spline models, mapped by model specs
+        model_variables (Dict): Dictionary containing references to 
+            all the variables that will be optimized by the model. Variables
+            are stored as tensors with tracked gradients
+        training_feeds (List[Dict]): List of feed dictionaries for the 
+            training data
+        validation_feeds (List[Dict]): List of feed dictionaries for the 
+            validation data
+        training_dftblsts (List[DFTBList]): List of DFTBList objects for the 
+            charge updates on the training feeds
+        validation_dftblsts (List[DFTBList]): List of DFTBList objects for the
+            charge updates on the validation feeds
+        losses (Dict): Dictionary of target losses and their weights
+        all_losses (Dict): Dictionary of target losses and their loss classes
+        loss_tracker (Dict): Dictionary for keeping track of loss data during
+            training
+    
+    Returns:
+        ref_ener_params (List[float]): The current reference energy parameters
+        loss_tracker (Dict): The final loss tracker after the training
+        all_models (Dict): The dictionary of models after the training session
+        model_variables (Dict): The dictionary of model variables after the
+            training session
+        times_per_epoch (List): A list of the the amount of time taken by each epoch,
+            reported in seconds
+
+    Notes: The training loop consists of the main training as well as a 
+        charge update subroutine.
+    """
+    #Instantiate the dftblayer, optimizer, and scheduler
+    dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = s.eig_method)
+    learning_rate = s.learning_rate
+    optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
+    #TODO: Experiment with alternative learning rate schedulers
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
+                                                     patience = s.scheduler_patience, threshold = s.scheduler_threshold)
+    
+    validation_losses, training_losses = list(), list()
+    
+    times_per_epoch = list()
+    print("Running initial charge update")
+    charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models)
+    
+    nepochs = s.nepochs
+    for i in range(nepochs):
+        start = time.time()
+        
+        #Validation routine
+        validation_loss = 0
+        for elem in validation_feeds:
+            with torch.no_grad():
+                output = dftblayer(elem, all_models)
+                # loss = loss_layer.get_loss(output, elem)
+                tot_loss = 0
+                for loss in all_losses:
+                    if loss == 'Etot':
+                        if s.train_ener_per_heavy:
+                            val = losses[loss] * all_losses[loss].get_value(output, elem, True)
+                        else:
+                            val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                        tot_loss += val
+                        loss_tracker[loss][2] += val.item()
+                    elif loss == 'dipole':
+                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                        loss_tracker[loss][2] += val.item()
+                        if s.include_dipole_backprop:
+                            tot_loss += val
+                    else:
+                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                        tot_loss += val 
+                        loss_tracker[loss][2] += val.item()
+                validation_loss += tot_loss.item()
+        
+        #Print some information
+        print("Validation loss:",i, (validation_loss/len(validation_feeds)))
+        validation_losses.append((validation_loss/len(validation_feeds)))
+        
+        #Update loss_tracker 
+        for loss in all_losses:
+            loss_tracker[loss][0].append(loss_tracker[loss][2] / len(validation_feeds))
+            #Reset the loss tracker after being done with all feeds
+            loss_tracker[loss][2] = 0
+        
+        #Shuffle the validation data
+        validation_feeds, validation_dftblsts = paired_shuffle(validation_feeds, validation_dftblsts)
+        
+        #Training routine
+        epoch_loss = 0.0
+        for feed in training_feeds:
+            optimizer.zero_grad()
+            output = dftblayer(feed, all_models)
+            #Comment out, testing new loss
+            # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
+            tot_loss = 0
+            for loss in all_losses:
+                if loss == 'Etot':
+                    if s.train_ener_per_heavy:
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, True)
+                    else:
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, False)
+                    tot_loss += val
+                    loss_tracker[loss][2] += val.item()
+                elif loss == 'dipole':
+                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    loss_tracker[loss][2] += val.item()
+                    if s.include_dipole_backprop:
+                        tot_loss += val
+                else:
+                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    tot_loss += val
+                    loss_tracker[loss][2] += val.item()
+    
+            epoch_loss += tot_loss.item()
+            tot_loss.backward()
+            optimizer.step()
+        scheduler.step(epoch_loss) #Step on the epoch loss
+        
+        #Print some information
+        print("Training loss:", i, (epoch_loss/len(training_feeds)))
+        training_losses.append((epoch_loss/len(training_feeds)))
+        
+        #Update the loss tracker
+        for loss in all_losses:
+            loss_tracker[loss][1].append(loss_tracker[loss][2] / len(training_feeds))
+            loss_tracker[loss][2] = 0
+        
+        #Shuffle training data
+        training_feeds, training_dftblsts = paired_shuffle(training_feeds, training_dftblsts)
+            
+        #Update charges every charge_update_epochs:
+        if (i % s.charge_udpate_epochs == 0):
+            charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
+    
+        times_per_epoch.append(time.time() - start)
+    
+    print(f"Finished with {s.nepochs} epochs")
+    
+    print("Reference energy parameters:")
+    reference_energy_params = list(model_variables['Eref'].detach().numpy())
+    print(reference_energy_params)
+    
+    return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
 
 
 def run_method(settings_filename: str, defaults_filename: str) -> None:
@@ -254,11 +593,134 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         module = importlib.import_module(settings.par_dict_name)
         par_dict = module.ParDict()
         
-    
 
 if __name__ == "__main__":
     args = parser.parse_args()
     enable_print = 1 if args.verbose else 0
+    
+    # Testing code
+    # This testing code assumes the following command line is used:
+    # %python cldriver.py settings_default.json defaults.json --verbose
+    # the --verbose flag enables all print statements globally
+    
+    print("Reading input json files...")
+    
+    with open(args.settings, 'r') as read_file:
+        input_settings_dict = json.load(read_file)
+    with open(args.defaults, 'r') as read_file:
+        default_settings_dict = json.load(read_file)
+        
+    print("Finished reading json files.")
+        
+    # Check the final settings dictionary
+    print("Generating final settings dictionary...")
+    
+    final_settings_dict = construct_final_settings_dict(input_settings_dict, default_settings_dict)
+    for item in final_settings_dict:
+        print(item, ":", final_settings_dict[item])
+    
+    print("Finished generating final settings dictionary.")
+        
+    # Make sure that the par_dict is loading the correct keys
+    settings = Settings(final_settings_dict)
+    
+    print("Loading in skf parameter dictionary...")
+    if settings.par_dict_name == 'auorg_1_1':
+        from auorg_1_1 import ParDict
+        par_dict = ParDict()
+    else:
+        module = importlib.import_module(settings.par_dict_name)
+        par_dict = module.ParDict()
+
+    print("SKF pardict keys:")
+    print(par_dict.keys())
+    print("Finished loading in skf parameter dictionary.")
+    
+    # Try generating some molecules from it
+    # We know from previous experiments that for up to 5 heavy atoms, this
+    # dataset should give 1134 molecules
+    
+    print("Generating feeds and batches for testing")
+    training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_noCV(settings, par_dict)
+    print(f"Number of training feeds: {len(training_feeds)}")
+    print(f"Number of validation feeds: {len(validation_feeds)}")
+    
+    # Cross-reference the molecules generated here with the ones generated from 
+    # dftb_layer_driver.py:
+    
+    from functools import reduce # O(N^2) check in the number of molecules
+    print("Flattening to get all molecules back")
+    flattened_train_molecs = list(reduce(lambda x, y : x + y, training_batches))
+    flattened_validation_molecs = list(reduce(lambda x, y : x + y, validation_batches))
+    total_molecs = flattened_train_molecs + flattened_validation_molecs
+    
+    print("Checking total number of molecules")
+    assert(len(total_molecs) == 1134) #We know this from previous experiments
+    with open("molecule_test.p","rb") as handle:
+        reference_molecs = pickle.load(handle)
+    print("loading reference molecules and doing a direct comparison")
+    assert(len(reference_molecs) == len(total_molecs))
+    
+    test_name_config = set([(x['name'], x['iconfig']) for x in total_molecs])
+    ref_name_config = set([(y['name'], y['iconfig']) for y in reference_molecs])
+    assert(test_name_config == ref_name_config)
+    assert(len(test_name_config) == len(ref_name_config) == len(total_molecs) == 1134)
+    print("Molecules are the same")
+    
+    print("Testing precompute stage, no CV")
+    all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
+    
+    print("Checking correct cutoffs, should be 3.0")
+    for model in all_models:
+        if hasattr(all_models[model], 'cutoff'):
+            assert(all_models[model].cutoff == 3.0)
+            assert(model.oper in ["S", "H", "R"])
+    
+    print("Checking length of B-spline coefficients, should be 49 (num_knots - 1)")
+    for model in all_models:
+        print(model)
+        if isinstance(all_models[model], Input_layer_pairwise_linear_joined):
+            assert(model.oper in ["S", "H", "R"])
+            print(all_models[model].get_total())
+            assert(len(all_models[model].get_total()) == 49)
+        elif isinstance(all_models[model], OffDiagModel2):
+            assert(model.oper == "G")
+        else:
+            print(all_models[model].get_variables()) #Eref and value case
+            if model == 'Eref':
+                assert(len(all_models[model].get_variables()) == 5)
+            else:
+                assert(len(all_models[model].get_variables()) == 1)
+    
+    print("Asserting that no inflection models made it into all_models")
+    for model in all_models:
+        if hasattr(model, 'orb'):
+            assert('inflect' not in model.orb)
+    
+    print("Quick check on model_variables")
+    
+    for model in model_variables:
+        if model == 'Eref':
+            assert(len(model_variables[model]) == 5)
+        elif model.oper == 'G':
+            assert(len(model_variables[model]) == 1)
+            assert(len(model.Zs) == 1)
+        elif 'inflect' in model.orb:
+            assert(len(model_variables[model]) == 1)
+            assert(model.oper == 'S')
+        else:
+            print(len(model_variables[model]))
+            
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
         
         
