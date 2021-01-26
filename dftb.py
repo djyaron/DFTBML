@@ -749,12 +749,15 @@ class DFTB:
         return sum([[qneut / len(bas)] * len(bas) for qneut, bas in zip(qnShell, sbasis)], [])
 
 
-    def get_dQ_from_H(self, newH, newG = None):
+    def get_dQ_from_H(self, newH, newG = None, newS = None):
         Hsave = self._coreH
         self._coreH = newH
         if newG is not None:
             Gsave = self._gamma
             self._gamma = self.FullBasisToShell(newG)
+        if newS is not None:
+            Ssave = self._overlap
+            self._overlap = newS
         E,Flist,rholist, occ_rho_mask = self.SCF(get_occ_rho_mask=True)                            
         S  = self.GetOverlap()
         rho = 2.0 * rholist[0]
@@ -769,6 +772,9 @@ class DFTB:
             entropy_term = 0.0
         if newG is not None:
             self._gamma = Gsave
+        #Reset S to the original value
+        if newS is not None:
+            self._overlap = Ssave
         return self._qN - GOP, occ_rho_mask, entropy_term
         
     def dQ(self, Flist, rholist):

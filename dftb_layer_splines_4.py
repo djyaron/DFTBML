@@ -83,7 +83,7 @@ def apx_equal(x: Union[float, int], y: Union[float, int], tol: float = 1e-12) ->
     return abs(x - y) < tol
 
 def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int, 
-                 target: Dict[str, str], exclude: List[str] = []) -> List[Dict]:
+                 target: Dict[str, str], ani1_path: str = ani1_path, exclude: List[str] = []) -> List[Dict]:
     r"""Extracts data from the ANI-1 data files
     
     Arguments:
@@ -96,6 +96,8 @@ def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int,
         target (Dict[str,str]): entries specify the targets to extract
             key: target_name name assigned to the target
             value: key that the ANI-1 file assigns to this target
+        ani1_path (str): The relative path to the data file. Defaults to
+            'data/ANI-1ccx_clean_fullentry.h5'
         exclude (List[str], optional): Exclude these molecule names from the
             returned molecules
             Defaults to [].
@@ -120,6 +122,7 @@ def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int,
         in the dictionary, along with the data for that individual molecular
         structure.
     """
+    print(f"data file path is {ani1_path}")
     target_alias, h5keys = zip(*target.items())
     target_alias, h5keys = list(target_alias), list(h5keys)
     all_zs = get_targets_from_h5file('atomic_numbers', ani1_path)
@@ -1172,7 +1175,8 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                              num_knots: int = 50, buffer: float = 0.0, 
                              joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
                              spline_mode: str = 'joined', spline_deg: int = 3,
-                             off_diag_opers: List[str] = ["G"]) -> (Input_layer_pairwise_linear_joined, str):
+                             off_diag_opers: List[str] = ["G"],
+                             include_inflect: bool = True) -> (Input_layer_pairwise_linear_joined, str):
     r"""Generates a joined spline model for the given model_spec
     
     Arguments:
@@ -1191,11 +1195,13 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
         joined_cutoff (float): The cutoff distance for separating the variable and fixed
             regions of the spline. Defaults to 3.0 angstroms
         cutoff_dict (Dict): Dictionary of cutoffs to use for each joined spline model, indexed
-            by the model_spec. Defaults to None, in which case the joined_cutoff default of 3.0 angstroms is used
+            by the element pair. Defaults to None, in which case the joined_cutoff default of 3.0 angstroms is used
         spline_mode (str): The type of spline to use, one of 'joined', 'non-joined'. Defaults to 'joined'
         spline_deg (int): The degree of splines to use. Defaults to 3
         off_diag_opers (List[str]): A list of the operators to model using the 
-            OffDiagModel. Defaults to ['G']
+            OffDiagModel2. Defaults to ['G']
+        include_inflect (bool): Whether or not to use inflection point variables for the splines.
+            Defaults to True, in which case it is used
     
     Returns:
         model (Input_layer_pairwise_linear_joined): The instance of the Input_layer_pairwise_linear_joined
@@ -1212,6 +1218,11 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
         
         Specifying the degree of the splines only affects the non-joined splines, as joined-splines only work
         with third degree splines
+        
+        The cutoff_dict entries should be of the following format:
+            (oper, (elem1, elem2)) : cutoff
+        
+        This way, all the models using the given oper and elems will have the same cutoff
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
@@ -1225,10 +1236,23 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
             maximum_value += buffer
             xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
             print(f"number of knots: {len(xknots)}")
-            # Joined splines for all operators
+            
+            #Get the correct cutoff for the model
+            if cutoff_dict is not None:
+                Zs, Zs_rev = model_spec.Zs, (model_spec.Zs[1], model_spec.Zs[0])
+                oper = model_spec.oper
+                if (oper, Zs) in cutoff_dict:
+                    model_cutoff = cutoff_dict[(oper, Zs)]
+                elif (oper, Zs_rev) in cutoff_dict:
+                    model_cutoff = cutoff_dict[(oper, Zs_rev)]
+                else:
+                    model_cutoff = joined_cutoff
+            else:
+                model_cutoff = joined_cutoff
+            
             config = {'xknots' : xknots,
                       'equal_knots' : False,
-                      'cutoff' : cutoff_dict[model_spec] if (cutoff_dict is not None) else joined_cutoff,
+                      'cutoff' : model_cutoff,
                       'bconds' : 'natural',
                       'deg' : spline_deg}
             if spline_mode == 'joined':
@@ -1239,9 +1263,18 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                 inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 10) #Approximate guess for initial inflection point var
                 inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
                 if spline_mode == 'joined':
-                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [])
+                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    
+                    #Inflection point should be in the region of variation, i.e. less than cutoff
+                    try:
+                        assert(inflect_point_target < model.cutoff)
+                        print(f"Inflection point less than cutoff for {model_spec}")
+                        print(f"Inflection point: {inflect_point_target}, cutoff: {model.cutoff}")
+                    except:
+                        print(f"Warning: inflection point not less than cutoff for {model_spec}")
+                        
                 elif spline_mode == 'non-joined':
-                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, inflection_point_var = [])
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, inflection_point_var = [inflect_point_var] if include_inflect else [])
             else:
                 if spline_mode == 'joined':
                     model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
@@ -1510,13 +1543,16 @@ def assemble_ops_for_charges(feed: Dict, all_models: Dict) -> Dict:
     
     return calc
 
-def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList) -> None:
+def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, modeled_opers: List[str] = ["S", "G"]) -> None:
     r"""Destructively updates the charges in the feed
     
     Arguments:
         feed (Dict): The feed dictionary whose charges need to be updated
         op_dict (Dict): The dictionary containing the H and G operators, separated by bsize
         dftblst (DFTBList): The DFTBList instance for this feed
+        additional_opers (List[str]): The list of additional operators being modeled that
+            need to be passedto get_dQ_from_H. Only "S" and "G" are relevant; "R" is not used in
+            charge updates and "H" is mandatory for charge updates
     
     Returns:
         None
@@ -1525,12 +1561,21 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList) -> None:
     """
     for bsize in op_dict['H'].keys():
         np_Hs = op_dict['H'][bsize].detach().numpy() #Don't care about gradients here
-        np_Gs = op_dict['G'][bsize].detach().numpy()
+        np_Gs, np_Ss = None, None
+        if "G" in modeled_opers:
+            np_Gs = op_dict['G'][bsize].detach().numpy()
+        if "S" in modeled_opers:
+            np_Ss = op_dict['S'][bsize].detach().numpy()
         for i in range(len(dftblst.dftbs_by_bsize[bsize])):
             curr_dftb = dftblst.dftbs_by_bsize[bsize][i]
             curr_H = np_Hs[i]
-            curr_G = np_Gs[i] 
-            newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G) #Not modelling G (for now) CHANGE BACK LATER
+            curr_G = np_Gs[i] if np_Gs is not None else None
+            curr_S = np_Ss[i] if np_Ss is not None else None
+            if (curr_G is None):
+                print("G is not included in charge update")
+            if (curr_S is None):
+                print("S is not included in charge update")
+            newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G, newS = curr_S) #Modelling both S and G
             newQ, occ_rho_mask_upd = torch.tensor(newQ).unsqueeze(1), torch.tensor(occ_rho_mask_upd)
             feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
             feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
@@ -1852,7 +1897,11 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
 def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losses: Dict, 
                     all_models: Dict, model_variables: Dict, model_range_dict: Dict,
                     par_dict: Dict, spline_mode: str, spline_deg: int,
-                    debug: bool = False, loaded_data: bool = False) -> None:
+                    debug: bool = False, loaded_data: bool = False,
+                    spline_knots: int = 50, buffer: float = 0.0, 
+                    joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
+                    off_diag_opers: List[str] = ["G"],
+                    include_inflect: bool = True) -> None:
     r"""Destructively adds all the necessary information to each feed dictionary
     
     Arguments:
@@ -1871,18 +1920,40 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
         spline_deg (int): The degree of the spline to use.
         debug (bool): Whether or not to use debug mode. Defaults to False
         loaded_data (bool): Whether or not using pre-loaded data. Defaults to False
+        spline_knots (int): How many knots for the basis splines. Defaults to 50
+        buffer (float): The value to shift the starting and ending distance by. The starting distance
+            is rlow - buffer, and the ending distance is rhigh + buffer, where rlow, rhigh are the 
+            minimum and maximum distances for the spline from the spline_dict. 
+            Defaults to 0.0 angstroms (no shift)
+        joined_cutoff (float): The default cutoff for the joined splines. Defaults to 3.0 
+            angstroms
+        cutoff_dict (Dict): Optional dictionary mapping (oper, element pairs) tuples to cutoffs for specific
+            combinations. Defaults to None, in which case the joined_cutoff is used for all models
+        off_diag_opers (List[str]): The name of operators that are modeled using an off-diagonal 
+            model rather than a spline functional form. Only used for "G" oper so 
+            defaults to ["G"]
+        include_inflect (bool): Whether or not to include the inflection point variable
+            for each model. Defaults to True
     
     Returns:
         None
     
     Notes: The spline_deg parameter only matters if the spline_mode is 'non-joined'
+        
+        The cutoff_dict entries should be of the following format:
+            (oper, (elem1, elem2)) : cutoff
+        
+        This way, all the models using the given oper and elems will have the same cutoff
     """
     for ibatch,feed in enumerate(feeds):
         for model_spec in feed['models']:
             # print(model_spec)
             if (model_spec not in all_models):
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict,
-                                                        spline_mode = spline_mode, spline_deg = spline_deg)
+                                                        spline_knots, buffer,
+                                                        joined_cutoff, cutoff_dict,
+                                                        spline_mode, spline_deg,
+                                                        off_diag_opers, include_inflect)
                 all_models[model_spec] = mod_res
                 #all_models[model_spec] = get_model_dftb(model_spec)
                 if tag != 'noopt' and not isinstance(mod_res, OffDiagModel2):
@@ -1969,6 +2040,50 @@ def total_type_conversion(training_feeds: List[Dict], validation_feeds: List[Dic
         recursive_type_conversion(feed, ignore_keys)
     for feed in validation_feeds:
         recursive_type_conversion(feed, ignore_keys)
+
+def model_range_correction(model_range_dict: Dict, correction_dict: Dict) -> Dict:
+    r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict
+    
+    Arguments:
+        model_range_dict (Dict): Dictionary mapping model_specs to their ranges in angstroms as tuples of the form
+            (rlow, rhigh)
+        correction_dict (Dict): Dictionary mapping model_specs to their new low ends in angstroms. Here,
+            The keys are element tuples (elem1, elem2) and the values are the new low ends.
+            All models modelling the interactions between elements (a, b) will have the
+            same low end
+    
+    Returns:
+        new_dict (Dict): The corrected model range dictionary
+    
+    Notes: If a models' element pair does not appear in the correction_dict, its range
+        is left unchanged
+    """
+    new_dict = dict()
+    for mod, dist_range in model_range_dict.items():
+        xlow, xhigh = dist_range
+        Zs, Zs_rev = mod.Zs, (mod.Zs[1], mod.Zs[0])
+        if Zs in correction_dict:
+            xlow = correction_dict[Zs]
+        elif Zs_rev in correction_dict:
+            xlow = correction_dict[Zs_rev]
+        new_dict[mod] = (xlow, xhigh)
+    return new_dict
+
+def energy_correction(molec: Dict) -> None:
+    r"""Performs in-place total energy correction for the given molecule by dividing Etot/nheavy
+    
+    Arguments:
+        molec (Dict): The dictionary in need of correction
+    
+    Returns:
+        None
+    """
+    zcount = collections.Counter(molec['atomic_numbers'])
+    ztypes = list(zcount.keys())
+    heavy_counts = [zcount[x] for x in ztypes if x > 1]
+    num_heavy = sum(heavy_counts)
+    molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
+
 
 #%% Top level variable declaration
 if __name__ == "__main__":
