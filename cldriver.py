@@ -15,10 +15,13 @@ TODO:
 from __future__ import print_function #__future__ imports must occur at the beginning of the file
 import argparse
 import json
+import torch
+import time
+import torch.optim as optim
 from typing import Dict, List, Union
 from dftb_layer_splines_4 import load_data, dataset_sorting, graph_generation, model_loss_initialization,\
     feed_generation, saving_data, total_type_conversion, model_range_correction, get_ani1data, energy_correction,\
-        assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2
+        assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2, DFTB_Layer
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 import importlib
 import os, os.path
@@ -406,7 +409,7 @@ def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
 
 def training_loop(s: Settings, all_models: Dict, model_variables: Dict, 
                   training_feeds: List[Dict], validation_feeds: List[Dict], 
-                  training_dftblsts: List[DFTBList], validation_dftblists: List[DFTBList],
+                  training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
                   losses: Dict, all_losses: Dict, loss_tracker: Dict):
     r"""Training loop portion of the calculation
     
@@ -423,7 +426,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
             validation data
         training_dftblsts (List[DFTBList]): List of DFTBList objects for the 
             charge updates on the training feeds
-        validation_dftblists (List[DFTBList]): List of DFTBList objects for the
+        validation_dftblsts (List[DFTBList]): List of DFTBList objects for the
             charge updates on the validation feeds
         losses (Dict): Dictionary of target losses and their weights
         all_losses (Dict): Dictionary of target losses and their loss classes
@@ -436,13 +439,125 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         all_models (Dict): The dictionary of models after the training session
         model_variables (Dict): The dictionary of model variables after the
             training session
-        model_range_dict (Dict): The dictionary of model ranges after the 
-            training session
+        times_per_epoch (List): A list of the the amount of time taken by each epoch,
+            reported in seconds
 
     Notes: The training loop consists of the main training as well as a 
         charge update subroutine.
     """
-    pass
+    #Instantiate the dftblayer, optimizer, and scheduler
+    dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = s.eig_method)
+    learning_rate = s.learning_rate
+    optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
+    #TODO: Experiment with alternative learning rate schedulers
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
+                                                     patience = s.scheduler_patience, threshold = s.scheduler_threshold)
+    
+    validation_losses, training_losses = list(), list()
+    
+    times_per_epoch = list()
+    print("Running initial charge update")
+    charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models)
+    
+    nepochs = s.nepochs
+    for i in range(nepochs):
+        start = time.time()
+        
+        #Validation routine
+        validation_loss = 0
+        for elem in validation_feeds:
+            with torch.no_grad():
+                output = dftblayer(elem, all_models)
+                # loss = loss_layer.get_loss(output, elem)
+                tot_loss = 0
+                for loss in all_losses:
+                    if loss == 'Etot':
+                        if s.train_ener_per_heavy:
+                            val = losses[loss] * all_losses[loss].get_value(output, elem, True)
+                        else:
+                            val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                        tot_loss += val
+                        loss_tracker[loss][2] += val.item()
+                    elif loss == 'dipole':
+                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                        loss_tracker[loss][2] += val.item()
+                        if s.include_dipole_backprop:
+                            tot_loss += val
+                    else:
+                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                        tot_loss += val 
+                        loss_tracker[loss][2] += val.item()
+                validation_loss += tot_loss.item()
+        
+        #Print some information
+        print("Validation loss:",i, (validation_loss/len(validation_feeds)))
+        validation_losses.append((validation_loss/len(validation_feeds)))
+        
+        #Update loss_tracker 
+        for loss in all_losses:
+            loss_tracker[loss][0].append(loss_tracker[loss][2] / len(validation_feeds))
+            #Reset the loss tracker after being done with all feeds
+            loss_tracker[loss][2] = 0
+        
+        #Shuffle the validation data
+        validation_feeds, validation_dftblsts = paired_shuffle(validation_feeds, validation_dftblsts)
+        
+        #Training routine
+        epoch_loss = 0.0
+        for feed in training_feeds:
+            optimizer.zero_grad()
+            output = dftblayer(feed, all_models)
+            #Comment out, testing new loss
+            # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
+            tot_loss = 0
+            for loss in all_losses:
+                if loss == 'Etot':
+                    if s.train_ener_per_heavy:
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, True)
+                    else:
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, False)
+                    tot_loss += val
+                    loss_tracker[loss][2] += val.item()
+                elif loss == 'dipole':
+                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    loss_tracker[loss][2] += val.item()
+                    if s.include_dipole_backprop:
+                        tot_loss += val
+                else:
+                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    tot_loss += val
+                    loss_tracker[loss][2] += val.item()
+    
+            epoch_loss += tot_loss.item()
+            tot_loss.backward()
+            optimizer.step()
+        scheduler.step(epoch_loss) #Step on the epoch loss
+        
+        #Print some information
+        print("Training loss:", i, (epoch_loss/len(training_feeds)))
+        training_losses.append((epoch_loss/len(training_feeds)))
+        
+        #Update the loss tracker
+        for loss in all_losses:
+            loss_tracker[loss][1].append(loss_tracker[loss][2] / len(training_feeds))
+            loss_tracker[loss][2] = 0
+        
+        #Shuffle training data
+        training_feeds, training_dftblsts = paired_shuffle(training_feeds, training_dftblsts)
+            
+        #Update charges every charge_update_epochs:
+        if (i % s.charge_udpate_epochs == 0):
+            charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
+    
+        times_per_epoch.append(time.time() - start)
+    
+    print(f"Finished with {s.nepochs} epochs")
+    
+    print("Reference energy parameters:")
+    reference_energy_params = list(model_variables['Eref'].detach().numpy())
+    print(reference_energy_params)
+    
+    return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
 
 
 def run_method(settings_filename: str, defaults_filename: str) -> None:
