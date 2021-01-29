@@ -212,10 +212,6 @@ class per_molec_h5handler:
                 # Notes.txt, lots of extraction from the dictionary
                 curr_Erep = feed['Erep'][bsize][i]
                 curr_rho = feed['rho'][bsize][i]
-                curr_S = feed['S'][bsize][i]
-                curr_phis = feed['phiS'][bsize][i]
-                curr_Sevals = feed['Sevals'][bsize][i]
-                curr_G = feed['G'][bsize][i]
                 curr_dQ = feed['dQ'][bsize][i]
                 curr_Eelec = feed['Eelec'][bsize][i]
                 curr_eorb = feed['eorb'][bsize][i]
@@ -237,16 +233,26 @@ class per_molec_h5handler:
                     iconf_group.create_dataset('dipole_mat', data = curr_dipole_mats)
                     iconf_group.create_dataset('dipoles', data = curr_dipoles)
                     iconf_group.create_dataset('charges', data = curr_charges)
-                except Exception as e:
-                    print(e)
-                    print("Could not save dipole/charge information!")
+                except:
+                    print("Charge/dipole info was not found")
+                try:
+                    curr_G = feed['G'][bsize][i]
+                    iconf_group.create_dataset('G', data = curr_G)
+                except:
+                    print("G info was not found")
+                try:
+                    curr_S = feed['S'][bsize][i]
+                    curr_phis = feed['phiS'][bsize][i]
+                    curr_Sevals = feed['Sevals'][bsize][i]
+                    iconf_group.create_dataset('S', data = curr_S)
+                    iconf_group.create_dataset('phiS', data = curr_phis)
+                    iconf_group.create_dataset('Sevals', data = curr_Sevals)
+                except:
+                    print("S, phiS, Seval info was not found")
+                    
                 #Now save all this information to the created iconf group
                 iconf_group.create_dataset('Erep', data = curr_Erep)
                 iconf_group.create_dataset('rho', data = curr_rho)
-                iconf_group.create_dataset('S', data = curr_S)
-                iconf_group.create_dataset('phiS', data = curr_phis)
-                iconf_group.create_dataset('Sevals', data = curr_Sevals)
-                iconf_group.create_dataset('G', data = curr_G)
                 iconf_group.create_dataset('dQ', data = curr_dQ)
                 iconf_group.create_dataset('Eelec', data = curr_Eelec)
                 iconf_group.create_dataset('eorb', data = curr_eorb)
@@ -278,8 +284,9 @@ class per_molec_h5handler:
             print("feeds saved successfully per molecule")
             hf.flush()
             hf.close()
-        except:
+        except Exception as e:
             print("something went wrong with saving feeds per molecule")
+            print(e)
     
     """
     Extract and reconstitute the feed with the information provided on a per-molecule basis
@@ -560,8 +567,9 @@ class per_batch_h5handler:
             for i in range(len(batches)):
                 per_batch_h5handler.unpack_save_feed_batch_h5(batches[i], save_file, i)
             print("batch info saved successfully")
-        except:
+        except Exception as e:
             print("something went wrong with saving batch information")
+            print(e)
 
     @staticmethod
     def extract_batch_info(filename: str) -> List[Dict]:
@@ -794,9 +802,11 @@ def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
             
             assert( np.allclose(curr_ref_fd['atom_ids'][bsize], feedi['atom_ids'][bsize]) )
             
-            assert( np.allclose (curr_ref_fd['S'][bsize], feedi['S'][bsize]) )
-
-            assert( np.allclose (curr_ref_fd['G'][bsize], feedi['G'][bsize]) )
+            if 'S' in curr_ref_fd:
+                assert( np.allclose (curr_ref_fd['S'][bsize], feedi['S'][bsize]) )
+            
+            if 'G' in curr_ref_fd:
+                assert( np.allclose (curr_ref_fd['G'][bsize], feedi['G'][bsize]) )
             
             assert( np.allclose (curr_ref_fd['Etot'][bsize], feedi['Etot'][bsize]) )      
 
@@ -804,7 +814,8 @@ def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
 
             assert( np.allclose (curr_ref_fd['Erep'][bsize], feedi['Erep'][bsize]) ) 
             
-            assert( np.allclose (curr_ref_fd['Sevals'][bsize], feedi['Sevals'][bsize]) ) 
+            if 'Sevals' in curr_ref_fd:
+                assert( np.allclose (curr_ref_fd['Sevals'][bsize], feedi['Sevals'][bsize]) ) 
             
             assert( np.allclose (curr_ref_fd['dQ'][bsize], feedi['dQ'][bsize]) ) 
 
@@ -823,7 +834,8 @@ def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
             
             assert( np.allclose (curr_ref_fd['occ_eorb_mask'][bsize], feedi['occ_eorb_mask'][bsize]) )
             
-            assert( np.allclose (curr_ref_fd['phiS'][bsize], feedi['phiS'][bsize]) )
+            if 'phiS' in curr_ref_fd:
+                assert( np.allclose (curr_ref_fd['phiS'][bsize], feedi['phiS'][bsize]) )
             
             assert( np.allclose (curr_ref_fd['rho'][bsize], feedi['rho'][bsize]) ) 
             
@@ -835,7 +847,7 @@ def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
                 assert(np.allclose(curr_ref_fd['gather_for_oper'][oper][bsize], feedi['gather_for_oper'][oper][bsize] ))
             
             for oper in curr_ref_fd['onames']:
-                if oper != 'H':
+                if (oper != 'H') and (oper in curr_ref_fd):
                     assert(np.allclose(curr_ref_fd[oper][bsize], feedi[oper][bsize]))
                     
     print("Tests passed!")

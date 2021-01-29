@@ -34,7 +34,8 @@ from batch import DFTBList
 import collections
 import os, os.path
 from h5handler import per_molec_h5handler, per_batch_h5handler, total_feed_combinator, compare_feeds
-import pickle
+import pickle, json
+import importlib
 
 class Settings:
     def __init__(self, settings_dict: Dict) -> None:
@@ -68,7 +69,7 @@ def energy_correction(molec: Dict) -> None:
     num_heavy = sum(heavy_counts)
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
 
-def generate_fold_molecs(s: Settings) -> List[(List[Dict], List[Dict])]:
+def generate_fold_molecs(s: Settings):
     r"""Generates the molecules in each fold
     
     Arguments:
@@ -80,7 +81,7 @@ def generate_fold_molecs(s: Settings) -> List[(List[Dict], List[Dict])]:
             lists where the first list is the training molecules and the second list is the 
             validation molecules
     """
-    folds_cv = get_folds_cv_limited(s.allowed_Zs, s.heavy_atoms, s.ani1_path, s.num_folds, s.max_config, s.exclude, shuffle = tuple(s.shuffle), 
+    folds_cv = get_folds_cv_limited(s.allowed_Zs, s.heavy_atoms, s.data_path, s.num_folds, s.max_config, s.exclude, shuffle = tuple(s.shuffle), 
                                     reverse = False if s.cv_mode == 'normal' else True)
     fold_molecs = list()
     for fold in folds_cv:
@@ -105,7 +106,11 @@ def fold_precompute(s: Settings, par_dict: Dict, training_molecs: List[Dict],
         
     
     Returns:
-        
+        training_feeds (List[Dict]): The generated training feed dictionaries
+        validation_feeds (List[Dict]): The generated validation feed dictionaries
+        training_dftblsts (List[DFTBList]): The DFTBList objects to go along with the 
+            training feeds
+        validation_dftblsts (List[DFTBList]): The DFTBList objects to go along with the validation feeds
 
     """
     config = {"opers_to_model" : s.opers_to_model}
@@ -141,6 +146,7 @@ def fold_precompute(s: Settings, par_dict: Dict, training_molecs: List[Dict],
     print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
     print("losses")
     print(losses)
+    print(training_feeds[0].keys())
     return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
 def saving_fold(s: Settings, training_feeds: List[Dict], validation_feeds: List[Dict],
@@ -230,10 +236,11 @@ def loading_fold(s: Settings, top_fold_path: str, fold_num: int):
     train_dftblst_filename = os.path.join(total_folder_path, 'train_dftblsts.p')
     valid_dftblst_filename = os.path.join(total_folder_path, 'valid_dftblsts.p')
     
-    training_feeds = total_feed_combinator.create_all_feeds(train_batch_filename, train_molec_filename, True)
-    validation_feeds = total_feed_combinator.create_all_feeds(valid_batch_filename, valid_molec_filename, True)
+    training_feeds = total_feed_combinator.create_all_feeds(train_batch_filename, train_molec_filename, s.ragged_dipole)
+    validation_feeds = total_feed_combinator.create_all_feeds(valid_batch_filename, valid_molec_filename, s.ragged_dipole)
     
     if s.run_check:
+        print("Running safety check")
         compare_feeds(train_reference_filename, training_feeds)
         compare_feeds(valid_reference_filename, validation_feeds)
     
@@ -242,10 +249,63 @@ def loading_fold(s: Settings, top_fold_path: str, fold_num: int):
     
     return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
-
+def generate_save_folds(settings_path: str) -> None:
+    r"""Generates and saves folds based on the configurations presented in
+        the settings_path json file
+    
+    Arguments:
+        settings_path (str): The path to the file that specifies the parameters 
+            for generating the folds
+    
+    Returns:
+        None
+    
+    Notes: The idea behind making the fold generater and cldriver depend on the 
+        same settings file JSON format is for convenience
+    """
+    with open(settings_path, 'r') as read_file:
+        input_settings_dict = json.load(read_file)
+    settings = Settings(input_settings_dict)
+    
+    top_fold_path = settings.top_level_fold_path
+    if not os.path.isdir(top_fold_path):
+        os.mkdir(top_fold_path)
+        
+    par_dict_path = settings.par_dict_name
+    if par_dict_path == 'auorg_1_1':
+        from auorg_1_1 import ParDict
+        par_dict = ParDict()
+    else:
+        module = importlib.import_module(par_dict_path)
+        par_dict = module.ParDict()
+        
+    
+    #Generate the folds in terms of the molecules in the train and validation sets
+    fold_molecs = generate_fold_molecs(settings)
+    
+    for ind, (train_molecs, valid_molecs) in enumerate(fold_molecs):
+        training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = fold_precompute(settings, par_dict, 
+                                                                                                   train_molecs, valid_molecs)
+        saving_fold(settings, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, top_fold_path, ind)
+    
+    print("All folds saved successfully")
+    
+if __name__ == "__main__":
+    
+    #Testing saving features
+    settings_json = "settings_default.json"
+    # generate_save_folds(settings_json)
+    
+    with open(settings_json, 'r') as read_file:
+        settings = Settings(json.load(read_file))
+    
+    #Testing loading data for the folds
+    top_fold_path = "test_fold"
+    training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(settings, top_fold_path, 0)
     
     
-    
+        
+        
     
     
     
