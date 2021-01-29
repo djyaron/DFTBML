@@ -161,11 +161,11 @@ def get_graph_data_noCV(s: Settings, par_dict: Dict):
     Notes: If loading data, the validation and training batches are returned as empty lists
     """
     if not s.loaded_data:
-        print(f"Getting training and validation molecules from {s.ani1_path}")
+        print(f"Getting training and validation molecules from {s.data_path}")
         print(f"Heavy atoms: {s.heavy_atoms}, allowed_Zs: {s.allowed_Zs}, max_config: {s.max_config}")
         print(f"The following targets are used: {s.target}")
         print(f"The following molecules are excluded: {s.exclude}")
-        dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.ani1_path, exclude = s.exclude)
+        dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.data_path, exclude = s.exclude)
         training_molecs, validation_molecs = dataset_sorting(dataset, s.prop_train, s.transfer_training, s.transfer_train_params, s.train_ener_per_heavy)
         print(f"number of training molecules: {len(training_molecs)}")
         print(f"number of validation molecules: {len(validation_molecs)}")
@@ -214,8 +214,8 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple):
     print(par_dict.keys())
     print("Getting validation, training molecules")
     #Getting the dataset is for debugging purposes only, remove later
-    dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.ani1_path, exclude = s.exclude)
-    training_molecs, validation_molecs = extract_data_for_molecs(fold, s.target, s.ani1_path)
+    dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.data_path, exclude = s.exclude)
+    training_molecs, validation_molecs = extract_data_for_molecs(fold, s.target, s.data_path)
     assert(len(training_molecs) + len(validation_molecs) == len(dataset))
     print(f"number of training molecules: {len(training_molecs)}")
     print(f"number of validation molecules: {len(validation_molecs)}")
@@ -546,7 +546,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         training_feeds, training_dftblsts = paired_shuffle(training_feeds, training_dftblsts)
             
         #Update charges every charge_update_epochs:
-        if (i % s.charge_udpate_epochs == 0):
+        if (i % s.charge_update_epochs == 0):
             charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
     
         times_per_epoch.append(time.time() - start)
@@ -571,27 +571,44 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         None
     
     Notes: The stages of the computation are as follows:
-        1) Top level variable declaration
-        2) Precompute
-        3) Training loop
-        4) Logging/results
+        1) Precompute
+        2) Training loop
+        3) Resulting models, output, and logging
     
         Each of these parts will be its own separate method, and the precompute stage
         part will vary slightly based on whether we are using folds or not
+    
+    TODO: Right now, it is only set to handle non-fold CV as a testing step
     """
+    #Read the input files and construct the settings dictionary
     with open(settings_filename, "r") as read_file:
         input_settings_dict = json.load(read_file)
     with open(defaults_filename, "r") as read_file:
         default_settings_dict = json.load(read_file)
     final_settings = construct_final_settings_dict(input_settings_dict, default_settings_dict)
+    
     #Convert settings to an object for easier handling
     settings = Settings(final_settings)
+    
+    #Information on the run id:
+    print(f"run id: {settings.run_id}")
+    print(f"CV setting: {settings.driver_mode}")
+        
+    #Load the parameter dictionary
     if settings.par_dict_name == 'auorg_1_1':
         from auorg_1_1 import ParDict
         par_dict = ParDict()
     else:
         module = importlib.import_module(settings.par_dict_name)
         par_dict = module.ParDict()
+    
+    #Do the pre-compute stage
+    all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
+    
+    #Do the training loop stage
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
+                                                                                                        training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
+    return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
         
 
 if __name__ == "__main__":
@@ -670,6 +687,9 @@ if __name__ == "__main__":
     print("Testing precompute stage, no CV")
     all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
     
+    print("Keys for first training feed:")
+    print(training_feeds[0].keys())
+    
     print("Checking correct cutoffs, should be 3.0")
     for model in all_models:
         if hasattr(all_models[model], 'cutoff'):
@@ -710,7 +730,23 @@ if __name__ == "__main__":
             assert(model.oper == 'S')
         else:
             print(len(model_variables[model]))
-            
+    
+    #Full training loop testing (runs through all steps of the computation process)
+    # Calls the run_method which does all the computations
+    
+    print("Calling run method for full runthrough")
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    
+    for loss in loss_tracker:
+        print(f"Final {loss} train: {loss_tracker[loss][1][-1]}")
+        print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
+    
+        
+    
+    
+    
+    
+    
     
     
     

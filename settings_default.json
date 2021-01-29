@@ -48,6 +48,7 @@
     "ref_direct" : "auorg-1-1",
     
     "driver_mode" : "non-CV",
+    "cv_mode" : "normal",
     "num_folds" : 5,
     "exclude" : ["O3", "N2O1", "H1N1O3", "H2"],
     
@@ -76,6 +77,8 @@
     "7,8" : 0.933,
     "8,8" : 1.062
     },
-    "ani1_path" : "data/ANI-1ccx_clean_fullentry.h5",
+    "data_path" : "data/ANI-1ccx_clean_fullentry.h5",
+    "shuffle" : [1,1],
+    "top_level_fold_path" : "test_fold",
     "run_id" : "test_run"
 }
