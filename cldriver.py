@@ -28,6 +28,7 @@ import os, os.path
 import random
 from batch import Model, RawData, DFTBList
 from skfwriter import main
+from fold_generator import loading_fold
 import pickle
 
 #Trick for toggling print statements globally, code was found here:
@@ -183,9 +184,11 @@ def get_graph_data_noCV(s: Settings, par_dict: Dict):
                                                                                          s.dftblst_names[0], s.dftblst_names[1],
                                                                                          s.ragged_dipole, s.run_check)
         training_batches, validation_batches = [], []
+        print(f"Number of training feeds: {len(training_feeds)}")
+        print(f"Number of validation feeds: {len(validation_feeds)}")
     return training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches
 
-def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple):
+def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = -1):
     r"""Handles the molecule grabbing and graph generating stages of pre-compute,
         but for running CV experiments
     
@@ -194,6 +197,8 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple):
             hyperparameters
         par_dict (Dict): The relevant parameter dictionary (e.g. auorg-1-1)
         fold (tuple): The tuple representing the fold, (train, test)
+        fold_num (int): The number indicating the current fold of interest if we are 
+            loading the pre-generated data for a fold. Defaults to -1
     
     Returns:
         training_feeds (List[Dict]): List of training feed dictionaries
@@ -213,39 +218,48 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple):
     print(f"Current parameter dictionary keys:")
     print(par_dict.keys())
     print("Getting validation, training molecules")
-    #Getting the dataset is for debugging purposes only, remove later
-    dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.data_path, exclude = s.exclude)
-    training_molecs, validation_molecs = extract_data_for_molecs(fold, s.target, s.data_path)
-    assert(len(training_molecs) + len(validation_molecs) == len(dataset))
-    print(f"number of training molecules: {len(training_molecs)}")
-    print(f"number of validation molecules: {len(validation_molecs)}")
-    if s.train_ener_per_heavy:
-        for molec in training_molecs:
-            energy_correction(molec)
-        for molec in validation_molecs:
-            energy_correction(molec)
-    random.shuffle(training_molecs)
-    random.shuffle(validation_molecs)
-    
-    config = {'opers_to_model' : s.opers_to_model}
-    print("Getting training graphs")
-    training_feeds, training_dftblsts, training_batches = graph_generation(training_molecs, config, s.allowed_Zs, par_dict, s.num_per_batch)
-    print("Getting validation graphs")
-    validation_feeds, validation_dftblsts, validation_batches = graph_generation(validation_molecs, config, s.allowed_Zs, par_dict, s.num_per_batch)
+    if not s.loaded_data:
+        #Getting the dataset is for debugging purposes in ensuring that the correct number of molecules is extracted.
+        print("Generating data rather than loading")
+        dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path = s.data_path, exclude = s.exclude)
+        training_molecs, validation_molecs = extract_data_for_molecs(fold, s.target, s.data_path)
+        assert(len(training_molecs) + len(validation_molecs) == len(dataset))
+        print(f"number of training molecules: {len(training_molecs)}")
+        print(f"number of validation molecules: {len(validation_molecs)}")
+        if s.train_ener_per_heavy:
+            for molec in training_molecs:
+                energy_correction(molec)
+            for molec in validation_molecs:
+                energy_correction(molec)
+        random.shuffle(training_molecs)
+        random.shuffle(validation_molecs)
+        
+        config = {'opers_to_model' : s.opers_to_model}
+        print("Getting training graphs")
+        training_feeds, training_dftblsts, training_batches = graph_generation(training_molecs, config, s.allowed_Zs, par_dict, s.num_per_batch)
+        print("Getting validation graphs")
+        validation_feeds, validation_dftblsts, validation_batches = graph_generation(validation_molecs, config, s.allowed_Zs, par_dict, s.num_per_batch)
+    elif s.loaded_data and fold_num > -1:
+        print(f"loading data for fold {fold_num} rather than generating")
+        top_fold_path = s.top_level_fold_path
+        training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(s, top_fold_path, fold_num)
+        training_batches, validation_batches = list(), list()
+        print(f"Number of training feeds: {len(training_feeds)}")
+        print(f"Number of validation feeds: {len(validation_feeds)}")
     
     return training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches
 
-def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, established_models: Dict = None,
-                      established_variables: Dict = None, established_range_dict = None):
+def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = -1, established_models: Dict = None,
+                      established_variables: Dict = None):
     r"""Performs the precompute stage of the calculations
     
     Arguments:
         s (Settings): The settings object containing values for all the hyperparameters
         par_dict (Dict): Dictionary of skf parameters
-        fold (Fold): The current fold object.
+        fold (tuple): The current fold object.
+        fold_num (int): The number of the current fold being used
         established_models (Dict): The all_models dictionary from a previous fold
         established_variables (Dict): The model_variables dictionary from a previous fold
-        established_range_dict (Dict): The model_range_dict from a previous fold
     
     Returns:
         all_models (Dict): Dictionary containing references to all the necessary models
@@ -270,7 +284,7 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, established_mode
         training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_noCV(s, par_dict)
     elif s.driver_mode == 'CV':
         print("Using cv method for generating molecules and graphs")
-        training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_CV(s, par_dict)
+        training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_CV(s, par_dict, fold, fold_num)
     
     print("Creating loss dictionary")
     losses = dict()
@@ -294,11 +308,10 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, established_mode
                                                                                                     s.allowed_Zs, losses, 
                                                                                                     ref_ener_start = s.reference_energy_starting_point)
     
-    if (established_models is not None) and (established_variables is not None) and (established_range_dict is not None):
+    if (established_models is not None) and (established_variables is not None):
         print("Loading in previous models, variables, and ranges")
         all_models = established_models
         model_variables = established_variables
-        model_range_dict = established_range_dict
     
     print("Performing model range correction")
     corrected_lowend_cutoff = dictionary_tuple_correction(s.low_end_correction_dict)
@@ -602,14 +615,46 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         module = importlib.import_module(settings.par_dict_name)
         par_dict = module.ParDict()
     
-    #Do the pre-compute stage
-    all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
+    if settings.driver_mode == "non-CV":
+        #Do the pre-compute stage
+        all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
     
-    #Do the training loop stage
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
+        #Do the training loop stage
+        reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
-    return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
+        return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
+    
+    elif settings.driver_mode == "CV":
+        #In CV, we need to keep track of models, variables, and ranges
+        established_models = None
+        established_variables = None
         
+        #Get the folds regardless (very fast)
+        print("Getting folds")
+        folds_cv = get_folds_cv_limited(settings.allowed_Zs, settings.heavy_atoms, 
+                                        settings.data_path, settings.num_folds, 
+                                        settings.max_config, settings.exclude, tuple(settings.shuffle),
+                                        reverse = False if settings.cv_mode == 'normal' else True)
+        print("Done getting folds")
+        
+        for ind, fold in enumerate(folds_cv):
+            all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, 
+                                                                                                                                                                        established_models, established_variables)
+            
+            reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
+                                                                                                        training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
+            if (established_models is not None) and (established_variables is not None):
+                assert(all_models is established_models)
+                assert(model_variables is established_variables)
+                
+            if ind == settings.num_folds - 1:
+                return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
+            
+            established_models = all_models
+            established_variables = model_variables
+            
+            assert(all_models is established_models)
+            assert(model_variables is established_variables)
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -620,126 +665,129 @@ if __name__ == "__main__":
     # %python cldriver.py settings_default.json defaults.json --verbose
     # the --verbose flag enables all print statements globally
     
-    print("Reading input json files...")
+    # print("Reading input json files...")
     
-    with open(args.settings, 'r') as read_file:
-        input_settings_dict = json.load(read_file)
-    with open(args.defaults, 'r') as read_file:
-        default_settings_dict = json.load(read_file)
+    # with open(args.settings, 'r') as read_file:
+    #     input_settings_dict = json.load(read_file)
+    # with open(args.defaults, 'r') as read_file:
+    #     default_settings_dict = json.load(read_file)
         
-    print("Finished reading json files.")
+    # print("Finished reading json files.")
         
-    # Check the final settings dictionary
-    print("Generating final settings dictionary...")
+    # # Check the final settings dictionary
+    # print("Generating final settings dictionary...")
     
-    final_settings_dict = construct_final_settings_dict(input_settings_dict, default_settings_dict)
-    for item in final_settings_dict:
-        print(item, ":", final_settings_dict[item])
+    # final_settings_dict = construct_final_settings_dict(input_settings_dict, default_settings_dict)
+    # for item in final_settings_dict:
+    #     print(item, ":", final_settings_dict[item])
     
-    print("Finished generating final settings dictionary.")
+    # print("Finished generating final settings dictionary.")
         
-    # Make sure that the par_dict is loading the correct keys
-    settings = Settings(final_settings_dict)
+    # # Make sure that the par_dict is loading the correct keys
+    # settings = Settings(final_settings_dict)
     
-    print("Loading in skf parameter dictionary...")
-    if settings.par_dict_name == 'auorg_1_1':
-        from auorg_1_1 import ParDict
-        par_dict = ParDict()
-    else:
-        module = importlib.import_module(settings.par_dict_name)
-        par_dict = module.ParDict()
+    # print("Loading in skf parameter dictionary...")
+    # if settings.par_dict_name == 'auorg_1_1':
+    #     from auorg_1_1 import ParDict
+    #     par_dict = ParDict()
+    # else:
+    #     module = importlib.import_module(settings.par_dict_name)
+    #     par_dict = module.ParDict()
 
-    print("SKF pardict keys:")
-    print(par_dict.keys())
-    print("Finished loading in skf parameter dictionary.")
+    # print("SKF pardict keys:")
+    # print(par_dict.keys())
+    # print("Finished loading in skf parameter dictionary.")
     
-    # Try generating some molecules from it
-    # We know from previous experiments that for up to 5 heavy atoms, this
-    # dataset should give 1134 molecules
+    # # Try generating some molecules from it
+    # # We know from previous experiments that for up to 5 heavy atoms, this
+    # # dataset should give 1134 molecules
     
-    print("Generating feeds and batches for testing")
-    training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_noCV(settings, par_dict)
-    print(f"Number of training feeds: {len(training_feeds)}")
-    print(f"Number of validation feeds: {len(validation_feeds)}")
+    # print("Generating feeds and batches for testing")
+    # training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_noCV(settings, par_dict)
+    # print(f"Number of training feeds: {len(training_feeds)}")
+    # print(f"Number of validation feeds: {len(validation_feeds)}")
     
-    # Cross-reference the molecules generated here with the ones generated from 
-    # dftb_layer_driver.py:
+    # # Cross-reference the molecules generated here with the ones generated from 
+    # # dftb_layer_driver.py:
     
-    from functools import reduce # O(N^2) check in the number of molecules
-    print("Flattening to get all molecules back")
-    flattened_train_molecs = list(reduce(lambda x, y : x + y, training_batches))
-    flattened_validation_molecs = list(reduce(lambda x, y : x + y, validation_batches))
-    total_molecs = flattened_train_molecs + flattened_validation_molecs
+    # from functools import reduce # O(N^2) check in the number of molecules
+    # print("Flattening to get all molecules back")
+    # flattened_train_molecs = list(reduce(lambda x, y : x + y, training_batches))
+    # flattened_validation_molecs = list(reduce(lambda x, y : x + y, validation_batches))
+    # total_molecs = flattened_train_molecs + flattened_validation_molecs
     
-    print("Checking total number of molecules")
-    assert(len(total_molecs) == 1134) #We know this from previous experiments
-    with open("molecule_test.p","rb") as handle:
-        reference_molecs = pickle.load(handle)
-    print("loading reference molecules and doing a direct comparison")
-    assert(len(reference_molecs) == len(total_molecs))
+    # print("Checking total number of molecules")
+    # assert(len(total_molecs) == 1134) #We know this from previous experiments
+    # with open("molecule_test.p","rb") as handle:
+    #     reference_molecs = pickle.load(handle)
+    # print("loading reference molecules and doing a direct comparison")
+    # assert(len(reference_molecs) == len(total_molecs))
     
-    test_name_config = set([(x['name'], x['iconfig']) for x in total_molecs])
-    ref_name_config = set([(y['name'], y['iconfig']) for y in reference_molecs])
-    assert(test_name_config == ref_name_config)
-    assert(len(test_name_config) == len(ref_name_config) == len(total_molecs) == 1134)
-    print("Molecules are the same")
+    # test_name_config = set([(x['name'], x['iconfig']) for x in total_molecs])
+    # ref_name_config = set([(y['name'], y['iconfig']) for y in reference_molecs])
+    # assert(test_name_config == ref_name_config)
+    # assert(len(test_name_config) == len(ref_name_config) == len(total_molecs) == 1134)
+    # print("Molecules are the same")
     
-    print("Testing precompute stage, no CV")
-    all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
+    # print("Testing precompute stage, no CV")
+    # all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
     
-    print("Keys for first training feed:")
-    print(training_feeds[0].keys())
+    # print("Keys for first training feed:")
+    # print(training_feeds[0].keys())
     
-    print("Checking correct cutoffs, should be 3.0")
-    for model in all_models:
-        if hasattr(all_models[model], 'cutoff'):
-            assert(all_models[model].cutoff == 3.0)
-            assert(model.oper in ["S", "H", "R"])
+    # print("Checking correct cutoffs, should be 3.0")
+    # for model in all_models:
+    #     if hasattr(all_models[model], 'cutoff'):
+    #         assert(all_models[model].cutoff == 3.0)
+    #         assert(model.oper in ["S", "H", "R"])
     
-    print("Checking length of B-spline coefficients, should be 49 (num_knots - 1)")
-    for model in all_models:
-        print(model)
-        if isinstance(all_models[model], Input_layer_pairwise_linear_joined):
-            assert(model.oper in ["S", "H", "R"])
-            print(all_models[model].get_total())
-            assert(len(all_models[model].get_total()) == 49)
-        elif isinstance(all_models[model], OffDiagModel2):
-            assert(model.oper == "G")
-        else:
-            print(all_models[model].get_variables()) #Eref and value case
-            if model == 'Eref':
-                assert(len(all_models[model].get_variables()) == 5)
-            else:
-                assert(len(all_models[model].get_variables()) == 1)
+    # print("Checking length of B-spline coefficients, should be 49 (num_knots - 1)")
+    # for model in all_models:
+    #     print(model)
+    #     if isinstance(all_models[model], Input_layer_pairwise_linear_joined):
+    #         assert(model.oper in ["S", "H", "R"])
+    #         print(all_models[model].get_total())
+    #         assert(len(all_models[model].get_total()) == 49)
+    #     elif isinstance(all_models[model], OffDiagModel2):
+    #         assert(model.oper == "G")
+    #     else:
+    #         print(all_models[model].get_variables()) #Eref and value case
+    #         if model == 'Eref':
+    #             assert(len(all_models[model].get_variables()) == 5)
+    #         else:
+    #             assert(len(all_models[model].get_variables()) == 1)
     
-    print("Asserting that no inflection models made it into all_models")
-    for model in all_models:
-        if hasattr(model, 'orb'):
-            assert('inflect' not in model.orb)
+    # print("Asserting that no inflection models made it into all_models")
+    # for model in all_models:
+    #     if hasattr(model, 'orb'):
+    #         assert('inflect' not in model.orb)
     
-    print("Quick check on model_variables")
+    # print("Quick check on model_variables")
     
-    for model in model_variables:
-        if model == 'Eref':
-            assert(len(model_variables[model]) == 5)
-        elif model.oper == 'G':
-            assert(len(model_variables[model]) == 1)
-            assert(len(model.Zs) == 1)
-        elif 'inflect' in model.orb:
-            assert(len(model_variables[model]) == 1)
-            assert(model.oper == 'S')
-        else:
-            print(len(model_variables[model]))
+    # for model in model_variables:
+    #     if model == 'Eref':
+    #         assert(len(model_variables[model]) == 5)
+    #     elif model.oper == 'G':
+    #         assert(len(model_variables[model]) == 1)
+    #         assert(len(model.Zs) == 1)
+    #     elif 'inflect' in model.orb:
+    #         assert(len(model_variables[model]) == 1)
+    #         assert(model.oper == 'S')
+    #     else:
+    #         print(len(model_variables[model]))
     
-    #Full training loop testing (runs through all steps of the computation process)
-    # Calls the run_method which does all the computations
+    # #Full training loop testing (runs through all steps of the computation process)
+    # # Calls the run_method which does all the computations in the non-CV case
     
-    print("Calling run method for full runthrough")
+    # print("Calling run method for full runthrough")
+    # reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    
+    # for loss in loss_tracker:
+    #     print(f"Final {loss} train: {loss_tracker[loss][1][-1]}")
+    #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
+    
+    #Testing for the CV case
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
-    
-    for loss in loss_tracker:
-        print(f"Final {loss} train: {loss_tracker[loss][1][-1]}")
-        print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
         
     

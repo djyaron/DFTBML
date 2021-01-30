@@ -36,6 +36,7 @@ import os, os.path
 from h5handler import per_molec_h5handler, per_batch_h5handler, total_feed_combinator, compare_feeds
 import pickle, json
 import importlib
+import random
 
 class Settings:
     def __init__(self, settings_dict: Dict) -> None:
@@ -91,6 +92,8 @@ def generate_fold_molecs(s: Settings):
                 energy_correction(molec)
             for molec in validation_molecs:
                 energy_correction(molec)
+        random.shuffle(training_molecs)
+        random.shuffle(validation_molecs)
         fold_molecs.append((training_molecs, validation_molecs))
     return fold_molecs
 
@@ -287,6 +290,7 @@ def generate_save_folds(settings_path: str) -> None:
         training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = fold_precompute(settings, par_dict, 
                                                                                                    train_molecs, valid_molecs)
         saving_fold(settings, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, top_fold_path, ind)
+        print(f"Fold {ind} saved")
     
     print("All folds saved successfully")
     
@@ -294,7 +298,7 @@ if __name__ == "__main__":
     
     #Testing saving features
     settings_json = "settings_default.json"
-    # generate_save_folds(settings_json)
+    generate_save_folds(settings_json)
     
     with open(settings_json, 'r') as read_file:
         settings = Settings(json.load(read_file))

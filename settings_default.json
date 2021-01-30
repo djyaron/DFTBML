@@ -25,7 +25,7 @@
     
     "losses" : ["Etot", "dipole", "charges", "convex"],
     "par_dict_name" : "auorg_1_1",
-    "loaded_data" : false,
+    "loaded_data" : true,
     "molec_file_names" : ["final_molec_test.h5", "final_valid_molec_test.h5"],
     "batch_file_names" : ["final_batch_test.h5", "final_valid_batch_test.h5"],
     
@@ -47,13 +47,12 @@
     
     "ref_direct" : "auorg-1-1",
     
-    "driver_mode" : "non-CV",
+    "driver_mode" : "CV",
     "cv_mode" : "normal",
     "num_folds" : 5,
-    "exclude" : ["O3", "N2O1", "H1N1O3", "H2"],
     
     "charge_update_epochs" : 10,
-    "nepochs" : 150,
+    "nepochs" : 5,
     "learning_rate" : 1e-5,
     "ams_grad_enabled" : true,
     "scheduler_patience" : 10,
