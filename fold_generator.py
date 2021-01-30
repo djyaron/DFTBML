@@ -139,9 +139,10 @@ def fold_precompute(s: Settings, par_dict: Dict, training_molecs: List[Dict],
     all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
                                                                                s.allowed_Zs, losses, ref_ener_start = s.reference_energy_starting_point)
     
-    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
+    #the loaded_data argument is hard set to False since we are not going to be loading data when trying to generate the folds
+    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, False, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
-    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
+    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, False, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
     print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
     print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
@@ -153,7 +154,8 @@ def fold_precompute(s: Settings, par_dict: Dict, training_molecs: List[Dict],
     return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
 def saving_fold(s: Settings, training_feeds: List[Dict], validation_feeds: List[Dict],
-                 training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList], top_fold_path: str,
+                 training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
+                 training_molecs: List[Dict], validation_molecs: List[Dict], top_fold_path: str,
                  fold_num: int) -> None:
     r"""Method for saving the feeds using the h5 handler methods
     
@@ -165,6 +167,8 @@ def saving_fold(s: Settings, training_feeds: List[Dict], validation_feeds: List[
             with training_feeds
         validation_dftblsts (List[DFTBList]): The list of validation DFTBList objects to go
             along with validation_feeds
+        training_molecs (List[Dict]): List of molecule dictionaries for the training molecules
+        validation_molecs (List[Dict]): List of molecule dictionaries for the validation molecules
         top_fold_path (str): The file path to the top level directory containing the folds
         fold_num (int): The number of the current fold
         
@@ -186,6 +190,8 @@ def saving_fold(s: Settings, training_feeds: List[Dict], validation_feeds: List[
     valid_reference_filename = os.path.join(total_folder_path, 'valid_reference.p')
     train_dftblst_filename = os.path.join(total_folder_path, 'train_dftblsts.p')
     valid_dftblst_filename = os.path.join(total_folder_path, 'valid_dftblsts.p')
+    train_raw_molecs_filename = os.path.join(total_folder_path, 'train_total_molecs.p')
+    valid_raw_molecs_filename = os.path.join(total_folder_path, 'valid_total_molecs.p')
     
     #Save the training information
     per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, train_molec_filename)
@@ -206,6 +212,12 @@ def saving_fold(s: Settings, training_feeds: List[Dict], validation_feeds: List[
     
     with open(valid_dftblst_filename, 'wb') as handle:
         pickle.dump(validation_dftblsts, handle)
+        
+    with open(train_raw_molecs_filename, 'wb') as handle:
+        pickle.dump(training_molecs, handle)
+    
+    with open(valid_raw_molecs_filename, 'wb') as handle:
+        pickle.dump(validation_molecs, handle)
     
     print("All information successfully saved")
 
@@ -230,6 +242,7 @@ def loading_fold(s: Settings, top_fold_path: str, fold_num: int):
     total_folder_path = os.path.join(top_fold_path, current_folder_name)
     if not os.path.isdir(total_folder_path):
         raise ValueError("Data for fold does not exist")
+    print(f"loading data from {total_folder_path}")
     train_molec_filename = os.path.join(total_folder_path, 'train_molecs.h5')
     valid_molec_filename = os.path.join(total_folder_path, 'valid_molecs.h5')
     train_batch_filename = os.path.join(total_folder_path, 'train_batches.h5')
@@ -289,7 +302,8 @@ def generate_save_folds(settings_path: str) -> None:
     for ind, (train_molecs, valid_molecs) in enumerate(fold_molecs):
         training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = fold_precompute(settings, par_dict, 
                                                                                                    train_molecs, valid_molecs)
-        saving_fold(settings, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, top_fold_path, ind)
+        saving_fold(settings, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts,
+                    train_molecs, valid_molecs, top_fold_path, ind)
         print(f"Fold {ind} saved")
     
     print("All folds saved successfully")
