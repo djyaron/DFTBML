@@ -16,8 +16,8 @@ TotalData:
         Valid_dftblsts.p
         Train_ref.p
         Valid_ref.p
-        Train_fold_molecs.p
-        Valid_fold_molecs.p
+        Train_fold_molecs.p (pickle file of the raw molecule dictionaries)
+        Valid_fold_molecs.p (pickle file of the raw molecule dictionaries)
     Fold1:
         ...
     ...
@@ -37,7 +37,14 @@ from h5handler import per_molec_h5handler, per_batch_h5handler, total_feed_combi
 import pickle, json
 import importlib
 import random
+import numpy as np
+import matplotlib.pyplot as plt
+from itertools import combinations
+from scipy.spatial.distance import pdist
+from matplotlib.ticker import AutoMinorLocator
+import re
 
+#%% General functions and constants
 class Settings:
     def __init__(self, settings_dict: Dict) -> None:
         r"""Generates a Settings object from the given dictionary
@@ -70,6 +77,13 @@ def energy_correction(molec: Dict) -> None:
     num_heavy = sum(heavy_counts)
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
 
+atom_nums = {
+    6 : "C",
+    1 : "H",
+    7 : "N",
+    8 : "O"
+    }
+#%% Methods for generating and saving folds
 def generate_fold_molecs(s: Settings):
     r"""Generates the molecules in each fold
     
@@ -307,19 +321,178 @@ def generate_save_folds(settings_path: str) -> None:
         print(f"Fold {ind} saved")
     
     print("All folds saved successfully")
+
+#%% Methods for analyzing fold data distance distributions
+def get_dist_dict(molec: Dict) -> dict:
+    r"""Generate pairwise distances of conformations of a molecular formula
+    Args:
+        molec (Dict): The dictionary representation of a molecule
+        
+    Returns:
+        result_dict (Dict): whose keys are atom pairs,
+            and values are a 1-D np.ndarray of pairwise distances
+    """
+    atoms = molec['atomic_numbers']
+    coords_mol = molec['coordinates'] #(Natom x 3)
     
+    atom_pairs = tuple(combinations(atoms, 2))  #: atom pairs, used to keep track of the output of pdist
+    zs = sorted(set(combinations(sorted(atoms), 2)))  #: sorted and deduplicated atom pairs
+    distances = pdist(coords_mol)
+    
+    result_dict = {z : [] for z in zs}
+    for i, pair in enumerate(atom_pairs):
+        pair_rev = (pair[1], pair[0])
+        if pair in result_dict:
+            result_dict[pair].append(distances[i])
+        elif pair_rev in result_dict:
+            result_dict[pair_rev].append(distances[i])
+    
+    return result_dict
+
+def correct_tuple_to_str(elem_nums: tuple) -> str:
+    r"""Takes a tuple of atomic numbers and converts it to a string of atom 
+        symbols
+    
+    Arguments:
+        elem_nums (tuple): Tuple of atomic numbers to convert
+    
+    Returns:
+        str: String of the two element symbols separated by a dash
+    
+    Example: (6, 6) => "C-C"
+    """
+    sym1, sym2 = atom_nums[elem_nums[0]], atom_nums[elem_nums[1]]
+    return f"{sym1}-{sym2}"
+
+def analyze_molec_set(molecs: List[Dict]) -> Dict:
+    r"""Generates a dictionary of all the pairwise distances seen in a set of molecules
+    
+    Arguments:
+        molecs (List[Dict]): The list of molecule dictionaries representing the current 
+            molecule set
+    
+    Returns:
+        total_distances (Dict): A dictionary indexed by atom symbol pair containing
+            all the distances seen for that atom pair
+    """
+    total_distances = dict()
+    for elem in molecs:
+        molecule_result = get_dist_dict(elem)
+        for pair in molecule_result:
+            corrected_pair = correct_tuple_to_str(pair)
+            if corrected_pair not in total_distances:
+                total_distances[corrected_pair] = molecule_result[pair]
+            else:
+                total_distances[corrected_pair] += molecule_result[pair]
+
+    return total_distances
+
+def plot_distributions(total_distances: Dict, dest: str, set_label: str = 'train',
+                       x_min: float = 0.05, x_max: float = 10.0, n_bins: int = 150,
+                       minor_locator_factor: int = 10) -> None:
+    r"""Method to plot the distribution of distances as histograms, and to save those
+        figures
+    
+    Arguments:
+        total_distances (Dict): Dictionary of total distances indexed by a string of 
+            atom elemets, e.g. 'C-C' : [dist_1, dist_2, dist_3, ..., dist_n] output from
+            analyze_molec_set
+        dest (str): The relative path to the destination where the figure will be saved. 
+            The plot name is appended onto this destination string to get the total save path
+        set_label (str): Whether this is the train or validation set of molecules
+        x_min (float): The minimum value for the x-axis
+        x_max (float): The maximum value for the x-axis
+        n_bins (int): The number of bins to use for each histogram
+        minor_locator_factor (int): The number of minor tick marks assigned by the
+            AutoMinorLocator. Defaults to 10
+    
+    Returns:
+        None
+    
+    Notes: Fixing the ranges on the x-axis makes it easier to compare the histograms.
+        The x_min value must be strictly smaller than the x_max value
+    """
+    assert(x_max > x_min)
+    target_directory = os.path.join(dest, f"{set_label}_distributions")
+    if not os.path.isdir(target_directory):
+        os.mkdir(target_directory)
+    for pair in total_distances:
+        fig, axs = plt.subplots()
+        axs.hist(total_distances[pair], bins = n_bins)
+        axs.set_xlim(left = x_min, right = x_max)
+        axs.set_xlabel("Distance (Angstroms)")
+        axs.set_ylabel("Frequency")
+        axs.set_title(pair)
+        axs.xaxis.set_minor_locator(AutoMinorLocator(minor_locator_factor))
+        axs.yaxis.set_minor_locator(AutoMinorLocator(minor_locator_factor))
+        fig.savefig(os.path.join(target_directory, pair + "_dist.png"))
+    #Also save the total distances information for later use
+    with open(os.path.join(target_directory, "dist_info.p"), 'wb') as handle:
+        pickle.dump(total_distances, handle)
+    print(f"Destination: {dest}")
+    print(f"Target directory {target_directory}")
+    print("Finished generating distributions")
+
+def analyze_all_folds(top_level_fold_path: str) -> None:
+    r"""Method to go through all the saved folds and use the saved molecule information
+        for plotting distributions
+    
+    Arguments:
+        top_level_fold_path (str): The path to the top level directory containing all 
+            fold subdirectories
+    
+    Retuns:
+        None
+    """
+    if not os.path.isdir(top_level_fold_path):
+        raise ValueError("Data for the folds does not exist")
+    sub_direcs = os.listdir(top_level_fold_path)
+    pattern = r"Fold[0-9]+"
+    filtered_subdirecs = list(filter(lambda x : re.match(pattern, x) is not None, sub_direcs))
+    for sub_direc in filtered_subdirecs:
+        train_total_path = os.path.join(top_level_fold_path, sub_direc, 'train_total_molecs.p')
+        valid_total_path = os.path.join(top_level_fold_path, sub_direc, 'valid_total_molecs.p')
+        train_molecs = pickle.load(open(train_total_path, 'rb'))
+        valid_molecs = pickle.load(open(valid_total_path, 'rb'))
+        total_train_dists = analyze_molec_set(train_molecs)
+        total_valid_dists = analyze_molec_set(valid_molecs)
+        plot_distributions(total_train_dists, os.path.join(top_level_fold_path, sub_direc), 
+                           'train')
+        plot_distributions(total_valid_dists, os.path.join(top_level_fold_path, sub_direc),
+                           'valid')
+
 if __name__ == "__main__":
     
-    #Testing saving features
-    settings_json = "settings_default.json"
-    generate_save_folds(settings_json)
+    pass
     
-    with open(settings_json, 'r') as read_file:
-        settings = Settings(json.load(read_file))
+    # #Testing saving features
+    # settings_json = "settings_default.json"
+    # generate_save_folds(settings_json)
     
-    #Testing loading data for the folds
-    top_fold_path = "test_fold"
-    training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(settings, top_fold_path, 0)
+    # with open(settings_json, 'r') as read_file:
+    #     settings = Settings(json.load(read_file))
+    
+    # #Testing loading data for the folds
+    # top_fold_path = "test_fold"
+    # training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(settings, top_fold_path, 0)
+    
+    #Testing plotting features for the histograms
+    test_molec_path = os.path.join("test_fold", "Fold0", "train_total_molecs.p")
+    with open(test_molec_path, 'rb') as handle:
+        data = pickle.load(handle)
+    test_molec = data[0]
+    print(test_molec)
+    result_dict = get_dist_dict(test_molec)
+    print(result_dict)
+    total_distances = analyze_molec_set(data)
+    # print(total_distances)
+    dest = "test_distr"
+    plot_distributions(total_distances, dest)
+    
+    #Run through all the subdirectories in test_fold
+    top_level_path = 'test_fold'
+    analyze_all_folds(top_level_path)
+    
     
     
         
