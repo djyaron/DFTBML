@@ -96,14 +96,14 @@ def construct_final_settings_dict(settings_dict: Dict, default_dict: Dict) -> Di
     
     return final_dict
 
-def dictionary_tuple_correction(input_dict: Dict) -> None:
+def dictionary_tuple_correction(input_dict: Dict) -> Dict:
     r"""Performs a correction on the input_dict to convert from string to tuple
     
     Arguments:
         input_dict (Dict): The dictionary that needs correction
     
     Returns:
-        corrected_dict (Dict): Dictionary with the necessary corrections
+        new_dict (Dict): Dictionary with the necessary corrections
             applied
     
     Notes: The two dictionaries that need correction are the cutoff dictionary and the
@@ -133,7 +133,7 @@ def dictionary_tuple_correction(input_dict: Dict) -> None:
             new_dict[(elem1, elem2)] = input_dict[key]
         elif len(key_splt) == 3:
             oper, elem1, elem2 = key_splt[0], int(key_splt[1]), int(key_splt[2])
-            new_dict[(oper(elem1, elem2))] = input_dict[key]
+            new_dict[(oper, (elem1, elem2))] = input_dict[key]
         else:
             raise ValueError("Given dictionary does not need tuple correction!")
     return new_dict
@@ -317,6 +317,10 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     corrected_lowend_cutoff = dictionary_tuple_correction(s.low_end_correction_dict)
     model_range_dict = model_range_correction(model_range_dict, corrected_lowend_cutoff)
     
+    #Change the tuples over if a cutoff dictionary is given
+    if s.cutoff_dictionary is not None:
+        s.cutoff_dictionary = dictionary_tuple_correction(s.cutoff_dictionary)
+    
     print("Generating training feeds")
     feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
@@ -327,6 +331,8 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     
     print("Performing type conversion to tensors")
     total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys)
+    
+    import pdb; pdb.set_trace() #For debugging
     
     print("Some information:")
     print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
