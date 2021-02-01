@@ -332,8 +332,6 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     print("Performing type conversion to tensors")
     total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys)
     
-    import pdb; pdb.set_trace() #For debugging
-    
     print("Some information:")
     print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
     print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
