@@ -27,7 +27,7 @@ import importlib
 import os, os.path
 import random
 from batch import Model, RawData, DFTBList
-from skfwriter import main
+from skfwriter import main, atom_nums, atom_masses
 from fold_generator import loading_fold
 import pickle
 
@@ -123,6 +123,10 @@ def dictionary_tuple_correction(input_dict: Dict) -> Dict:
         with the eval() method. 
     """
     num_commas = list(input_dict.keys())[0].count(",")
+    if num_commas == 0:
+        print("Dictionary does not need correction")
+        print(input_dict)
+        return input_dict #No correction needed
     new_dict = dict()
     #Assert key consistency in the dictionary
     for key in input_dict:
@@ -314,8 +318,8 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
         model_variables = established_variables
     
     print("Performing model range correction")
-    corrected_lowend_cutoff = dictionary_tuple_correction(s.low_end_correction_dict)
-    model_range_dict = model_range_correction(model_range_dict, corrected_lowend_cutoff)
+    s.low_end_correction_dict = dictionary_tuple_correction(s.low_end_correction_dict)
+    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict)
     
     #Change the tuples over if a cutoff dictionary is given
     if s.cutoff_dictionary is not None:
@@ -331,6 +335,7 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     
     print("Performing type conversion to tensors")
     total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys)
+    
     
     print("Some information:")
     print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
@@ -576,6 +581,26 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
     
     return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
 
+def write_output_skf(s: Settings, all_models: Dict) -> None:
+    r"""Writes the skf output files after done with training
+    
+    Arguments:
+        s (Settings): The Settings object containing all the hyperparameters 
+        all_models (Dict): The dictionary of trained models
+    
+    Returns:
+        None
+    """
+    train_s_block = True if "S" in s.opers_to_model else False
+    if train_s_block:
+        print("Writing skf files with computed S")
+    else:
+        print("Writing skf files with copied S")
+    target_folder = os.path.join(s.skf_extension, s.run_id)
+    if not os.path.isdir(target_folder):
+        os.mkdir(target_folder)
+    main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.skf_strsep, 
+         s.skf_ngrid, target_folder)
 
 def run_method(settings_filename: str, defaults_filename: str) -> None:
     r"""The main method for running the cldriver
@@ -604,6 +629,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         default_settings_dict = json.load(read_file)
     final_settings = construct_final_settings_dict(input_settings_dict, default_settings_dict)
     
+    print(final_settings)
+    
     #Convert settings to an object for easier handling
     settings = Settings(final_settings)
     
@@ -626,6 +653,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         #Do the training loop stage
         reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
+        write_output_skf(settings, all_models)
         return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
     
     elif settings.driver_mode == "CV":
@@ -652,6 +680,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
                 assert(model_variables is established_variables)
                 
             if ind == settings.num_folds - 1:
+                write_output_skf(settings, all_models)
                 return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
             
             established_models = all_models
@@ -792,7 +821,6 @@ if __name__ == "__main__":
     
     #Testing for the CV case
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
-    
         
     
     

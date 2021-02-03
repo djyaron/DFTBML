@@ -78,5 +78,8 @@
     },
     "data_path" : "data/ANI-1ccx_clean_fullentry.h5",
     "shuffle" : [1,1],
-    "top_level_fold_path" : "test_fold"
+    "top_level_fold_path" : "test_fold",
+    "skf_extension" : "",
+    "skf_ngrid" : 50,
+    "skf_strsep" : "  "
 }
