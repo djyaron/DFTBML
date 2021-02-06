@@ -25,9 +25,14 @@ TotalData:
 The file names are fixed so that everything can be properly read from the fold 
 without any additional work in figuring out the file names. Only the top level directory
 containing all the fold subdirectories can be alternately named by the user
+
+TODO:
+    1) Finish single distribution plotting function
+    2) Start testing stuff out
 """
 
-from dftb_layer_splines_4 import load_data, saving_data, graph_generation, feed_generation, model_loss_initialization
+from dftb_layer_splines_4 import load_data, saving_data, graph_generation, feed_generation, model_loss_initialization,\
+    get_ani1data
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 from typing import List, Union, Dict
 from batch import DFTBList
@@ -43,6 +48,7 @@ from itertools import combinations
 from scipy.spatial.distance import pdist
 from matplotlib.ticker import AutoMinorLocator
 import re
+from scipy.stats import ks_2samp, iqr
 
 #%% General functions and constants
 class Settings:
@@ -460,12 +466,242 @@ def analyze_all_folds(top_level_fold_path: str) -> None:
                            'train')
         plot_distributions(total_valid_dists, os.path.join(top_level_fold_path, sub_direc),
                            'valid')
+        
+#%% Generate folds based on nheavy
+def count_nheavy(molec: Dict) -> int:
+    r"""Counts the number of heavy atoms in a molecule
+    
+    Arguments:
+        molec (Dict): Dictionary representation of a molecule
+    
+    Returns:
+        n_heavy (int): The number of heavy molecules
+    """
+    n_heavy = 0
+    for elem in molec['atomic_numbers']:
+        if elem > 1:
+            n_heavy += 1
+    return n_heavy
+
+def get_folds_from_molecs(num_molecs: int, num_folds_lower: int, num_folds_higher: int, 
+                          lower_molecs: List[Dict], higher_molecs: List[Dict]) -> List[List[Dict]]:
+    r"""Generates the folds given the number of molecules per fold and the molecules
+    
+    Arguments:
+        num_molecs (int): The number of molecules to have for each fold
+        num_folds_lower (int): The number of folds generated from lower_molecs
+        num_folds_higher (int): The number of folds generated from higher_molecs
+        lower_molecs (List[Dict]): The molecule dictionaries with molecules
+            only having up to some nheavy limit
+        higher_molecs (List[Dict]): The molecule dictionaries with molecules
+            containing more heavy atoms than those in lower_molecs
+    
+    Returns:
+        folds (List[List[Dict]]): The molecules for each fold
+    """
+    folds = list()
+    for i in range(num_folds_lower):
+        start, end = i * num_molecs, (i + 1) * num_molecs
+        folds.append(lower_molecs[start : end])
+    for j in range(num_folds_higher):
+        start, end = j * num_molecs, (j + 1) * num_molecs
+        folds.append(higher_molecs[start : end])
+    return folds
+    
+def generate_folds(allowed_Zs: List[int], heavy_atoms: List[int], max_config: int, 
+                   target: Dict[str, str], data_path: str, exclude: List[str], lower_limit: int, 
+                   num_folds: int, num_folds_lower: int) -> List[List[Dict]]:
+    r"""Generates folds based on the number of heavy atoms by dividing up the molecules
+    
+    Arguments:
+        allowed_Zs (List[int]): The allowed elements in the dataset
+        heavy_atoms (List[int]): The allowed heavy (non-hydrogen) atoms
+        max_config (int): The maximum number of configurations
+        target (Dict): Dictionary mapping the target names (e.g. 'Etot') to the 
+            ani1 target names (e.g. 'cc')
+        data_path (str): The relative path to the dataset from which to pull molecules
+        exclude (List[str]): The molecular formulas to exclude when pulling the dataset
+        lower_limit (int): The number of heavy atoms to include up to for the folds containing
+            lower heavy elements (e.g. folds up to 5)
+        num_folds (int): The total number of folds
+        num_folds_lower (int): The number of folds that contain molecules with heavy atoms
+            only up to lower_limit
+    
+    Returns:
+        fold_molecs (List[List[Dict]]): A list of list of dictionaries where each inner list 
+            is a set of molecules for the fold
+    
+    Notes: This approach does not use the Fold class and instead segments the data
+        based on the number of heavy atoms, with num_folds_lower folds containing 
+        only molecules with up to lower_limit number of heavy atoms. If done right, this 
+        only has to be done once which is why it is not dependent on the settings file.
+    """
+    #Grab the dataset using get_ani1_data
+    assert(num_folds_lower <= num_folds)
+    dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude)
+    print(f"Number of molecules: {len(dataset)}")
+    heavy_mapped = list(map(lambda x : (x, count_nheavy(x)), dataset))
+    lower_molecs = [elem[0] for elem in heavy_mapped if elem[1] <= lower_limit]
+    higher_molecs = [elem[0] for elem in heavy_mapped if elem[1] > lower_limit]
+    assert(len(lower_molecs) + len(higher_molecs) == len(dataset))
+    num_folds_higher = num_folds - num_folds_lower
+    random.shuffle(lower_molecs)
+    random.shuffle(higher_molecs)
+    
+    #Figure out the limiting factor between the lower and higher molecules in generating the folds
+    num_molec_per_fold_lower = int(len(lower_molecs) / num_folds_lower)
+    num_molec_per_fold_higher = int(len(higher_molecs) / num_folds_higher)
+    
+    lower_criterion = len(higher_molecs) >= num_folds_higher * num_molec_per_fold_lower
+    higher_criterion = len(lower_molecs) >= num_folds_lower * num_molec_per_fold_higher
+    
+    if lower_criterion: #Give precedence to the lower molecules
+        num_molecs = num_molec_per_fold_lower
+    elif higher_criterion:
+        num_molecs = num_molec_per_fold_higher
+    folds = get_folds_from_molecs(num_molecs, num_folds_lower, num_folds_higher,
+                                      lower_molecs, higher_molecs)
+    return folds
+
+def perform_KS_test(distances_1: Dict, distances_2: Dict, p_threshold: float,
+                    statistic_threshold: float = None) -> bool:
+    r"""Runs the KS test across each category of interatomic distance
+    
+    Arguments:
+        distances_1 (Dict): First dictionary of distances
+        distances_2 (Dict): Second dictionary of distances
+        p_threshold (float): The minimum value that the p value has to exceed
+            for the distributions to be acceptably similar. Default is 0.05 (5%)
+        statistic_threshold (float): The maximum value that the Kolmogorov-Smirnov test
+            statistic can have for the distributions to be considered reasonably similar.
+            This is optional as the p-value alone should be sufficient, so the 
+            value defaults to None.
+    
+    Returns:
+        similar (bool): True if the two dictionaries have similar distributions
+            for all interatomic distances, False otherwise
+    
+    Notes: The distances dictionaries will have the following format:
+        distances_1: {'C-C' : [dist_1, dist_2, ..., dist_n],
+                      'C-O' : [dist_1, dist_2, ..., dist_n],
+                      'H-H' : [dist_1, dist_2, ..., dist_n],
+                      ...}
+        The function only returns true if the KS test returns that the two distributions
+        are similar for each atom pair across both dictionaries. It is expected that 
+        distances_1 and distances_2 have the same keys.
+        
+        In the case that the KS test fails, a histogram is plotted for visual inspection
+    """
+    assert(set(distances_1.keys()) == set(distances_2.keys()))
+    for key in distances_1:
+        first_dict_distr = distances_1[key]
+        second_dict_distr = distances_2[key]
+        test_result = ks_2samp(first_dict_distr, second_dict_distr)
+        statistic, p_val = test_result.statistic, test_result.pvalue
+        p_passed = p_val >= p_threshold
+        if not p_passed:
+            print(f"KS test failed for {key} on p_value")
+            print(statistic, p_val)
+            return False
+        statistic_passed = statistic <= statistic_threshold if statistic_threshold is not None else True
+        if not statistic_passed:
+            print(f"KS test failed for {key} on statistic")
+            print(statistic, p_val)
+            return False
+    return True
+
+def use_freedman_diaconis(data: List, x_min: float, x_max: float, return_as: str = 'num_bins'):
+    r"""Implements the freedman diaconis rule.
+    
+    Arguments:
+        data (List): The data to bin
+        x_min (float): The minimum x_value on the histogram
+        x_max (float): The maximum x_value on the histogram
+        return_as (str): Whether to return the number of bins ('num_bins') or 
+            the width of each bin ('bin_width')
+    
+    Returns: 
+        num_bins (int) or bin_width (float)
+    """
+    iqr_val = iqr(data)
+    n = len(data)
+    bin_width = 2 * iqr_val / (n**(1/3))
+    if return_as == 'bin_width':
+        return bin_width
+    elif return_as == 'num_bins':
+        return int((x_max - x_min) / bin_width) + 1
+
+def plot_single_distribution(data: List, x_min: float, x_max: float) -> None:
+    r"""Generates a histogram of the given data.
+    
+    Arguments:
+        data (List): The array of data points to use
+        x_min (float): The minimum value for the histogram
+        x_max (float): The maximum value for the histogram
+    
+    Returns:
+        None
+    
+    Notes: The number of bins is determined using the freedman diaconis rule.
+        The minimum and maximum value for the histogram x-axis are fed into the function
+        as parameters.
+    """
+    pass
+
+def compare_distributions(fold_molecs: List[List[Dict]],
+                          p_threshold: float = 0.05, statistic_threshold: float = None) -> bool:
+    r"""Analyzes the distance distributions of the interatomic distances
+        in each molecule to see if they are similar across folds
+    
+    Arguments: 
+        fold_molecs (List[List[Dict]]): The molecules for each fold
+        p_threshold (float): The minimum value that the p value has to exceed
+            for the distributions to be acceptably similar. Default is 0.05 (5%)
+        statistic_threshold (float): The maximum value that the Kolmogorov-Smirnov test
+            statistic can have for the distributions to be considered reasonably similar.
+            This is optional as the p-value alone should be sufficient, and so it defaults to 
+            None.
+    
+    Returns:
+        test_passed (bool): True if all the same pairwise distances are seen 
+            across each fold and the distribution of values for the pairwise distances
+            are close enough
+    
+    Notes: To statistically determine if two distributions are close enough, we 
+        employ the 2 sample Kolmogorov-Smirnov test for comparing distributions. 
+        The implementation is the scipy implementation, and is invoked using a call
+        to ks_2samp(x, y) where x and y are the two arrays of data representing the 
+        distributions to compare.
+        
+        There are two metrics returned by the Kolmogorov-Smirnov test, the KS statistic
+        and the p-value. If the p-value is large and he statistic value is small, then
+        we cannot reject the hypothesis that the distributions of x and y are similar; otherwise,
+        we can.
+    """
+    fold_dictionaries = [analyze_molec_set(molecs) for molecs in fold_molecs]
+    key_sets = list(map(lambda x : set(x.keys()), fold_dictionaries))
+    #Ensures every set of molecules has the same set of interactions represented
+    if key_sets.count(key_sets[0]) != len(key_sets): 
+        return False
+    
+    #Now use the KS test for checking 
+    # Given a set of distributions [S1, S2, ..., SN], if S1 is shown to be similar to S2
+    # and S2 is shown similar to S3, this does not imply that S1 is similar to S3 since 
+    # there is no strong equivalence with KS statistics
+    for i in range(len(fold_dictionaries)):
+        current_fold_dict = fold_dictionaries[i]
+        for j in range(i + 1, len(fold_dictionaries)):
+            next_fold_dict = fold_dictionaries[j]
+            KS_result = perform_KS_test(current_fold_dict, next_fold_dict, p_threshold, statistic_threshold)
+            if not KS_result: 
+                return False
+    return True
 
 if __name__ == "__main__":
     
     pass
     
-    # #Testing saving features
+    ## Testing saving features
     # settings_json = "settings_default.json"
     # generate_save_folds(settings_json)
     
@@ -476,22 +712,45 @@ if __name__ == "__main__":
     # top_fold_path = "test_fold"
     # training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(settings, top_fold_path, 0)
     
-    #Testing plotting features for the histograms
-    test_molec_path = os.path.join("test_fold", "Fold0", "train_total_molecs.p")
-    with open(test_molec_path, 'rb') as handle:
-        data = pickle.load(handle)
-    test_molec = data[0]
-    print(test_molec)
-    result_dict = get_dist_dict(test_molec)
-    print(result_dict)
-    total_distances = analyze_molec_set(data)
-    # print(total_distances)
-    dest = "test_distr"
-    plot_distributions(total_distances, dest)
+    ## Testing plotting features for the histograms
+    # test_molec_path = os.path.join("test_fold", "Fold0", "train_total_molecs.p")
+    # with open(test_molec_path, 'rb') as handle:
+    #     data = pickle.load(handle)
+    # test_molec = data[0]
+    # print(test_molec)
+    # result_dict = get_dist_dict(test_molec)
+    # print(result_dict)
+    # total_distances = analyze_molec_set(data)
+    # # print(total_distances)
+    # dest = "test_distr"
+    # plot_distributions(total_distances, dest)
     
-    #Run through all the subdirectories in test_fold
-    top_level_path = 'test_fold'
-    analyze_all_folds(top_level_path)
+    # #Run through all the subdirectories in test_fold
+    # top_level_path = 'test_fold'
+    # analyze_all_folds(top_level_path)
+    
+    ## Testing features for generating nheavy separated folds
+    allowed_Zs = [1,6,7,8]
+    heavy_atoms = [1,2,3,4,5,6,7,8]
+    max_config = 10
+    target = {'Etot' : 'cc',
+           'dipole' : 'wb97x_dz.dipole',
+           'charges' : 'wb97x_dz.cm5_charges'}
+    data_path = os.path.join("data", "ANI-1ccx_clean_fullentry.h5")
+    exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
+    lower_limit = 5
+    num_folds = 6
+    num_folds_lower = 3
+    folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
+                           lower_limit, num_folds, num_folds_lower)
+    
+    p_threshold = 0.05
+    statistic_threshold = None
+    compare_distributions(folds, p_threshold, statistic_threshold)
+    
+    
+    
+    pass
     
     
     
