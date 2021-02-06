@@ -48,7 +48,7 @@ from itertools import combinations
 from scipy.spatial.distance import pdist
 from matplotlib.ticker import AutoMinorLocator
 import re
-from scipy.stats import ks_2samp, iqr
+from scipy.stats import ks_2samp, iqr, mannwhitneyu
 
 #%% General functions and constants
 class Settings:
@@ -602,13 +602,147 @@ def perform_KS_test(distances_1: Dict, distances_2: Dict, p_threshold: float,
         if not p_passed:
             print(f"KS test failed for {key} on p_value")
             print(statistic, p_val)
+            total_data = first_dict_distr + second_dict_distr
+            total_min, total_max = min(total_data), max(total_data)
+            plot_single_distribution(first_dict_distr, key, total_min, total_max)
+            plot_single_distribution(second_dict_distr, key, total_min, total_max)
             return False
         statistic_passed = statistic <= statistic_threshold if statistic_threshold is not None else True
         if not statistic_passed:
             print(f"KS test failed for {key} on statistic")
             print(statistic, p_val)
+            total_data = first_dict_distr + second_dict_distr
+            total_min, total_max = min(total_data), max(total_data)
+            plot_single_distribution(first_dict_distr, key, total_min, total_max)
+            plot_single_distribution(second_dict_distr, key, total_min, total_max)
             return False
     return True
+
+def perform_MWU_test(distances_1: Dict, distances_2: Dict, p_threshold: float,
+                    statistic_threshold: float = None, dist_1_marker: str = "", dist_2_marker: str = "") -> bool:
+    r"""Runs the mann_whitney_U test across each category of interatomic distance
+    
+    Arguments:
+        distances_1 (Dict): First dictionary of distances
+        distances_2 (Dict): Second dictionary of distances
+        p_threshold (float): The minimum value that the p value has to exceed
+            for the distributions to be acceptably similar. Default is 0.05 (5%)
+        statistic_threshold (float): The maximum value that the Kolmogorov-Smirnov test
+            statistic can have for the distributions to be considered reasonably similar.
+            This is optional as the p-value alone should be sufficient, so the 
+            value defaults to None.
+        dist_1_marker (str): Identifier for where the first distance dictionary comes from
+        dist_2_marker (str): Identifier for where the second distance dictionary comes from
+    
+    Returns:
+        similar (bool): True if the two dictionaries have similar distributions
+            for all interatomic distances, False otherwise
+    
+    Notes: The distances dictionaries will have the following format:
+        distances_1: {'C-C' : [dist_1, dist_2, ..., dist_n],
+                      'C-O' : [dist_1, dist_2, ..., dist_n],
+                      'H-H' : [dist_1, dist_2, ..., dist_n],
+                      ...}
+        The function only returns true if the MWU test returns that the two distributions
+        are similar for each atom pair across both dictionaries. It is expected that 
+        distances_1 and distances_2 have the same keys.
+        
+        In the case that the MWU test fails, a histogram is plotted for visual inspection
+    """
+    assert(set(distances_1.keys()) == set(distances_2.keys()))
+    for key in distances_1:
+        if key != 'H-H':
+            first_dict_distr = distances_1[key]
+            second_dict_distr = distances_2[key]
+            test_result = mannwhitneyu(first_dict_distr, second_dict_distr)
+            statistic, p_val = test_result.statistic, test_result.pvalue
+            p_passed = p_val >= p_threshold
+            if not p_passed:
+                print(f"MWU test failed for {key} on p_value")
+                print(statistic, p_val)
+                total_data = first_dict_distr + second_dict_distr
+                total_min, total_max = min(total_data), max(total_data)
+                plot_single_distribution(first_dict_distr, key + dist_1_marker, total_min, total_max)
+                plot_single_distribution(second_dict_distr, key + dist_2_marker, total_min, total_max)
+                return False
+            statistic_passed = statistic <= statistic_threshold if statistic_threshold is not None else True
+            if not statistic_passed:
+                print(f"MWU test failed for {key} on statistic")
+                print(statistic, p_val)
+                total_data = first_dict_distr + second_dict_distr
+                total_min, total_max = min(total_data), max(total_data)
+                plot_single_distribution(first_dict_distr, key, total_min, total_max)
+                plot_single_distribution(second_dict_distr, key, total_min, total_max)
+                return False
+    return True
+
+def perform_statistic_test(distances_1: Dict, distances_2: Dict, p_threshold: float, statistic_test: str = 'KS',
+                    statistic_threshold: float = None, dist_1_marker: str = "", dist_2_marker: str = "",
+                    exclude: List[str] = []) -> bool:
+    r"""Runs either the Mann-Whitney U test or Kolmogorov Smirnov test across all interatomic 
+        distance categories
+    
+    Arguments:
+        distances_1 (Dict): First dictionary of distances
+        distances_2 (Dict): Second dictionary of distances
+        p_threshold (float): The minimum value that the p value has to exceed
+            for the distributions to be acceptably similar. Default is 0.05 (5%)
+        statistic_test (str): The statistic test to use. Defaults to Kolmogorov-Smirnov (KS)
+        statistic_threshold (float): The maximum value that the Kolmogorov-Smirnov test
+            statistic can have for the distributions to be considered reasonably similar.
+            This is optional as the p-value alone should be sufficient, so the 
+            value defaults to None.
+        dist_1_marker (str): Identifier for where the first distance dictionary comes from
+        dist_2_marker (str): Identifier for where the second distance dictionary comes from
+        exclude (Listr[str]): The list of element pairs (e.g. ['H-H', 'H-C']) that should
+            be excluded from analysis
+    
+    Returns:
+        similar (bool): True if the two dictionaries have similar distributions
+            for all interatomic distances, False otherwise
+    
+    Notes: The distances dictionaries will have the following format:
+        distances_1: {'C-C' : [dist_1, dist_2, ..., dist_n],
+                      'C-O' : [dist_1, dist_2, ..., dist_n],
+                      'H-H' : [dist_1, dist_2, ..., dist_n],
+                      ...}
+        The function only returns true if the  test returns that the two distributions
+        are similar for each atom pair across both dictionaries. It is expected that 
+        distances_1 and distances_2 have the same keys.
+        
+        In the case that the test fails, a histogram is plotted for visual inspection
+    """
+    assert(set(distances_1.keys()) == set(distances_2.keys()))
+    for key in distances_1:
+        if key not in exclude:
+            first_dict_distr = distances_1[key]
+            second_dict_distr = distances_2[key]
+            if statistic_test == 'MWU':
+                test_result = mannwhitneyu(first_dict_distr, second_dict_distr)
+            elif statistic_test == 'KS':
+                test_result = ks_2samp(first_dict_distr, second_dict_distr)
+            statistic, p_val = test_result.statistic, test_result.pvalue
+            p_passed = p_val >= p_threshold
+            if not p_passed:
+                print(f"{statistic_test} test failed for {key} on p_value")
+                print(statistic, p_val)
+                total_data = first_dict_distr + second_dict_distr
+                total_min, total_max = min(total_data), max(total_data)
+                plot_single_distribution(first_dict_distr, key + dist_1_marker, total_min, total_max)
+                plot_single_distribution(second_dict_distr, key + dist_2_marker, total_min, total_max)
+                return False
+            statistic_passed = statistic <= statistic_threshold if statistic_threshold is not None else True
+            if not statistic_passed:
+                print(f"{statistic_test} test failed for {key} on statistic")
+                print(statistic, p_val)
+                total_data = first_dict_distr + second_dict_distr
+                total_min, total_max = min(total_data), max(total_data)
+                plot_single_distribution(first_dict_distr, key, total_min, total_max)
+                plot_single_distribution(second_dict_distr, key, total_min, total_max)
+                return False
+    return True
+
+
 
 def use_freedman_diaconis(data: List, x_min: float, x_max: float, return_as: str = 'num_bins'):
     r"""Implements the freedman diaconis rule.
@@ -631,11 +765,12 @@ def use_freedman_diaconis(data: List, x_min: float, x_max: float, return_as: str
     elif return_as == 'num_bins':
         return int((x_max - x_min) / bin_width) + 1
 
-def plot_single_distribution(data: List, x_min: float, x_max: float) -> None:
+def plot_single_distribution(data: List, title: str, x_min: float, x_max: float) -> None:
     r"""Generates a histogram of the given data.
     
     Arguments:
         data (List): The array of data points to use
+        title (str): The title for the histogram
         x_min (float): The minimum value for the histogram
         x_max (float): The maximum value for the histogram
     
@@ -646,10 +781,22 @@ def plot_single_distribution(data: List, x_min: float, x_max: float) -> None:
         The minimum and maximum value for the histogram x-axis are fed into the function
         as parameters.
     """
+    assert(x_max > x_min)
+    num_bins = use_freedman_diaconis(data, x_min, x_max) * 2
+    fig, axs = plt.subplots()
+    axs.hist(data, bins = num_bins)
+    axs.set_xlim(left = x_min, right = x_max)
+    axs.set_xlabel("Distance (Angstroms)")
+    axs.set_ylabel("Frequency")
+    axs.set_title(title)
+    axs.xaxis.set_minor_locator(AutoMinorLocator(10))
+    axs.yaxis.set_minor_locator(AutoMinorLocator(10))
+    plt.show()
     pass
 
 def compare_distributions(fold_molecs: List[List[Dict]],
-                          p_threshold: float = 0.05, statistic_threshold: float = None) -> bool:
+                          p_threshold: float = 0.05, statistic_threshold: float = None,
+                          metric: str = 'KS', exclude: List[str] = []) -> bool:
     r"""Analyzes the distance distributions of the interatomic distances
         in each molecule to see if they are similar across folds
     
@@ -661,6 +808,10 @@ def compare_distributions(fold_molecs: List[List[Dict]],
             statistic can have for the distributions to be considered reasonably similar.
             This is optional as the p-value alone should be sufficient, and so it defaults to 
             None.
+        metric (str): Which test to use for comparing distance distributions. One of
+            'KS' and 'MWU', defaults to 'KS'.
+        exclude (List[str]): The list of atomic pairs to ignore when performing the analysis. 
+            Defaults to [].
     
     Returns:
         test_passed (bool): True if all the same pairwise distances are seen 
@@ -668,15 +819,13 @@ def compare_distributions(fold_molecs: List[List[Dict]],
             are close enough
     
     Notes: To statistically determine if two distributions are close enough, we 
-        employ the 2 sample Kolmogorov-Smirnov test for comparing distributions. 
-        The implementation is the scipy implementation, and is invoked using a call
-        to ks_2samp(x, y) where x and y are the two arrays of data representing the 
-        distributions to compare.
+        employ either the 2 sample Kolmogorov-Smirnov test for comparing distributions or
+        the Mann-Whitney U test. 
         
-        There are two metrics returned by the Kolmogorov-Smirnov test, the KS statistic
-        and the p-value. If the p-value is large and he statistic value is small, then
-        we cannot reject the hypothesis that the distributions of x and y are similar; otherwise,
-        we can.
+        There are two metrics returned by both the KS and MWU test in a tuple. The
+        first value is the statistic and the second value is the p value. Generally,
+        comparison of the p_value against the threshold is sufficient to 
+        formally disprove the null hypothesis that the two distributions are similar. 
     """
     fold_dictionaries = [analyze_molec_set(molecs) for molecs in fold_molecs]
     key_sets = list(map(lambda x : set(x.keys()), fold_dictionaries))
@@ -692,8 +841,8 @@ def compare_distributions(fold_molecs: List[List[Dict]],
         current_fold_dict = fold_dictionaries[i]
         for j in range(i + 1, len(fold_dictionaries)):
             next_fold_dict = fold_dictionaries[j]
-            KS_result = perform_KS_test(current_fold_dict, next_fold_dict, p_threshold, statistic_threshold)
-            if not KS_result: 
+            result = perform_statistic_test(current_fold_dict, next_fold_dict, p_threshold, metric, statistic_threshold, str(i), str(j), exclude)
+            if not result:
                 return False
     return True
 
@@ -741,12 +890,19 @@ if __name__ == "__main__":
     lower_limit = 5
     num_folds = 6
     num_folds_lower = 3
-    folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
-                           lower_limit, num_folds, num_folds_lower)
     
-    p_threshold = 0.05
-    statistic_threshold = None
-    compare_distributions(folds, p_threshold, statistic_threshold)
+    i = 0
+    while True:
+        print(f"Testing out fold generation {i}")
+        folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
+                               lower_limit, num_folds, num_folds_lower)
+    
+        p_threshold = 0.01
+        statistic_threshold = None
+        result = compare_distributions(folds, p_threshold, statistic_threshold, metric = 'MWU', exclude = ['H-H'])
+        if result:
+            break
+        i += 1
     
     
     
