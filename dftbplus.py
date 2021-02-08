@@ -8,23 +8,14 @@ Created on Tue Jan  5 11:39:16 2021
 
 from dftb_layer_splines_4 import get_ani1data
 
-from skfwriter import main
-from dftb import ANGSTROM2BOHR
-from model_ranges import plot_skf_values
-from pathlib import Path
-import glob
-import os, shutil
-import errno
+
+import os
 from subprocess import call
 import re
 from elements import ELEMENTS
-import pickle as pkl
-from mio_0_1 import ParDict
 import numpy as np
-import collections
 from h5py import File
-# from trainedskf import ParDict #Comment this line if using auorg-1-1
-from numbers import Real
+
 from typing import Union, List, Optional, Dict, Any, Literal
 
 Array = np.ndarray
@@ -56,34 +47,7 @@ def named_re(name: str, respec: str,
 
     return res
 
-
-# def copyskf(src: str, dst: str):
-#     r"""
-#     Copy skf files from src to dist path.
-
-#     Arguments: 
-#         src: path
-
-#     # (1) makes dst or deletes dst/*.skf and (2) copies src/*.skf to dst
-
-
-#     """
-#     # from: http://stackoverflow.com/questions/273192
-#     #    prevents raise conditions versus os.path.exists()
-#     try:
-#         os.makedirs(dst)
-#     except OSError as exception:
-#         if exception.errno != errno.EEXIST:
-#             raise
-#     for item in glob.glob(os.path.join(dst,'*.skf')):
-#         os.remove(item)
-
-#     for item_src in glob.glob(os.path.join(src,'*.skf')):
-#         _, filename = os.path.split(item_src)
-#         item_dest = os.path.join(dst, filename)
-#         shutil.copyfile(item_src, item_dest)
-
-def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
+def write_dftb_infile(Zs: List[int], rcart_angstroms: Array, 
                       file_path: str, skf_dir: str,
                       DFTBparams_overrides: dict = {}):
     r"""
@@ -115,9 +79,8 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
     # use of a.u. (DFTB+ uses a.u. for most quantities, so use of a.u. here may
     # be a common error.)
     rcart = rcart_angstroms
-    natom = len(Zs)
-    # HSD input requires list of element types, and their max ang momentum, only
-    # for elements in this molecule.
+    #HSD input requires list of element types, and their max ang momentum, only
+    #for elements in this molecule.
     Ztypes = np.unique(Zs)
     # map from Z to the "type" given in the TypeNames argument of the HSD file
     ZtoType = {Z: (i + 1) for i, Z in enumerate(Ztypes)}
@@ -294,7 +257,186 @@ skf_dir = os.path.join(skf_type)
 # %% run calcs
 from auorg_1_1 import ParDict
 from dftb import DFTB
-from SplineModel_utilities import Timer
+pardict = ParDict()
+DFTBoptions = {'ShellResolvedSCC': True}
+for imol,mol in enumerate(dataset):
+    Zs = mol['atomic_numbers']
+    rcart = mol['coordinates']
+    
+    natom = len(Zs)
+    cart = np.zeros([natom,4])
+    cart[:,0] = Zs
+    for ix in range(3):
+        cart[:,ix+1] = rcart[:,ix]
+    charge = 0
+    mult = 1
+    try:
+        dftb_us = DFTB(pardict, cart, charge, mult)
+        mol['de'],_,_ = dftb_us.SCF()
+        mol['dr'] = dftb_us.repulsion
+        mol['dt'] = mol['de'] + mol['dr']
+        mol['dconv'] = True
+    except Exception:
+        mol['dconv'] = False    
+    
+    dftb_infile = os.path.join(scratch_dir,'dftb_in.hsd')
+    dftb_outfile = os.path.join(scratch_dir,'dftb.out')
+    write_dftb_infile(Zs, rcart, dftb_infile, skf_dir,DFTBoptions)
+    with open(dftb_outfile,'w') as f:
+        try:
+            res = call(dftb_exec,cwd=scratch_dir,stdout = f, shell=False)
+            dftb_res = read_dftb_out(dftb_outfile)
+            mol['pt'] = dftb_res['Ehartree']
+            mol['pconv'] = True
+        except Exception:
+            mol['pconv'] = False
+
+    if mol['dconv'] and mol['pconv']:
+        print(f"{mol['name']} us elec {mol['de']:7.4f} rep {mol['dr']:7.4f} sum {mol['dt']:7.4f}" \
+              f" diff DFTB+ {np.abs(mol['dt']-mol['pt']):7.4e}") 
+    elif mol['dconv']:
+        print(f"{mol['name']} DFTB+ failed")
+    elif mol['pconv']:
+        print(f"{mol['name']} our dftb failed")
+    else:
+        print(f"{mol['name']} both our dftb and DFTB+ failed")
+    #ts = mol['targets']
+    #print(f"H5 elec {ts['pe']} rep {ts['pr']} sum {ts['pe'] +ts['pr']}" \
+    #      f"tot {ts['pt']}  diff {ts['pt'] - ts['pe'] -ts['pr']} ")
+    #print(f"{skf_type} on mol {imol} E(H) = {Ehartree:7.3f} " \
+    #  #f" diff resolved(kcal/mol) {np.abs(Ehartree-mol['targets']['dt'])*627.0:7.3e}" \
+    #  f" not resolved {np.abs(Ehartree-mol['targets']['pt'])*627.0:7.3e}" )
+
+#%% print summary of Au results
+conv = [x for x in dataset if x['dconv'] and x['pconv']]
+diff = np.array([x['dt'] - x['pt'] for x in conv]) * 627.0
+print(f"rms diff us and DFTB+ {np.sqrt(np.average(np.square(diff)))} kcal/mol")
+print(f"max diff us and DFTB+ {np.max(np.abs(diff))} kcal/mol")
+
+
+failed = dict()
+failed['our dftb'] = [x['name'] for x in dataset if not x['dconv'] and x['pconv']]
+failed['dftb+'] = [x['name'] for x in dataset if not x['pconv'] and x['dconv']]
+failed['both'] = [x['name'] for x in dataset if not x['pconv'] and not x['dconv']]
+
+for ftype,names in failed.items():
+    print(f"{len(names)} molecules failed {ftype}")
+    print(names)
+         
+
+
+
+# allowed_Zs = [1,6,7,8]
+# maxheavy = 2
+# skf_test = 'ANI1rep1'
+# pkl_file = os.path.join('dftbscratch',skf_test,'_heavy' + str(maxheavy) + '.pk')
+
+# if not os.path.exists(pkl_file):    
+#     heavy_atoms = [x for x in range(1,maxheavy+1)]
+#     #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
+#     max_config = 10 
+#     # target = 'dt'
+#     target = {'dt' : 'dt', 'dr': 'dr', 'pt' : 'pt', 'pe' : 'pe', 'pr' : 'pr',
+#               'cc' : 'cc', 'ht': 'ht',
+#                'dipole' : 'wb97x_dz.dipole',
+#                'charges' : 'wb97x_dz.cm5_charges'}
+#     exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
+    
+    
+#     dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
+    
+#     #Proportion for training and validation
+#     # prop_train = 0.8
+#     # transfer_training = False
+#     # transfer_train_params = {
+#     #     'test_set' : 'pure',
+#     #     'impure_ratio' : 0.2,
+#     #     'lower_limit' : 4
+#     #     }
+#     # train_ener_per_heavy = False
+    
+#     # training_molecs, validation_molecs = dataset_sorting(dataset, prop_train, 
+#     #             transfer_training, transfer_train_params, train_ener_per_heavy)
+    
+#     #mol = pkl.load(open('mtest.pk','rb'))
+#     all_mol = dataset
+#     print('generating data for', len(all_mol),'molecules')
+    
+#     for skf_type in ['mio',skf_test]:
+#         copyskf(os.path.join(scratch_dir,skf_type), os.path.join(scratch_dir,'skf'))
+
+#         for imol,mol in enumerate(all_mol):
+#             Zs = mol['atomic_numbers']
+#             rcart = mol['coordinates']
+#             write_dftb_in_hsd(Zs, rcart, scratch_dir)
+#             with open(os.path.join(scratch_dir,'dftb.out'),'w') as f:       
+#                 res = call(dftb_exec,cwd=scratch_dir,stdout = f, shell=False)
+#             Ehartree = read_dftb_out(scratch_dir)
+#             print(skf_type, imol,Ehartree,np.abs(Ehartree-mol['targets']['dt']))
+#             mol[skf_type] = Ehartree
+    
+#     pkl.dump(all_mol, open(pkl_file,'wb'))
+# else:
+#     all_mol = pkl.load(open(pkl_file,'rb'))
+
+# #%%
+# # fit reference energy
+# iZ = {x:i for i,x in enumerate(allowed_Zs)}
+
+# nmol = len(all_mol)
+# XX = np.zeros([nmol,len(allowed_Zs)+1])
+# mio = np.zeros([nmol])
+# cc  = np.zeros([nmol])
+# ht = np.zeros([nmol])
+# ml  = np.zeros([nmol])
+# pt  = np.zeros([nmol])
+# for imol,mol in enumerate(all_mol):
+#     Zc = collections.Counter(mol['atomic_numbers'])
+#     for Z,count in Zc.items():
+#         XX[imol, iZ[Z]] = count
+#         XX[imol, len(allowed_Zs)] = 1.0
+#     cc[imol] = mol['targets']['cc']
+#     ht[imol] = mol['targets']['ht']
+#     mio[imol] = mol['mio']
+#     ml[imol] = mol[skf_test]
+#     pt[imol] = mol['targets']['pt']
+
+# yy = ht - mio
+# lsq_res = np.linalg.lstsq(XX, yy, rcond=None)
+# coefs = lsq_res[0]
+# pred = mio + np.dot(XX,coefs)
+
+# print(len(pred),'molecules')
+# mae_mio = np.mean(np.abs(pred - ht)) * 627.509
+# print('mio: mae of preds',mae_mio)
+
+# yy = ht - pt
+# lsq_res = np.linalg.lstsq(XX, yy, rcond=None)
+# coefs = lsq_res[0]
+# pred = pt + np.dot(XX,coefs)
+# mae_pt = np.mean(np.abs(pred - ht)) * 627.509
+# print('pt: mae of preds',mae_pt)
+
+# yy = ht - ml
+# lsq_res = np.linalg.lstsq(XX, yy, rcond=None)
+# coefs = lsq_res[0]
+# pred = ml + np.dot(XX,coefs)
+# mae_ml = np.mean(np.abs(pred - ht)) * 627.509
+# print('ml: mae of preds',mae_ml)
+
+# #%%
+# if False:
+#     pardict = ParDict()
+#     cart = np.hstack([Zs.reshape([-1,1]), rcart])
+#     dftb = DFTB(pardict, cart)
+#     Eelec, Fs, rhos = dftb.SCF()
+#     Erep = dftb.repulsion
+#     Eus = Eelec + Erep
+    
+#     diff = (Ehartree - Eus) * 627
+
+#     print('E from our code Hartree', Eus, 'Ediff  kcal/mol', diff)
+
 
 # dftb_infile = os.path.join(scratch_dir, 'dftb_in_finite.hsd')
 # dftb_outfile = os.path.join(scratch_dir, 'dftb_finite.out')
