@@ -164,7 +164,15 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
             dftbfile.write(r'      ' + ele.symbol
                            + r' = "' + ele.block + '"\n')
         dftbfile.write(
-            r'   }' + '\n' +
+            r'   }' + '\n')
+
+        dftbfile.write(
+            r'   Filling = Fermi {' + '\n' +
+            r'       Temperature[K] = 300' + '\n' +
+            r'       }' + '\n'
+        )
+
+        dftbfile.write(
             r'}' + '\n' +
             r'Options {}' + '\n' +
             r'Analysis {' + '\n' +
@@ -251,8 +259,10 @@ scratch_dir = "dftbscratch"
 #     dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
 #
 # Au_data_path = os.path.join('data', 'Au_energy_clean.h5')
-Au_data_path = "/home/francishe/Downloads/Datasets/Au_energy_clean.h5"
-des_path = "/home/francishe/Downloads/Datasets/aec_dftb.h5"
+# Au_data_path = "/home/francishe/Downloads/Datasets/aec_copy.h5"
+# des_path = "/home/francishe/Downloads/Datasets/aec_dftb_finite.h5"
+Au_data_path = "/home/francishe/Downloads/test.h5"
+des_path = "/home/francishe/Downloads/test_ft.h5"
 
 # maxconfig = 1
 skf_type = 'au'
@@ -286,6 +296,8 @@ from auorg_1_1 import ParDict
 from dftb import DFTB
 from SplineModel_utilities import Timer
 
+# dftb_infile = os.path.join(scratch_dir, 'dftb_in_finite.hsd')
+# dftb_outfile = os.path.join(scratch_dir, 'dftb_finite.out')
 dftb_infile = os.path.join(scratch_dir, 'dftb_in.hsd')
 dftb_outfile = os.path.join(scratch_dir, 'dftb.out')
 DFTBoptions = {'ShellResolvedSCC': True}
@@ -330,16 +342,22 @@ with Timer("DFTB calculations"):
                 # DFTB+ calculation
                 write_dftb_infile(Zs, coord, dftb_infile, skf_dir, DFTBoptions)
                 # noinspection PyBroadException
-                try:
-                    call(dftb_exec, cwd=scratch_dir, stdout=f, shell=False)
-                    dftb_res = read_dftb_out(dftb_outfile)
-                    pe = dftb_res['Ehartree']
-                    des_mol['dftb_plus.energy'].append(pe)
-                    des_mol['pconv'].append(True)
-                except Exception:
-                    des_mol['dftb_plus.energy'].append(np.nan)
-                    des_mol['pconv'].append(False)
-                    print(f"DFTB+ divergence: {mol}, conf #{iconf}")
+                # try:
+                #     call(dftb_exec, cwd=scratch_dir, stdout=f, shell=False)
+                #     dftb_res = read_dftb_out(dftb_outfile)
+                #     pe = dftb_res['Ehartree']
+                #     des_mol['dftb_plus.energy'].append(pe)
+                #     des_mol['pconv'].append(True)
+                # except Exception:
+                #     des_mol['dftb_plus.energy'].append(np.nan)
+                #     des_mol['pconv'].append(False)
+                #     print(f"DFTB+ divergence: {mol}, conf #{iconf}")
+                #
+                call(dftb_exec, cwd=scratch_dir, stdout=f, shell=False)
+                dftb_res = read_dftb_out(dftb_outfile)
+                pe = dftb_res['Ehartree']
+                des_mol['dftb_plus.energy'].append(pe)
+                des_mol['pconv'].append(True)
 
             # Save results to des
             g = des.create_group(mol)
