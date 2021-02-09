@@ -794,6 +794,99 @@ def plot_single_distribution(data: List, title: str, x_min: float, x_max: float)
     plt.show()
     pass
 
+def compare_distributions_distance_metric(distances_1: Dict, distances_2: Dict, tolerance: float, num_bins: int = 100, 
+                                          exclude: List[str] = []) -> bool:
+    r"""Does a comparison across folds and across inter-atomic pairs based on
+        distances
+    
+    Arguments:
+        distances_1: The dictionary of the first distances
+        distances_2: The dictionary of the second distances
+        tolerance (float): How many non-matching samples are allowed. This is 
+            defined as the difference in the number of datapoints between a 
+            zero and non-zero bin divided by the total number of datapoints. 
+        num_bins (int): The number of bins to use for this approach. Defaults to 100.
+        exclude (List[str]): The interatomic pairs to ignore from the analysis. 
+            Defaults to []
+        
+    Returns:
+        test_passed (bool): True if the test is passed and the distributions are sufficiently similar
+            based on the distance ranges spanned, False otherwise
+    
+    Notes: In comparing the distances spanned, we first bin both sets of data using the same 
+        number of bins. Then, we compare the ith bin for the first distribution with the ith bin
+        in the second distribution, and as long as they both have non-zero length (or both have zero length)
+        then the test will pass. In the case that one bin has data and the
+        other one does not, as long as the difference is not greater than the tolerance,
+        which is expressed as the number of disagreement points divided by the 
+        total number of points in the non-zero bin's distribution, then the test
+        will still pass. Thus, two distributions are considered similar if they
+        span the same distances within a tolerance.
+    """
+    assert(set(distances_1.keys()) == set(distances_2.keys()))
+    for key in distances_1:
+        if key not in exclude:
+            first_dist_distr = distances_1[key]
+            second_dist_distr = distances_2[key]
+            total_distances = first_dist_distr + second_dist_distr
+            total_min, total_max = min(total_distances), max(total_distances)
+            bin_width = (total_max - total_min) / num_bins
+            first_bins_lst = [0 for i in range(num_bins + 1)] #Numerical stability issue
+            second_bins_lst = [0 for j in range(num_bins + 1)]
+            
+            first_array = np.array(first_dist_distr)
+            second_array = np.array(second_dist_distr)
+            
+            first_indices = ((first_array - total_min) // bin_width).astype(np.int64)
+            second_indices = ((second_array - total_min) // bin_width).astype(np.int64)
+            assert(min(first_indices) >= 0 and max(first_indices) <= num_bins)
+            assert(min(second_indices) >= 0 and max(second_indices) <= num_bins)
+            
+            
+            for index in first_indices:
+                first_bins_lst[index] += 1
+            for index in second_indices:
+                second_bins_lst[index] += 1
+            
+            total_first = sum(first_bins_lst)
+            total_second = sum(second_bins_lst)
+            
+            #Track the cumulative error for each disagreement
+            cumulative_first_error = 0
+            total_first_mismatch = 0
+            cumulative_second_error = 0
+            total_second_mismatch = 0
+            #Now scan over both lists
+            for i in range(len(first_bins_lst)):
+                first_elem = first_bins_lst[i]
+                second_elem = second_bins_lst[i]
+                if first_elem == 0 and second_elem > 0:
+                    if second_elem / total_second > tolerance:
+                        print(f"Failed on {key}, second distr")
+                        return False
+                    else:
+                        cumulative_second_error += (second_elem / total_second)
+                        total_second_mismatch += 1
+                elif first_elem > 0 and second_elem == 0:
+                    if first_elem / total_first > tolerance:
+                        print(f"Failed on {key}, first distr")
+                        return False
+                    else: 
+                        cumulative_first_error += (first_elem / total_first)
+                        total_first_mismatch += 1
+            
+            if cumulative_first_error > tolerance:
+                print(f"Cumulative error for first distribution failed with value {cumulative_first_error}")
+                print(key)
+                return False
+            if cumulative_second_error > tolerance:
+                print(f"Cumulative error for second distribution failed with value {cumulative_second_error}")
+                print(key)
+                return False
+    return True
+            
+            
+
 def compare_distributions(fold_molecs: List[List[Dict]],
                           p_threshold: float = 0.05, statistic_threshold: float = None,
                           metric: str = 'KS', exclude: List[str] = []) -> bool:
@@ -846,6 +939,148 @@ def compare_distributions(fold_molecs: List[List[Dict]],
                 return False
     return True
 
+def compare_distribution_distances(fold_molecs: List[List[Dict]], tolerance: float, num_bins: int,
+                                  exclude: List[str] = []) -> bool:
+    r"""Does a comparison across folds and across inter-atomic pairs based on
+        distances
+    
+    Arguments:
+        fold_molecs (List[List[Dict]]): The molecules for each fold
+        tolerance (float): How many non-matching samples are allowed. This is 
+            defined as the difference in the number of datapoints between a 
+            zero and non-zero bin divided by the total number of datapoints. 
+        num_bins (int): The number of bins to use for the binning approach of comparing 
+            distance distributions
+        exclude (List[str]): The interatomic pairs to exclude from the analysis
+        
+    Returns:
+        test_passed (bool): True if the test is passed and the distributions are sufficiently similar
+            based on the distance ranges spanned, False otherwise
+    
+    Notes: In comparing the distances spanned, we first bin both sets of data using the same 
+        number of bins. Then, we compare the ith bin for the first distribution with the ith bin
+        in the second distribution, and as long as they both have non-zero length (or both have zero length)
+        then the test will pass. In the case that one bin has data and the
+        other one does not, as long as the difference is not greater than the tolerance,
+        which is expressed as the number of disagreement points divided by the 
+        total number of points in the non-zero bin's distribution, then the test
+        will still pass. Thus, two distributions are considered similar if they
+        span the same distances within a tolerance.
+    """
+    fold_dictionaries = [analyze_molec_set(molecs) for molecs in fold_molecs]
+    key_sets = list(map(lambda x : set(x.keys()), fold_dictionaries))
+    #Ensures every set of molecules has the same set of interactions represented
+    if key_sets.count(key_sets[0]) != len(key_sets): 
+        return False
+    
+    for i in range(len(fold_dictionaries)):
+        current_fold_dictionary = fold_dictionaries[i]
+        for j in range(i + 1, len(fold_dictionaries)):
+            next_fold_dict = fold_dictionaries[j]
+            result = compare_distributions_distance_metric(current_fold_dictionary, next_fold_dict, tolerance, num_bins, exclude)
+            if not result:
+                return False
+    return True
+
+def single_fold_precompute(s: Settings, molecs: List[Dict], fold_num: int) -> (List[Dict], List[DFTBList]):
+    r"""Runs through the precompute process for a single fold rather than a
+        pair (train, validate)
+    
+    Arguments:
+        s (Settings): The settings file containing all the hyperparameter settings
+        molecs (List[Dict]): The list of molecules to generate the graphs and batches for
+        fold_num (int): The fold number to save the information under
+    
+    Returns:
+        feeds (List[Dict]): The list of feed dictionaries
+        feed_dftblsts (list[DFTBList]): The list of DFTBList objects
+    
+    Notes: Different from before, a fold now consists only of a single set of molecules.
+        The "train" and "validate" folds are then chosen from among the general set 
+        of folds.
+    """
+    pass
+
+def save_feed_h5(s: Settings, feeds: List[Dict], dftb_lsts: List[DFTBList], 
+                 molecs: List[Dict], dest: str, duplicate_data: bool = False) -> None:
+    r"""Saves some feeds and dftb_lsts to the appropriate location (dest) in h5 file format
+    
+    Arguments:
+        s (Settings): The settings object containing all the hyperparameters
+        feeds (List[Dict]): The list of feed dictionaries to save
+        dftb_lsts (List[DFTBList]): The list of DFTBList objects to save
+        molecs (List[Dict]): The list of molecule dictionaries to save
+        dest (str): Relative path to the folder to save all these things in
+        duplicate_data (bool): Whether to duplicate the raw molecule pickle files 
+            in the same directories as the h5 files. Defaults to False.
+    
+    Returns:
+        None
+        
+    Notes: Uses the h5handler interface functions similar to what's done in 
+        saving_fold
+    """
+    if not os.path.isdir(dest):
+        os.mkdir(dest)
+    molec_filename = os.path.join(dest, "raw_molecules.p")
+    molec_h5_filename = os.path.join(dest, "molecs.h5")
+    batch_h5_filename = os.path.join(dest, "batches.h5")
+    dftb_lst_filename = os.path.join(dest, "dftblsts.p")
+    reference_data_name = os.path.join(dest, 'reference_data.p')
+    
+    #Save the per_molec and per_batch info
+    per_molec_h5handler.save_all_molec_feeds_h5(feeds, molec_h5_filename)
+    per_batch_h5handler.save_multiple_batches_h5(feeds, batch_h5_filename)
+    
+    #Save the DFTBlists
+    with open(dftb_lst_filename, 'wb') as handle:
+        pickle.dump(dftb_lsts, handle)
+    
+    #Save the reference data
+    with open(reference_data_name, 'wb') as handle:
+        pickle.dump(feeds, handle)
+    
+    if duplicate_data:
+        with open(molec_filename, 'wb') as handle:
+            pickle.dump(molecs, handle)
+    
+    print("All data saved successfully")
+
+def compute_graphs_from_folds(s: Settings, top_level_molec_path: str, copy_molecs: bool) -> None:
+    r"""Computes and saves the feed dictionaries for all the molecules in each fold
+    
+    Arguments:
+        s (Settings): The settings object containing all the hyperparameter values
+        top_level_molec_path (str): The relative path to the directory containing 
+            the molecules of each fold
+        copy_molecs (bool): Whether or not to duplicate the raw molecule pickle files
+            in the directories with the saved h5 files (mostly for debugging purposes)
+    
+    Returns:
+        None
+        
+    Notes: This function does two main things for each set of molecules found
+        within the folder top_level_molec_path:
+        1) Generate the feed dictionaries for each set of molecules
+        2) Saves the feed dictionaries in h5 format
+    Nothing is returned from this function
+    """
+    all_files = os.listdir(top_level_molec_path)
+    pattern = r"Fold[0-9]+_molecs.p"
+    fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
+    
+    #Now cycle through each fold and do the precompute on it
+    for name in fold_file_names:
+        total_path = os.path.join(top_level_molec_path, name)
+        fold_num = name.split('_')[0][-1]
+        with open(total_path, 'rb') as handle:
+            molecs = pickle.load(handle)
+            feeds, dftb_lsts = single_fold_precompute(s, molecs, fold_num)
+            destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
+            save_feed_h5(s, feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)
+            print(f"Data successfully saved for {name} molecules")
+            
+
 if __name__ == "__main__":
     
     pass
@@ -881,7 +1116,7 @@ if __name__ == "__main__":
     ## Testing features for generating nheavy separated folds
     allowed_Zs = [1,6,7,8]
     heavy_atoms = [1,2,3,4,5,6,7,8]
-    max_config = 10
+    max_config = 160
     target = {'Etot' : 'cc',
            'dipole' : 'wb97x_dz.dipole',
            'charges' : 'wb97x_dz.cm5_charges'}
@@ -890,19 +1125,44 @@ if __name__ == "__main__":
     lower_limit = 5
     num_folds = 6
     num_folds_lower = 3
+    tolerance = 0.05
+    num_bins = 200
+    local_fold_molecs = "fold_molecs"
     
     i = 0
     while True:
-        print(f"Testing out fold generation {i}")
+        print(f"Testing fold generation {i}")
         folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
                                lower_limit, num_folds, num_folds_lower)
     
-        p_threshold = 0.01
-        statistic_threshold = None
-        result = compare_distributions(folds, p_threshold, statistic_threshold, metric = 'MWU', exclude = ['H-H'])
+        new_exclude = []
+        result = compare_distribution_distances(folds, tolerance, num_bins, exclude = new_exclude)
         if result:
+            print("Folds are similar enough")
+            if not os.path.isdir(local_fold_molecs):
+                os.mkdir(local_fold_molecs)
+            for j in range(len(folds)):
+                curr_fold_path = os.path.join(local_fold_molecs, f"Fold{j}_molecs.p")
+                with open(curr_fold_path, 'wb') as handle:
+                    pickle.dump(folds[j], handle)
+            with open(os.path.join(local_fold_molecs, "settings.txt"), "w+") as handle:
+                handle.write("allowed Zs: " + str(allowed_Zs) + "\n")
+                handle.write("heavy atoms: " + str(heavy_atoms) + "\n")
+                handle.write("Maximum configurations: " + str(max_config) + "\n")
+                handle.write("target: " + str(target) + "\n")
+                handle.write("data path: " + str(data_path) + "\n")
+                handle.write("exclude: " + str(exclude) + "\n")
+                handle.write("lower limit: " + str(lower_limit) + "\n")
+                handle.write("num folds: " + str(num_folds) + "\n")
+                handle.write("num folds lower: " + str(num_folds_lower) + "\n")
+                handle.write("tolerance: " + str(tolerance) + "\n")
+                handle.write("num bins: " + str(num_bins) + "\n")
             break
-        i += 1
+        else:
+            print("Folds are not similar enough")
+            i += 1
+    
+    
     
     
     
