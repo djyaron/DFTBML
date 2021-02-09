@@ -25,11 +25,13 @@ data_type = 'au' # or 'ani1'
 max_config = 1
 
 # for 'au' only
-max_mol = 10
+max_mol = 1000
 
 # for 'ani1' only
 allowed_Zs = [1, 6, 7, 8]
 maxheavy = 2
+
+fermi_temp = 300.0
 
 
 if os.getenv("USER") == "yaron":
@@ -92,6 +94,9 @@ elif data_type == 'au':
 
 DFTBoptions = {'ShellResolvedSCC': True}
 
+if fermi_temp is not None:
+    DFTBoptions['FermiTemp'] = fermi_temp
+
 do_our_dftb = True
 do_dftbplus = True
 
@@ -110,11 +115,21 @@ for imol,mol in enumerate(dataset):
     if do_our_dftb:
         start_time = time()
         try:
-            dftb_us = DFTB(pardict, cart, charge, mult)
-            mol['de'],_,_ = dftb_us.SCF()
-            mol['dr'] = dftb_us.repulsion
-            mol['dt'] = mol['de'] + mol['dr']
-            mol['dconv'] = True
+            if fermi_temp is None:
+                dftb_us = DFTB(pardict, cart, charge, mult)
+                mol['de'],_,_ = dftb_us.SCF()
+                mol['dr'] = dftb_us.repulsion
+                mol['dt'] = mol['de'] + mol['dr']
+                mol['dconv'] = True
+            else:
+                smearing = {'scheme': 'fermi',
+                            'width' : 3.16679e-6 * fermi_temp}
+                dftb_us = DFTB(pardict, cart, charge, mult, smearing = None)
+                mol['de'],_,_ = dftb_us.SCF()
+                mol['dr'] = dftb_us.repulsion
+                mol['dt'] = mol['de'] + mol['dr']
+                mol['dconv'] = True
+                
         except Exception:
             mol['dconv'] = False
         end_time = time()
@@ -158,6 +173,10 @@ conv = [x for x in dataset if x['dconv'] and x['pconv']]
 diff = np.array([x['dt'] - x['pt'] for x in conv]) * 627.0
 print(f"rms diff us and DFTB+ {np.sqrt(np.average(np.square(diff)))} kcal/mol")
 print(f"max diff us and DFTB+ {np.max(np.abs(diff))} kcal/mol")
+
+diff = np.array([x['dt'] - x['targets']['at'] for x in conv]) * 627.0
+print(f"rms diff us and Adam {np.sqrt(np.average(np.square(diff)))} kcal/mol")
+print(f"max diff us and Adam {np.max(np.abs(diff))} kcal/mol")
 
 our_time = np.abs([x['dtime'] for x in dataset])
 plus_time = np.abs([x['ptime'] for x in dataset])
