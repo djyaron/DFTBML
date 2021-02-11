@@ -982,13 +982,14 @@ def compare_distribution_distances(fold_molecs: List[List[Dict]], tolerance: flo
                 return False
     return True
 
-def single_fold_precompute(s: Settings, molecs: List[Dict], fold_num: int) -> (List[Dict], List[DFTBList]):
+def single_fold_precompute(s: Settings, molecs: List[Dict], par_dict: Dict) -> (List[Dict], List[DFTBList]):
     r"""Runs through the precompute process for a single fold rather than a
         pair (train, validate)
     
     Arguments:
         s (Settings): The settings file containing all the hyperparameter settings
         molecs (List[Dict]): The list of molecules to generate the graphs and batches for
+        par_dict (Dict): SKF parameter dictionary
         fold_num (int): The fold number to save the information under
     
     Returns:
@@ -999,7 +1000,38 @@ def single_fold_precompute(s: Settings, molecs: List[Dict], fold_num: int) -> (L
         The "train" and "validate" folds are then chosen from among the general set 
         of folds.
     """
-    pass
+    config = {"opers_to_model" : s.opers_to_model}
+    feeds, dftb_lsts, batches = graph_generation(molecs, config, s.allowed_Zs, par_dict, s.num_per_batch)
+    
+    losses = dict()
+    for loss in s.losses:
+        #s.losses is a list of strings representing the different losses to factor into backpropagation
+        if loss == 'Etot':
+            losses[loss] = s.target_accuracy_energy
+        elif loss == 'dipole':
+            losses[loss] = s.target_accuracy_dipole
+        elif loss == 'charges':
+            losses[loss] = s.target_accuracy_charges
+        elif loss == 'convex':
+            losses[loss] = s.target_accuracy_convex
+        elif loss == 'monotonic':
+            losses[loss] = s.target_accuracy_monotonic
+        else:
+            raise ValueError("Unsupported loss type")
+            
+    all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(feeds, [],
+                                                                               s.allowed_Zs, losses, ref_ener_start = s.reference_energy_starting_point)
+    feed_generation(feeds, batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, False, 
+                    s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
+    
+    print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
+    print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
+    print(f"len of s_mods: {len([mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S'])}")
+    print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
+    print("losses")
+    print(losses)
+    
+    return feeds, dftb_lsts
 
 def save_feed_h5(s: Settings, feeds: List[Dict], dftb_lsts: List[DFTBList], 
                  molecs: List[Dict], dest: str, duplicate_data: bool = False) -> None:
@@ -1069,16 +1101,27 @@ def compute_graphs_from_folds(s: Settings, top_level_molec_path: str, copy_molec
     pattern = r"Fold[0-9]+_molecs.p"
     fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
     
+    #Load the parameter dictionary specified in settings
+    par_dict_path = s.par_dict_name
+    if par_dict_path == 'auorg_1_1':
+        from auorg_1_1 import ParDict
+        par_dict = ParDict()
+    else:
+        module = importlib.import_module(par_dict_path)
+        par_dict = module.ParDict()
+    
     #Now cycle through each fold and do the precompute on it
     for name in fold_file_names:
         total_path = os.path.join(top_level_molec_path, name)
         fold_num = name.split('_')[0][-1]
         with open(total_path, 'rb') as handle:
             molecs = pickle.load(handle)
-            feeds, dftb_lsts = single_fold_precompute(s, molecs, fold_num)
+            feeds, dftb_lsts = single_fold_precompute(s, molecs, par_dict)
             destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
             save_feed_h5(s, feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)
             print(f"Data successfully saved for {name} molecules")
+            
+    print(f"All data successfully saved for molecules in {top_level_molec_path}")
             
 
 if __name__ == "__main__":
