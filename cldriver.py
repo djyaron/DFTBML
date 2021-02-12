@@ -192,7 +192,7 @@ def get_graph_data_noCV(s: Settings, par_dict: Dict):
         print(f"Number of validation feeds: {len(validation_feeds)}")
     return training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches
 
-def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = -1):
+def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = -1, fold_mapping_dict: Dict = None):
     r"""Handles the molecule grabbing and graph generating stages of pre-compute,
         but for running CV experiments
     
@@ -203,6 +203,8 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = 
         fold (tuple): The tuple representing the fold, (train, test)
         fold_num (int): The number indicating the current fold of interest if we are 
             loading the pre-generated data for a fold. Defaults to -1
+        fold_mapping_dict (Dict): The dictionary indicating how to combine individual folds for training and
+            validation. Defaults to None
     
     Returns:
         training_feeds (List[Dict]): List of training feed dictionaries
@@ -253,7 +255,7 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = 
     
     return training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches
 
-def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = -1, established_models: Dict = None,
+def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = -1, fold_mapping_dict: Dict = None, established_models: Dict = None,
                       established_variables: Dict = None):
     r"""Performs the precompute stage of the calculations
     
@@ -262,6 +264,8 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
         par_dict (Dict): Dictionary of skf parameters
         fold (tuple): The current fold object.
         fold_num (int): The number of the current fold being used
+        fold_mapping_dict (Dict): The dictionary indicating how to combine individual folds for training and
+            validation. Defaults to None
         established_models (Dict): The all_models dictionary from a previous fold
         established_variables (Dict): The model_variables dictionary from a previous fold
     
@@ -288,7 +292,7 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
         training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_noCV(s, par_dict)
     elif s.driver_mode == 'CV':
         print("Using cv method for generating molecules and graphs")
-        training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_CV(s, par_dict, fold, fold_num)
+        training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches = get_graph_data_CV(s, par_dict, fold, fold_num, fold_mapping_dict)
     
     print("Creating loss dictionary")
     losses = dict()
@@ -601,6 +605,46 @@ def write_output_skf(s: Settings, all_models: Dict) -> None:
         os.mkdir(target_folder)
     main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.skf_strsep, 
          s.skf_ngrid, target_folder)
+    
+def create_fold_number_mapping(s: Settings) -> Dict:
+    r"""Creates a fold mapping for the case where individual folds are
+        combined to create total training/validation data
+    
+    Arguments:
+        s (Settings): The Settings object with hyperparameter values
+    
+    Returns:
+        mapping (Dict): The dictionary mapping current fold number to the 
+            numbers of individual folds for train and validate. This only applies
+            when you are combining individual folds. Each entry in the dictionary
+            contains a list of two lists, the first inner list is the fold numbers 
+            for training and the second inner list is the fold numbers for validation.
+    
+    Notes: Suppose we are training on five different folds / blocks of data numbered
+        1 -> N. In the first training iteration in a CV driver mode, if the cv_mode is 
+        'normal', we will train on the combined data of N - 1 folds together and test 
+        on the remaining Nth fold. If the cv_mode is 'reverse', we will validate 
+        on N - 1 folds while training on the remaining Nth fold. In previous iterations,
+        each fold really contained a training set of validation set of feed dictionaries;
+        now each fold means just one set of feed dictionaries, and we have to use all folds
+        for every iteration of CV. 
+    """
+    num_directories = len(list(filter(lambda x : '.' not in x, os.listdir(s.top_level_fold_path))))
+    num_folds = s.num_folds
+    #num_folds should equal num_directories
+    assert(num_folds == num_directories)
+    cv_mode = s.cv_mode
+    full_fold_nums = [i for i in range(num_folds)]
+    mapping = dict()
+    for i in range(num_folds):
+        mapping[i] = [[],[]]
+        if cv_mode == 'normal':
+            mapping[i][1].append(i)
+            mapping[i][0] = full_fold_nums[0 : i] + full_fold_nums[i + 1:]
+        elif cv_mode == 'reverse':
+            mapping[i][0].append(i)
+            mapping[i][1] = full_fold_nums[0 : i] + full_fold_nums[i + 1:]
+    return mapping
 
 def run_method(settings_filename: str, defaults_filename: str) -> None:
     r"""The main method for running the cldriver
@@ -667,10 +711,14 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
                                         settings.data_path, settings.num_folds, 
                                         settings.max_config, settings.exclude, tuple(settings.shuffle),
                                         reverse = False if settings.cv_mode == 'normal' else True)
+        
+        #If the fold_load_form is combine_individual_folds, then we need to create a mapping for the fold numbers:
+        
+        fold_mapping = create_fold_number_mapping(settings)
         print("Done getting folds")
         
         for ind, fold in enumerate(folds_cv):
-            all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, 
+            all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
@@ -819,8 +867,8 @@ if __name__ == "__main__":
     #     print(f"Final {loss} train: {loss_tracker[loss][1][-1]}")
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
-    #Testing for the CV case
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    ## Testing for the CV case
+    #reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
         
     
     

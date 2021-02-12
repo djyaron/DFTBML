@@ -1116,12 +1116,42 @@ def compute_graphs_from_folds(s: Settings, top_level_molec_path: str, copy_molec
         fold_num = name.split('_')[0][-1]
         with open(total_path, 'rb') as handle:
             molecs = pickle.load(handle)
+            random.shuffle(molecs)
             feeds, dftb_lsts = single_fold_precompute(s, molecs, par_dict)
             destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
             save_feed_h5(s, feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)
             print(f"Data successfully saved for {name} molecules")
             
     print(f"All data successfully saved for molecules in {top_level_molec_path}")
+    
+def load_single_fold(s: Settings, top_level_fold_path: str, fold_num: int):
+    r"""Loads a single fold using the new fold format based on heavy atoms
+    
+    Arguments:
+        s (Settings): Settings object containing values for hyperparameters
+        top_level_fold_path (str): The relative path to the directory containing all the folds
+        fold_num (int): The fold number to load
+    
+    Returns:
+        feeds (List[Dict]): The input feeds for the DFTB layer
+        dftb_lsts (List[DFTBList]): The DFTBList objects to use for the training
+    """
+    total_fold_path = os.path.join(top_level_fold_path, f"Fold{fold_num}")
+    batch_info_name = os.path.join(total_fold_path, 'batches.h5')
+    molec_info_name = os.path.join(total_fold_path, 'molecs.h5')
+    dftb_lst_name = os.path.join(total_fold_path, 'dftblsts.p')
+    reference_data_name = os.path.join(total_fold_path, 'reference_data.p')
+    
+    feeds = total_feed_combinator.create_all_feeds(batch_info_name, molec_info_name, s.ragged_dipole)
+    dftb_lsts = pickle.load(open(dftb_lst_name, 'rb'))
+    
+    if s.run_check:
+        print("Running safety check")
+        compare_feeds(reference_data_name, feeds)
+    
+    return feeds, dftb_lsts
+
+
             
 
 if __name__ == "__main__":
@@ -1157,53 +1187,97 @@ if __name__ == "__main__":
     # analyze_all_folds(top_level_path)
     
     ## Testing features for generating nheavy separated folds
-    allowed_Zs = [1,6,7,8]
-    heavy_atoms = [1,2,3,4,5,6,7,8]
-    max_config = 160
-    target = {'Etot' : 'cc',
-           'dipole' : 'wb97x_dz.dipole',
-           'charges' : 'wb97x_dz.cm5_charges'}
-    data_path = os.path.join("data", "ANI-1ccx_clean_fullentry.h5")
-    exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
-    lower_limit = 5
-    num_folds = 6
-    num_folds_lower = 3
-    tolerance = 0.05
-    num_bins = 200
-    local_fold_molecs = "fold_molecs"
+    # allowed_Zs = [1,6,7,8]
+    # heavy_atoms = [1,2,3,4,5,6,7,8]
+    # max_config = 160
+    # target = {'Etot' : 'cc',
+    #        'dipole' : 'wb97x_dz.dipole',
+    #        'charges' : 'wb97x_dz.cm5_charges'}
+    # data_path = os.path.join("data", "ANI-1ccx_clean_fullentry.h5")
+    # exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
+    # lower_limit = 5
+    # num_folds = 6
+    # num_folds_lower = 3
+    # tolerance = 0.05
+    # num_bins = 200
+    # local_fold_molecs = "fold_molecs"
     
-    i = 0
-    while True:
-        print(f"Testing fold generation {i}")
-        folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
-                               lower_limit, num_folds, num_folds_lower)
+    # i = 0
+    # while True:
+    #     print(f"Testing fold generation {i}")
+    #     folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
+    #                            lower_limit, num_folds, num_folds_lower)
     
-        new_exclude = []
-        result = compare_distribution_distances(folds, tolerance, num_bins, exclude = new_exclude)
-        if result:
-            print("Folds are similar enough")
-            if not os.path.isdir(local_fold_molecs):
-                os.mkdir(local_fold_molecs)
-            for j in range(len(folds)):
-                curr_fold_path = os.path.join(local_fold_molecs, f"Fold{j}_molecs.p")
-                with open(curr_fold_path, 'wb') as handle:
-                    pickle.dump(folds[j], handle)
-            with open(os.path.join(local_fold_molecs, "settings.txt"), "w+") as handle:
-                handle.write("allowed Zs: " + str(allowed_Zs) + "\n")
-                handle.write("heavy atoms: " + str(heavy_atoms) + "\n")
-                handle.write("Maximum configurations: " + str(max_config) + "\n")
-                handle.write("target: " + str(target) + "\n")
-                handle.write("data path: " + str(data_path) + "\n")
-                handle.write("exclude: " + str(exclude) + "\n")
-                handle.write("lower limit: " + str(lower_limit) + "\n")
-                handle.write("num folds: " + str(num_folds) + "\n")
-                handle.write("num folds lower: " + str(num_folds_lower) + "\n")
-                handle.write("tolerance: " + str(tolerance) + "\n")
-                handle.write("num bins: " + str(num_bins) + "\n")
-            break
-        else:
-            print("Folds are not similar enough")
-            i += 1
+    #     new_exclude = []
+    #     result = compare_distribution_distances(folds, tolerance, num_bins, exclude = new_exclude)
+    #     if result:
+    #         print("Folds are similar enough")
+    #         if not os.path.isdir(local_fold_molecs):
+    #             os.mkdir(local_fold_molecs)
+    #         for j in range(len(folds)):
+    #             curr_fold_path = os.path.join(local_fold_molecs, f"Fold{j}_molecs.p")
+    #             with open(curr_fold_path, 'wb') as handle:
+    #                 pickle.dump(folds[j], handle)
+    #         with open(os.path.join(local_fold_molecs, "settings.txt"), "w+") as handle:
+    #             handle.write("allowed Zs: " + str(allowed_Zs) + "\n")
+    #             handle.write("heavy atoms: " + str(heavy_atoms) + "\n")
+    #             handle.write("Maximum configurations: " + str(max_config) + "\n")
+    #             handle.write("target: " + str(target) + "\n")
+    #             handle.write("data path: " + str(data_path) + "\n")
+    #             handle.write("exclude: " + str(exclude) + "\n")
+    #             handle.write("lower limit: " + str(lower_limit) + "\n")
+    #             handle.write("num folds: " + str(num_folds) + "\n")
+    #             handle.write("num folds lower: " + str(num_folds_lower) + "\n")
+    #             handle.write("tolerance: " + str(tolerance) + "\n")
+    #             handle.write("num bins: " + str(num_bins) + "\n")
+    #         break
+    #     else:
+    #         print("Folds are not similar enough")
+    #         i += 1
+    
+    ## Testing pre-computes and saves for smaller sets of molecules from nheavy based folds
+    test_fold = 'fold_molecs_test'
+    if not os.path.isdir(test_fold):
+        os.mkdir(test_fold)
+        
+    pattern = r"Fold[0-9]+_molecs.p"
+    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir('fold_molecs')))
+    
+    #First copy over a small set of molecules into the test folder
+    for name in valid_names:
+        full_name = os.path.join("fold_molecs", name)
+        molecs = pickle.load(open(full_name, 'rb'))
+        new_molecs = molecs[:100]
+        dest_name = os.path.join(test_fold, name)
+        with open(dest_name, 'wb') as handle:
+            pickle.dump(new_molecs, handle)
+            
+    #Now do the precompute using the settings
+    with open("settings_default.json", "r") as handle:
+        settings = json.load(handle)
+    
+    settings_obj = Settings(settings)
+    compute_graphs_from_folds(settings_obj, "fold_molecs_test", copy_molecs = True)
+    
+    ## Testing loading for single folds after saving
+    test_fold = 'fold_molecs_test'
+    assert(os.path.isdir(test_fold))
+    pattern = r"Fold[0-9]+"
+    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir('fold_molecs')))
+    
+    with open("settings_default.json", "r") as handle:
+        settings = json.load(handle)
+    
+    settings_obj = Settings(settings)
+    
+    for i in range(len(valid_names)):
+        _, _ = load_single_fold(settings_obj, top_level_fold_path = test_fold, fold_num = i)
+        
+    
+    print("Hello")
+    
+    
+    
     
     
     

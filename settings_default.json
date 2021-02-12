@@ -13,7 +13,7 @@
     "prop_train" : 0.8,
     "reference_energy_starting_point" : [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
   1.27026973e-03],
-    "opers_to_model" : ["H", "R", "G", "S"],
+    "opers_to_model" : ["H", "R"],
     "spline_mode" : "joined",
     "spline_deg" : 3,
     
@@ -50,6 +50,7 @@
     "driver_mode" : "CV",
     "cv_mode" : "normal",
     "num_folds" : 5,
+    "fold_load_form" : "combine_individual_folds",
     
     "charge_update_epochs" : 10,
     "nepochs" : 5,
