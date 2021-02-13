@@ -1117,6 +1117,8 @@ def compute_graphs_from_folds(s: Settings, top_level_molec_path: str, copy_molec
         with open(total_path, 'rb') as handle:
             molecs = pickle.load(handle)
             random.shuffle(molecs)
+            for elem in molecs:
+                energy_correction(elem)
             feeds, dftb_lsts = single_fold_precompute(s, molecs, par_dict)
             destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
             save_feed_h5(s, feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)
@@ -1151,8 +1153,48 @@ def load_single_fold(s: Settings, top_level_fold_path: str, fold_num: int):
     
     return feeds, dftb_lsts
 
-
-            
+def load_combined_fold(s: Settings, top_level_fold_path: str, fold_num: int, fold_mapping: Dict):
+    r"""Generates the training and validation feeds through combining individual folds
+    
+    Arguments:
+        s (Settings): The Settings object containing all the hyperparameters
+        top_level_fold_path (str): The relative path to the directory containing the 
+            individual folds.
+        fold_num (int): The fold number used to index into fold_mapping
+        fold_mapping (Dict): The dictionary mapping fold_nums to the numbers for
+            the training data and the validation data, stored as 2D list with the 
+            first list containing training fold numbers and the second list containing
+            the validation fold numbers
+    
+    Returns:
+        training_feeds (List[Dict]): List of training feed dictionaries
+        validation_feeds (List[Dict]): List of validation feed dictionaries
+        training_dftblsts (List[DFTBList]): List of DFTBList objects for training
+        validation_dftblsts (List[DFTBList]): List of DFTBList objects for validation
+    
+    Notes: Here, the fold_num just indicates which split we're doing. The fold_mapping
+        maps the split number to the numbers of the individual segments of data that
+        needs to be combined for training and validation.
+        
+    """
+    current_train_folds, current_valid_folds = fold_mapping[fold_num]
+    #Now we need to load the data for each fold number. Load the training folds first
+    training_feeds, training_dftblsts = list(), list()
+    validation_feeds, validation_dftblsts = list(), list()
+    
+    #Get the training information
+    for num in current_train_folds:
+        feeds, dftblsts = load_single_fold(s, top_level_fold_path, num)
+        training_feeds.extend(feeds)
+        training_dftblsts.extend(dftblsts)
+    
+    #Get the validation information
+    for num in current_valid_folds:
+        feeds, dftblsts = load_single_fold(s, top_level_fold_path, num)
+        validation_feeds.extend(feeds)
+        validation_dftblsts.extend(dftblsts)
+    
+    return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
 if __name__ == "__main__":
     

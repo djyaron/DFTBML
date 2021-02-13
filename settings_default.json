@@ -49,7 +49,7 @@
     
     "driver_mode" : "CV",
     "cv_mode" : "normal",
-    "num_folds" : 5,
+    "num_folds" : 6,
     "fold_load_form" : "combine_individual_folds",
     
     "charge_update_epochs" : 10,
@@ -99,7 +99,7 @@
     },
     "data_path" : "data/ANI-1ccx_clean_fullentry.h5",
     "shuffle" : [1,1],
-    "top_level_fold_path" : "test_fold",
+    "top_level_fold_path" : "fold_molecs_test",
     "skf_extension" : "",
     "skf_ngrid" : 50,
     "skf_strsep" : "  ",

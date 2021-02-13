@@ -28,7 +28,7 @@ import os, os.path
 import random
 from batch import Model, RawData, DFTBList
 from skfwriter import main, atom_nums, atom_masses
-from fold_generator import loading_fold
+from fold_generator import loading_fold, load_combined_fold
 import pickle
 
 #Trick for toggling print statements globally, code was found here:
@@ -248,7 +248,10 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = 
     elif s.loaded_data and fold_num > -1:
         print(f"loading data for fold {fold_num} rather than generating")
         top_fold_path = s.top_level_fold_path
-        training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(s, top_fold_path, fold_num)
+        if s.fold_load_form == "combine_individual_folds":
+            training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = load_combined_fold(s, top_fold_path, fold_num, fold_mapping_dict)
+        elif s.fold_load_form == "train_valid_per_fold":
+            training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = loading_fold(s, top_fold_path, fold_num)
         training_batches, validation_batches = list(), list()
         print(f"Number of training feeds: {len(training_feeds)}")
         print(f"Number of validation feeds: {len(validation_feeds)}")
@@ -721,8 +724,11 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
+            #import pdb; pdb.set_trace()
+            
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
+            
             if (established_models is not None) and (established_variables is not None):
                 assert(all_models is established_models)
                 assert(model_variables is established_variables)
@@ -868,7 +874,7 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
-    #reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
         
     
     
