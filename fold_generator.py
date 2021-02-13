@@ -1289,7 +1289,7 @@ if __name__ == "__main__":
     for name in valid_names:
         full_name = os.path.join("fold_molecs", name)
         molecs = pickle.load(open(full_name, 'rb'))
-        new_molecs = molecs[:100]
+        new_molecs = molecs[:200]
         dest_name = os.path.join(test_fold, name)
         with open(dest_name, 'wb') as handle:
             pickle.dump(new_molecs, handle)
