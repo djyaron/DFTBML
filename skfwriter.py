@@ -161,10 +161,10 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     y_vals[:ind] = y_vals[ind]
     # Plot the values as a scatter to see what's being written to the skf
     # files as a debugging step
-    fig, ax = plt.subplots()
-    ax.scatter(rgrid, y_vals)
-    ax.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}")
-    plt.show()
+    # fig, ax = plt.subplots()
+    # ax.scatter(rgrid, y_vals)
+    # ax.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}")
+    # plt.show()
     return y_vals 
 
 def determine_index(model_spec: Model) -> int:
@@ -378,17 +378,17 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     assert(len(R_mods) == 1) # Should only be one repulsive mod per atom pair
     r_model = all_models[R_mods[0]]
     xlow, xhigh = r_model.pairwise_linear_model.r_range()
-    cutoff = 3.0 #r_model.cutoff #Use the cutoff distance from the model itself (only works for joined splines)
+    cutoff = r_model.cutoff #Use the cutoff distance from the model itself (only works for joined splines)
     rgrid = np.linspace(xlow, cutoff, ngrid) #rgrid here is in angstroms
     r_vals = get_yvals(R_mods[0], rgrid, all_models)
     #Obtain the spline, but given the file format we must
     # fit the spline with units of bohr radii vs hartree
     spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
-    fig, ax = plt.subplots()
+    # fig, ax = plt.subplots()
     #Plot out the cubic spline fit for reference
-    ax.plot(rgrid * ANGSTROM2BOHR, spl(rgrid * ANGSTROM2BOHR))
-    ax.set_title(f"{elems}, rep spline ref")
-    plt.show()
+    # ax.plot(rgrid * ANGSTROM2BOHR, spl(rgrid * ANGSTROM2BOHR))
+    # ax.set_title(f"{elems}, rep spline ref")
+    # plt.show()
     #Coefficients of the spline
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
