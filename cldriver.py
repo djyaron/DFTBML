@@ -353,6 +353,7 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
     print("losses")
     print(losses)
+    print(all_losses)
     
     return all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker
 
