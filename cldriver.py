@@ -398,8 +398,8 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
             result_lst = []
             for bsize in basis_sizes:
                 result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
-            print("Charge update failed for", enable_print = 1)
-            print(result_lst, enable_print = 1)
+            print("Charge update failed for")
+            print(result_lst)
     print("Training charge update done, doing validation set")
     for k in range(len(validation_feeds)):
         # Charge update for validation_feeds
@@ -415,8 +415,8 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
             result_lst = []
             for bsize in basis_sizes:
                 result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
-            print("Charge update failed for", enable_print = 1)
-            print(result_lst, enable_print = 1)
+            print("Charge update failed for")
+            print(result_lst)
     if epoch > -1:
         print(f"Charge updates done for epoch {epoch}")
     else:
