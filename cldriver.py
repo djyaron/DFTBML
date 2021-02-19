@@ -391,7 +391,7 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
         try:
             update_charges(feed, op_dict, dftb_list, s.opers_to_model)
         except Exception as e:
-            print(e, enable_print = 1)
+            print(e)
             glabels = feed['glabels']
             basis_sizes = feed['basis_sizes']
             result_lst = []
@@ -408,7 +408,7 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
         try:
             update_charges(feed, op_dict, dftb_list, s.opers_to_model)
         except Exception as e:
-            print(e, enable_print = 1)
+            print(e)
             glabels = feed['glabels']
             basis_sizes = feed['basis_sizes']
             result_lst = []
