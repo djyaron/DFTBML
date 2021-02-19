@@ -23,7 +23,7 @@
     "target_accuracy_convex" : 1000,
     "target_accuracy_monotonic" : 1000,
     
-    "losses" : ["Etot", "dipole", "charges", "convex"],
+    "losses" : ["Etot", "convex"],
     "par_dict_name" : "auorg_1_1",
     "loaded_data" : true,
     "molec_file_names" : ["final_molec_test.h5", "final_valid_molec_test.h5"],
@@ -51,14 +51,15 @@
     "cv_mode" : "normal",
     "num_folds" : 6,
     "fold_load_form" : "combine_individual_folds",
+    "split_mapping" : null,
     
     "charge_update_epochs" : 10,
     "nepochs" : 5,
     "learning_rate" : 1e-5,
     "ams_grad_enabled" : true,
     "scheduler_patience" : 10,
-    "scheduler_factor" : 0.1,
-    "scheduler_threshold" : 0.01,
+    "scheduler_factor" : 0.9,
+    "scheduler_threshold" : 1e-4,
     
     "joined_cutoff" : 3.0,
     "cutoff_dictionary" : 
@@ -103,5 +104,5 @@
     "skf_extension" : "",
     "skf_ngrid" : 50,
     "skf_strsep" : "  ",
-    "run_id" : "test_run"
+    "run_id" : "test_run_small"
 }

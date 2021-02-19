@@ -51,6 +51,7 @@
     "cv_mode" : "normal",
     "num_folds" : 5,
     "fold_load_form": "train_valid_per_fold",
+    "split_mapping" : null,
     
     "charge_update_epochs" : 10,
     "nepochs" : 150,

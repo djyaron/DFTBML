@@ -204,7 +204,8 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = 
         fold_num (int): The number indicating the current fold of interest if we are 
             loading the pre-generated data for a fold. Defaults to -1
         fold_mapping_dict (Dict): The dictionary indicating how to combine individual folds for training and
-            validation. Defaults to None
+            validation. The first element of the entry is the training fold numbers and the
+            second element of the entry is the validation fold numbers. Defaults to None
     
     Returns:
         training_feeds (List[Dict]): List of training feed dictionaries
@@ -268,7 +269,8 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
         fold (tuple): The current fold object.
         fold_num (int): The number of the current fold being used
         fold_mapping_dict (Dict): The dictionary indicating how to combine individual folds for training and
-            validation. Defaults to None
+            validation. The first element of the entry is the training fold numbers and the
+            second element of the entry is the validation fold numbers. Defaults to None
         established_models (Dict): The all_models dictionary from a previous fold
         established_variables (Dict): The model_variables dictionary from a previous fold
     
@@ -460,7 +462,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         losses (Dict): Dictionary of target losses and their weights
         all_losses (Dict): Dictionary of target losses and their loss classes
         loss_tracker (Dict): Dictionary for keeping track of loss data during
-            training
+            training. The first list is validation, the second list is training.
     
     Returns:
         ref_ener_params (List[float]): The current reference energy parameters
@@ -608,8 +610,50 @@ def write_output_skf(s: Settings, all_models: Dict) -> None:
         os.mkdir(target_folder)
     main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.skf_strsep, 
          s.skf_ngrid, target_folder)
+
+def write_output_lossinfo(s: Settings, loss_tracker: Dict, times_per_epoch: List[float], split_num: int,
+                          split_mapping: Dict) -> None:
+    r"""Function for outputting any loss information
     
-def create_fold_number_mapping(s: Settings) -> Dict:
+    Arguments:
+        s (Settings): Settings object containing hyperparameter settings
+        loss_tracker (Dict): Dictionary for keeping track of loss data during
+            training. The first list is validation, the second list is training
+        times_per_epoch (List[float]): The amount of time taken per epoch, in
+            seconds
+        split_num (int): The number of the current split
+        split_mapping (Dict): The dictionary indicating how to combine individual folds for training and
+            validation. The first element of the entry is the training fold numbers and the
+            second element of the entry is the validation fold numbers. Defaults to None
+            
+    Returns:
+        None
+    
+    Notes: The loss tracker object is indexed by the type of loss. For example, for
+        the 'Etot' loss, there are two list objects with the first being the validation
+        losses and the second being the training losses:
+            {'Etot' : [[valid_values], [train_values], value_holder]
+             ...
+                }
+        The loss tracker is saved for each split, and it is saved in the same directory as the
+        top_level_fold_path variable in the settings file.
+    """
+    target_dir = os.path.join(s.top_level_fold_path, f"Split{split_num}")
+    if not os.path.isdir(target_dir):
+        os.mkdir(target_dir)
+    with open(os.path.join(target_dir, "loss_tracker.p"), "wb") as handle:
+        pickle.dump(loss_tracker, handle)
+    with open(os.path.join(target_dir, "times.p"), "wb") as handle:
+        pickle.dump(times_per_epoch, handle)
+    with open(os.path.join(target_dir, 'split_mapping.txt'), 'w+') as handle:
+        train, valid = split_mapping[split_num]
+        handle.write(f"Training fold numbers = {train}\n")
+        handle.write(f"Validation fold numbers = {valid}\n")
+        handle.close()
+    
+    print("All loss information saved")
+    
+def create_split_mapping(s: Settings) -> Dict:
     r"""Creates a fold mapping for the case where individual folds are
         combined to create total training/validation data
     
@@ -648,6 +692,9 @@ def create_fold_number_mapping(s: Settings) -> Dict:
             mapping[i][0].append(i)
             mapping[i][1] = full_fold_nums[0 : i] + full_fold_nums[i + 1:]
     return mapping
+
+def convert_key_to_num(elem: Dict) -> Dict:
+    return {int(k) : v for (k, v) in elem.items()}
 
 def run_method(settings_filename: str, defaults_filename: str) -> None:
     r"""The main method for running the cldriver
@@ -717,23 +764,34 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         
         #If the fold_load_form is combine_individual_folds, then we need to create a mapping for the fold numbers:
         
-        fold_mapping = create_fold_number_mapping(settings)
+        fold_mapping = convert_key_to_num(settings.split_mapping) if settings.split_mapping is not None else create_split_mapping(settings)
+        print(fold_mapping)
         print("Done getting folds")
         
-        for ind, fold in enumerate(folds_cv):
+        dummy_folds = [None for i in range(len(fold_mapping))]
+        
+        # import pdb; pdb.set_trace()
+        
+        for ind, fold in enumerate(folds_cv[:len(fold_mapping.keys())] if len(folds_cv) >= len(fold_mapping) else dummy_folds):
+            #This is a HACK to constrain the number of iterations to the number of keys in fold_mapping. If a split_mapping
+            # is provided, then only that many splits will be iterated over. If no split mapping is provided, then
+            # the number iterations will be equal to num_folds. If split_mapping has more splits than folds, then 
+            # the dummy folds will be used
             all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
-            #import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
+            
+            write_output_lossinfo(settings, loss_tracker, times_per_epoch, ind, fold_mapping)
             
             if (established_models is not None) and (established_variables is not None):
                 assert(all_models is established_models)
                 assert(model_variables is established_variables)
                 
-            if ind == settings.num_folds - 1:
+            if ind == len(fold_mapping.keys()) - 1: #The should write after the final split
                 write_output_skf(settings, all_models)
                 return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
             

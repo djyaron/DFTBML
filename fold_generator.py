@@ -1139,6 +1139,7 @@ def load_single_fold(s: Settings, top_level_fold_path: str, fold_num: int):
         dftb_lsts (List[DFTBList]): The DFTBList objects to use for the training
     """
     total_fold_path = os.path.join(top_level_fold_path, f"Fold{fold_num}")
+    print(f"Loading from {total_fold_path}")
     batch_info_name = os.path.join(total_fold_path, 'batches.h5')
     molec_info_name = os.path.join(total_fold_path, 'molecs.h5')
     dftb_lst_name = os.path.join(total_fold_path, 'dftblsts.p')

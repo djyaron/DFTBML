@@ -570,6 +570,31 @@ class per_batch_h5handler:
         except Exception as e:
             print("something went wrong with saving batch information")
             print(e)
+            
+    @staticmethod
+    def save_single_batch(batch: Dict, index: int, file: h5py.File) -> None:
+        r"""Saves a single batch of a specified index
+        
+        Arguments:
+            batch (Dict): The batch to save
+            index (int): The identifying number of the current batch
+            file (h5py.File): Pointer to open h5py file where the batch information
+                is saved
+        
+        Returns:
+            None
+            
+        Notes: The reason for this interface function is for memory purposes,
+            whereby batches can be saved one at a time and then removed from memory.
+            This prevents the need to have all the feed dictionaries open concurrently
+            in memory.
+        """
+        try:
+            per_batch_h5handler.unpack_save_feed_batch_h5(batch, file, index)
+        except Exception as e:
+            print(f"Something went wrong with saving batch info for batch {index}")
+            print(e)
+        
 
     @staticmethod
     def extract_batch_info(filename: str) -> List[Dict]:
