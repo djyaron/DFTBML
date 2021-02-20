@@ -51,9 +51,7 @@
     "cv_mode" : "normal",
     "num_folds" : 6,
     "fold_load_form" : "combine_individual_folds",
-    "split_mapping" : {"0" : [[1,2,4,5], [0,3]],
-	    "1" : [[0, 2, 3, 5], [1, 4]],
-	    "2" : [[0, 1, 3, 4], [2, 5]]
+    "split_mapping" : {"0" : [[1,2,4,5], [0,3]]
     },
     
     "charge_update_epochs" : 10,
