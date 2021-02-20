@@ -787,6 +787,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
             
             write_output_lossinfo(settings, loss_tracker, times_per_epoch, ind, fold_mapping)
+            write_output_skf(settings, all_models) #Write the skf files each time just in case things crash on PSC
             
             if (established_models is not None) and (established_variables is not None):
                 assert(all_models is established_models)
