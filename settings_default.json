@@ -23,7 +23,7 @@
     "target_accuracy_convex" : 1000,
     "target_accuracy_monotonic" : 1000,
     
-    "losses" : ["Etot", "dipole", "charges", "convex"],
+    "losses" : ["Etot", "dipole", "charges"],
     "par_dict_name" : "auorg_1_1",
     "loaded_data" : true,
     "molec_file_names" : ["final_molec_test.h5", "final_valid_molec_test.h5"],
@@ -57,7 +57,7 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 75,
+    "nepochs" : 85,
     "learning_rate" : 1e-5,
     "ams_grad_enabled" : true,
     "scheduler_patience" : 10,
@@ -107,5 +107,5 @@
     "skf_extension" : "",
     "skf_ngrid" : 50,
     "skf_strsep" : "  ",
-    "run_id" : "first_run"
+    "run_id" : "second_run"
 }
