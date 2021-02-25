@@ -161,10 +161,10 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     y_vals[:ind] = y_vals[ind]
     # Plot the values as a scatter to see what's being written to the skf
     # files as a debugging step
-    # fig, ax = plt.subplots()
-    # ax.scatter(rgrid, y_vals)
-    # ax.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}")
-    # plt.show()
+    fig, ax = plt.subplots()
+    ax.scatter(rgrid, y_vals)
+    ax.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}")
+    plt.show()
     return y_vals 
 
 def determine_index(model_spec: Model) -> int:

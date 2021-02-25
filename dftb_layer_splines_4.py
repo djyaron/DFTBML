@@ -378,6 +378,7 @@ class Input_layer_value:
 class Input_layer_pairwise_linear:
 
     def __init__(self, model: Model, pairwise_linear_model: SplineModel, par_dict: Dict,
+                 cutoff: float,
                  inflection_point_var: List[float] = [], ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
         r"""Creates a cubic spline model that is allowed to vary over the entire spanned distance
@@ -394,6 +395,8 @@ class Input_layer_pairwise_linear:
             par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
                 between different elements, indexed by a string 'elem1-elem2'. For example, the
                 Carbon-Carbon interaction is accessed using the key 'C-C'
+            cutoff (float): The distance in angstroms above which all predicted 
+                values are set to 0.
             inflection_point_var (List[float]): The variable value used to compute the 
                 inflection point for the model. Defaults to []
             ngrid: (int): The number of points for initially fitting the model to the DFTB
@@ -417,6 +420,7 @@ class Input_layer_pairwise_linear:
         """
         self.model = model
         self.pairwise_linear_model= pairwise_linear_model
+        self.cutoff = cutoff
         (rlow,rhigh) = pairwise_linear_model.r_range()
         ngrid = 100
         rgrid = np.linspace(rlow,rhigh,ngrid)
@@ -495,8 +499,12 @@ class Input_layer_pairwise_linear:
             later on.
         """
         xeval = np.array([elem.rdist for elem in mod_raw])
-        A,b = self.pairwise_linear_model.linear_model(xeval)
-        return {'A': A, 'b': b}
+        nval = len(xeval)
+        izero = np.where(xeval > self.cutoff)[0]
+        inonzero = np.where(xeval <= self.cutoff)[0]
+        xnonzero = xeval[inonzero] # Predict only on the non-zero x vals
+        A,b = self.pairwise_linear_model.linear_model(xnonzero)
+        return {'A': A, 'b': b, 'nval' : nval, 'izero' : izero, 'inonzero' : inonzero}
     
     def get_values(self, feed: Dict) -> Tensor:
         r"""Generates a prediction from the spline
@@ -514,7 +522,13 @@ class Input_layer_pairwise_linear:
         """
         A = feed['A']
         b = feed['b']
-        result = torch.matmul(A, self.variables) + b
+        nval = feed['nval']
+        izero = feed['izero']
+        inonzero = feed['inonzero']
+        result_temp = torch.matmul(A, self.variables) + b
+        result = torch.zeros([nval], dtype = result_temp.dtype)
+        result[inonzero] = result_temp
+        result[izero] = 0
         return result
 
 class Input_layer_pairwise_linear_joined:
@@ -1274,12 +1288,12 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                         print(f"Warning: inflection point not less than cutoff for {model_spec}")
                         
                 elif spline_mode == 'non-joined':
-                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var] if include_inflect else [])
             else:
                 if spline_mode == 'joined':
                     model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
                 elif spline_mode == 'non-joined':
-                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict)
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'])
             variables = model.get_variables().detach().numpy()
             if apx_equal(np.sum(variables), 0):
                 return (model, 'noopt')
@@ -2041,7 +2055,7 @@ def total_type_conversion(training_feeds: List[Dict], validation_feeds: List[Dic
     for feed in validation_feeds:
         recursive_type_conversion(feed, ignore_keys)
 
-def model_range_correction(model_range_dict: Dict, correction_dict: Dict) -> Dict:
+def model_range_correction(model_range_dict: Dict, correction_dict: Dict, universal_high: float = None) -> Dict:
     r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict
     
     Arguments:
@@ -2051,6 +2065,8 @@ def model_range_correction(model_range_dict: Dict, correction_dict: Dict) -> Dic
             The keys are element tuples (elem1, elem2) and the values are the new low ends.
             All models modelling the interactions between elements (a, b) will have the
             same low end
+        universal_high (float): The maximum distance bound for all spline models.
+            Defaults to None
     
     Returns:
         new_dict (Dict): The corrected model range dictionary
@@ -2066,7 +2082,7 @@ def model_range_correction(model_range_dict: Dict, correction_dict: Dict) -> Dic
             xlow = correction_dict[Zs]
         elif Zs_rev in correction_dict:
             xlow = correction_dict[Zs_rev]
-        new_dict[mod] = (xlow, xhigh)
+        new_dict[mod] = (xlow, xhigh if universal_high is None else universal_high)
     return new_dict
 
 def energy_correction(molec: Dict) -> None:

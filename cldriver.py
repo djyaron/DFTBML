@@ -257,6 +257,8 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = 
         print(f"Number of training feeds: {len(training_feeds)}")
         print(f"Number of validation feeds: {len(validation_feeds)}")
     
+    # import pdb; pdb.set_trace()
+    
     return training_feeds, training_dftblsts, training_batches, validation_feeds, validation_dftblsts, validation_batches
 
 def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = -1, fold_mapping_dict: Dict = None, established_models: Dict = None,
@@ -771,7 +773,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         
         dummy_folds = [None for i in range(len(fold_mapping))]
         
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
         
         for ind, fold in enumerate(folds_cv[:len(fold_mapping.keys())] if len(folds_cv) >= len(fold_mapping) else dummy_folds):
             #This is a HACK to constrain the number of iterations to the number of keys in fold_mapping. If a split_mapping
@@ -781,7 +783,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
-            # import pdb; pdb.set_trace()
+            import pdb; pdb.set_trace()
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)

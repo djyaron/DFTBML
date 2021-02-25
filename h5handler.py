@@ -12,9 +12,8 @@ Note: to go back from bytestring to normal string, you have to do
     x.decode('UTF-8') where x is the byte string representation
     
 TODO: 
-    1) Finish implementing methods for feeds and for dictionaries
-    2) Write better docstring detailing exactly how data is stored and how
-       to use the functions in this module 
+    1) Work on interface functions for loading a single graph at a time (X)
+    2) Integration test the single graph loading mechanism
        
 With this method of working with h5 files, the only certain pieces of information
 still need to be computed in the pre-computation stage. 
@@ -29,6 +28,7 @@ import collections
 from geometry import Geometry
 import pickle
 from typing import Union, List, Optional, Dict, Any, Literal
+import sys
 Array = np.ndarray
 
 #%% Model variables h5
@@ -681,7 +681,7 @@ class per_batch_h5handler:
                         for shp in all_shps:
                             shp_rot_gthr = feed_file[str(feed)][key][shp][()]
                             try:
-                                nonetes = eval(shp_rot_gthr[0].decode('UTF-8')) is None
+                                nonetest = eval(shp_rot_gthr[0].decode('UTF-8')) is None
                                 feed_dict[key][eval(shp)] = None
                             except:
                                 feed_dict[key][eval(shp)] = shp_rot_gthr
@@ -709,6 +709,113 @@ class per_batch_h5handler:
             feeds_lst.append(feed_dict)
         assert (len(feeds_lst) == len(feed_ids))
         return feeds_lst
+    
+    @staticmethod
+    def extract_single_batch_info(file: h5py.File, batch_index: int) -> Dict:
+        r"""Extracts a single graph based on the batch_index
+        
+        Arguments:
+            file (h5py.File): Pointer to open h5py file to load a graph from
+            batch_index (int): The batch to load from the h5py file
+        
+        Returns:
+            batch (Dict): The reconstructed graph corresponding to the 
+                batch_index within the h5py file
+        
+        Notes: The file pointer for h5py must remain open when reading from the 
+            h5py file, otherwise the data becomes inaccessible. The pointer should be
+            opened in read mode when trying to load data
+        """
+        simple_keys = ['glabels', 'gather_for_rep', 'segsum_for_rep', 
+                       'atom_ids', 'norbs_atom', 'iconfigs', 
+                       'basis_sizes', 'names']
+        #These keys require more more processing in the extraction process
+        complex_keys = ['mod_raw', 'rot_tensors', 'gather_for_rot', 'gather_for_oper',
+                        'models', 'onames', 'names']
+        
+        stringed_index = str(batch_index)
+        
+        feed_file_dict = file[stringed_index]
+        
+        feed_dict = dict()
+        
+        all_keys = list(feed_file_dict.keys())
+        for key in all_keys:
+            #Debugging, can remove this later
+            assert((key in simple_keys) or (key in complex_keys))
+            #Simple keys either have a level of bsize index or direct kvp
+            if key in simple_keys:
+                try:
+                    #All integers should be in string form due to encoding into h5
+                    bsizes = list(feed_file_dict[key].keys())
+                    feed_dict[key] = dict()
+                    for bsize in bsizes:
+                        full_data = feed_file_dict[key][bsize][()]
+                        try:
+                            full_data = [x.decode('UTF-8') for x in full_data]
+                            feed_dict[key][int(bsize)] = full_data
+                        except:
+                            feed_dict[key][int(bsize)] = full_data
+                except:
+                    feed_dict[key] = feed_file_dict[key][()]
+            #Complex keys have some trickery going on
+            #For example, any information that is stored as a string has to be decoded
+            elif key in complex_keys:
+                #Handle the mod_raw case
+                if key == 'mod_raw':
+                    all_models = list(feed_file_dict[key].keys())
+                    feed_dict[key] = dict()
+                    for model in all_models:
+                        model_mod_raw = feed_file_dict[key][model][()]
+                        model_mod_raw = [get_model_from_string(x) for x in model_mod_raw]
+                        model_key = eval(model) #Since the keys are valid python string, no need to decode byte string
+                        feed_dict[key][model_key] = model_mod_raw
+                
+                #Handle the rot_tensors case
+                elif key == 'rot_tensors':
+                    all_shps = list(feed_file_dict[key].keys())
+                    feed_dict[key] = dict()
+                    for shp in all_shps:
+                        shp_rot_tensors = feed_file_dict[key][shp][()]
+                        try:
+                            #Saved an array of "None" if there was no rotational tensor
+                            # for that shape. Use try-except block to test that out
+                            nonetest = eval(shp_rot_tensors[0].decode('UTF-8')) is None
+                            feed_dict[key][eval(shp)] = None
+                        except:
+                            feed_dict[key][eval(shp)] = shp_rot_tensors
+                
+                elif key == 'gather_for_rot':
+                    all_shps = list(feed_file_dict[key].keys())
+                    feed_dict[key] = dict()
+                    for shp in all_shps:
+                        shp_rot_gthr = feed_file_dict[key][shp][()]
+                        try:
+                            nonetest = eval(shp_rot_gthr[0].decode('UTF-8')) is None
+                            feed_dict[key][eval(shp)] = None
+                        except:
+                            feed_dict[key][eval(shp)] = shp_rot_gthr
+                
+                elif key == 'gather_for_oper':
+                    all_opers = list(feed_file_dict[key].keys())
+                    feed_dict[key] = dict()
+                    for oper in all_opers:
+                        feed_dict[key][oper] = dict()
+                        all_bsizes = list(feed_file_dict[key][oper].keys())
+                        for bsize in all_bsizes:
+                            feed_dict[key][oper][int(bsize)] = feed_file_dict[key][oper][bsize][()]
+                
+                elif key == 'models':
+                    all_models = feed_file_dict[key][()]
+                    all_models = [get_model_from_string(x) for x in all_models]
+                    feed_dict[key] = all_models
+                
+                elif key == 'onames':
+                    all_onames = feed_file_dict[key][()]
+                    all_onames = [x.decode('UTF-8') for x in all_onames]
+                    feed_dict[key] = all_onames
+        
+        return feed_dict
     
 
 #%% Combinator class
@@ -762,6 +869,41 @@ class total_feed_combinator:
         #Now just use the master correction function in the per_molec_h5handler
         per_molec_h5handler.add_per_molec_info(extracted_feeds, master_molec_dict, ragged_dipole_mat)
         return extracted_feeds
+    
+    @staticmethod
+    def create_single_feed(batch_file_ptr: h5py.File, master_molec_dict: Dict, batch_index: int, ragged_dipole_mat: bool = True) -> Dict:
+        r"""Creates a single feed from the given batch file and the master molecule dictionary
+        
+        Arguments:
+            batch_file_ptr (h5py.File): POinter to an opern h5py file containing the graph information
+            master_molec_dict (Dict): The dictionary containing all the molecule information
+            batch_index (int): The generic index of the batch that should be loaded
+            ragged_dipole_mat (bool): Indication whether the dipoles are ragged. Defaults to True (ragged dipoles)
+        
+        Returns:
+            feed (Dict): Completed feed dictionary
+        """
+        feed = per_batch_h5handler.extract_single_batch_info(batch_file_ptr, batch_index)
+        
+        feed['geoms'] = dict()
+        all_bsizes = feed['glabels'].keys()
+        for bsize in all_bsizes:
+            curr_glabels = feed['glabels'][bsize]
+            curr_names = feed['names'][bsize]
+            curr_iconfigs = feed['iconfigs'][bsize]
+            assert(len(curr_glabels) == len(curr_names) == len(curr_iconfigs))
+            for i in range(len(curr_glabels)):
+                coordinates = master_molec_dict[curr_names[i]][curr_iconfigs[i]]['Coords'][()]
+                Zs = master_molec_dict[curr_names[i]][curr_iconfigs[i]]['Zs'][()]
+                feed['geoms'][curr_glabels[i]] = Geometry(Zs, coordinates) #No need to transpose
+        
+        #Now just use the master correction function in the per_molec_h5handler
+        single_feeds = [feed]
+        print(f"{sys.getsizeof(feed)}")
+        per_molec_h5handler.add_per_molec_info(single_feeds, master_molec_dict, ragged_dipole_mat)
+        
+        return single_feeds[0]
+        
 
 #%% Testing utilities 
 def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
