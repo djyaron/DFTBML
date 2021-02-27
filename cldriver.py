@@ -773,7 +773,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         
         dummy_folds = [None for i in range(len(fold_mapping))]
         
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         
         for ind, fold in enumerate(folds_cv[:len(fold_mapping.keys())] if len(folds_cv) >= len(fold_mapping) else dummy_folds):
             #This is a HACK to constrain the number of iterations to the number of keys in fold_mapping. If a split_mapping
@@ -783,7 +783,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
