@@ -523,18 +523,19 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
                         loss_tracker[loss][2] += val.item()
                 validation_loss += tot_loss.item()
         
-        #Print some information
-        print("Validation loss:",i, (validation_loss/len(validation_feeds)))
-        validation_losses.append((validation_loss/len(validation_feeds)))
+        if len(validation_feeds) > 0:
+            #Print some information
+            print("Validation loss:",i, (validation_loss/len(validation_feeds)))
+            validation_losses.append((validation_loss/len(validation_feeds)))
+            
+            #Update loss_tracker 
+            for loss in all_losses:
+                loss_tracker[loss][0].append(loss_tracker[loss][2] / len(validation_feeds))
+                #Reset the loss tracker after being done with all feeds
+                loss_tracker[loss][2] = 0
         
-        #Update loss_tracker 
-        for loss in all_losses:
-            loss_tracker[loss][0].append(loss_tracker[loss][2] / len(validation_feeds))
-            #Reset the loss tracker after being done with all feeds
-            loss_tracker[loss][2] = 0
-        
-        #Shuffle the validation data
-        validation_feeds, validation_dftblsts = paired_shuffle(validation_feeds, validation_dftblsts)
+            #Shuffle the validation data
+            validation_feeds, validation_dftblsts = paired_shuffle(validation_feeds, validation_dftblsts)
         
         #Training routine
         epoch_loss = 0.0
