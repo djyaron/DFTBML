@@ -523,6 +523,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
                         loss_tracker[loss][2] += val.item()
                 validation_loss += tot_loss.item()
         
+        
         if len(validation_feeds) > 0:
             #Print some information
             print("Validation loss:",i, (validation_loss/len(validation_feeds)))
@@ -938,6 +939,7 @@ if __name__ == "__main__":
     
     ## Testing for the CV case
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    print(loss_tracker)
         
     
     
