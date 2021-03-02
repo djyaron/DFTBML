@@ -1285,7 +1285,7 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                         print(f"Inflection point less than cutoff for {model_spec}")
                         print(f"Inflection point: {inflect_point_target}, cutoff: {model.cutoff}")
                     except:
-                        print(f"Warning: inflection point not less than cutoff for {model_spec}")
+                        print(f"Warning: inflection point {inflect_point_target} not less than cutoff {model.cutoff} for {model_spec}")
                         
                 elif spline_mode == 'non-joined':
                     model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var] if include_inflect else [])
