@@ -16,6 +16,7 @@ TODO:
     1) Change settings file to contain a field called "universal_high" which encodes the maximum distance
         for all splines to span (X)
     2) A TON OF DEBUGGING / TESTING
+        Problem with mixing tensors into molec dicts during charge updates, causing failures
     
 Uncertainties:
     1) The matrices A and b for each spline model (y = Ax + b) are repeatedly calculated and added into the 
@@ -33,7 +34,7 @@ import time
 import numpy as np
 from h5handler import total_feed_combinator, per_molec_h5handler, get_model_from_string, compare_feeds
 from dftb_layer_splines_4 import get_model_value_spline_2, OffDiagModel2, assemble_ops_for_charges,\
-    update_charges, DFTB_Layer
+    update_charges, DFTB_Layer, recursive_type_conversion, Reference_energy
 from batch import DFTBList
 from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2
 from typing import List, Union, Dict
@@ -50,7 +51,7 @@ import sys
 import h5py
 import re
 
-#%% General functions
+#%% General functions and methods
 
 class Settings:
     def __init__(self, settings_dict: Dict) -> None:
@@ -249,15 +250,15 @@ def generate_spline_range_dictionary(s: Settings, all_model_specs: List[Model]) 
         For the purposes of this approach, xlow and xhigh must be known in advance for all models,
         and this information must be accessible in the settings file
     """
-    low_end_cutoffs = dictionary_tuple_correction(s.low_end_correction_dict)
+    s.low_end_correction_dict = dictionary_tuple_correction(s.low_end_correction_dict)
     model_range_dict = dict()
     for mod_spec in all_model_specs:
         if len(mod_spec.Zs) == 2: #Only two-body splines need to have their ranges known
             Zs, Zs_rev = mod_spec.Zs, (mod_spec.Zs[1], mod_spec.Zs[0])
-            if Zs in low_end_cutoffs:
-                model_range_dict[mod_spec] = (low_end_cutoffs[Zs], s.universal_high)
-            elif Zs_rev in low_end_cutoffs:
-                model_range_dict[mod_spec] = (low_end_cutoffs[Zs_rev], s.universal_high)
+            if Zs in s.low_end_correction_dict:
+                model_range_dict[mod_spec] = (s.low_end_correction_dict[Zs], s.universal_high)
+            elif Zs_rev in s.low_end_correction_dict:
+                model_range_dict[mod_spec] = (s.low_end_correction_dict[Zs_rev], s.universal_high)
             else:
                 raise ValueError(f"range of {mod_spec} cannot be determined")
                 
@@ -303,6 +304,8 @@ def generate_models_variables(s: Settings, all_model_specs: List[Model]) -> Dict
     spline_range_dict = generate_spline_range_dictionary(s, all_model_specs)
     par_dict = pull_par_dict(s)
     
+    s.cutoff_dictionary = dictionary_tuple_correction(s.cutoff_dictionary)
+    
     for model_spec in all_model_specs:
         model, tag = get_model_value_spline_2(model_spec, model_variables, spline_range_dict,
                                               par_dict, s.num_knots, s.buffer, s.joined_cutoff, 
@@ -318,6 +321,12 @@ def generate_models_variables(s: Settings, all_model_specs: List[Model]) -> Dict
         elif tag == 'noopt':
             #All tensors at this point
             all_models[model_spec].variables.requires_grad = False #Detach from computational graph
+            
+    allowed_Zs = s.allowed_Zs
+    ref_ener_start = s.reference_energy_starting_point
+    
+    all_models['Eref'] = Reference_energy(allowed_Zs) if (ref_ener_start is None) else Reference_energy(allowed_Zs, prev_values = ref_ener_start)
+    model_variables['Eref'] = all_models['Eref'].get_variables()
     
     return all_models, model_variables
 
@@ -609,7 +618,7 @@ def update_dQ_rhomask(molec_dict: Dict, updated_feed: Dict) -> None:
         we can update the state of the molecule dictionaries which are
         persistent in memory
     """
-    all_bsizes = updated_feed['bsize']
+    all_bsizes = updated_feed['basis_sizes']
     for bsize in all_bsizes:
         current_occ_rhos = updated_feed['occ_rho_mask'][bsize]
         current_dQs = updated_feed['dQ'][bsize]
@@ -621,17 +630,24 @@ def update_dQ_rhomask(molec_dict: Dict, updated_feed: Dict) -> None:
             assert(molec_dict[current_names[i]][current_iconfigs[i]]['occ_rho_mask'].shape == current_occ_rhos[i].shape)
             assert(molec_dict[current_names[i]][current_iconfigs[i]]['dQ'].shape == current_dQs[i].shape)
             #Update the values in molec_dict
-            molec_dict[current_names[i]][current_iconfigs[i]]['occ_rho_mask'] = current_occ_rhos[i]
-            molec_dict[current_names[i]][current_iconfigs[i]]['dQ'] = current_dQs[i]
+            #Convert to numpy arrays because only one element tensors (not lists of tensors) can be converted.
+            #   this wasn't a problem in the past becuase all info was loaded before type conversion, and 
+            #   no loading happened during training (no longer the case now)
+            molec_dict[current_names[i]][current_iconfigs[i]]['occ_rho_mask'] = current_occ_rhos[i].numpy()
+            molec_dict[current_names[i]][current_iconfigs[i]]['dQ'] = current_dQs[i].numpy()
             
 
-def charge_update_subroutine(seg: Dict, all_models: Dict, tag: str, s: Settings, epoch: int) -> None:
+def charge_update_subroutine(seg: Dict, all_models: Dict, all_losses: Dict,
+                             par_dict: Dict, tag: str, s: Settings, epoch: int) -> None:
     r"""Does the charge update within the single-load infrastructure on a give segment
     
     Arguments:
         seg (Dict): The dictionary containing the information for the segment to 
             perform the charge updates on
         all_models (Dict): Dictionary containing references to each model object
+        all_losses (Dict): Dictionary containing each target and the corresponding
+            loss_model object
+        par_dict (Dict): The dictionary containing the SKF parameter files
         tag (str): One of 'train', 'validate', or whatever, indicates the identity
             of the segment where the charge updates are being performed
         s (Settings): Settings object containing all the hyperparameter settings
@@ -659,6 +675,8 @@ def charge_update_subroutine(seg: Dict, all_models: Dict, tag: str, s: Settings,
         molec_dict = molec_dicts[file_num]
         dftb_lst = dftblsts[index] #The dftblsts are enumerated the same length as indices (1:1 correspondence with batches)
         current_feed = total_feed_combinator.create_single_feed(batch_file_ptr, molec_dict, true_index, True)
+        single_feed_pass_through(current_feed, all_losses, all_models, par_dict)
+        recursive_type_conversion(current_feed, ignore_keys = s.type_conversion_ignore_keys)
         op_dict = assemble_ops_for_charges(current_feed, all_models)
         try:
             update_charges(current_feed, op_dict, dftb_lst, s.opers_to_model)
@@ -718,8 +736,8 @@ def training_loop(s: Settings, training_seg: Dict, validation_seg: Dict, all_mod
     validation_losses, training_losses = list(), list()
     times_per_epoch = list()
     print("Running charge updates")
-    charge_update_subroutine(training_seg, all_models, "training", s, -1)
-    charge_update_subroutine(validation_seg, all_models, "validating", s, -1)
+    charge_update_subroutine(training_seg, all_models, all_losses, par_dict, "training", s, -1)
+    charge_update_subroutine(validation_seg, all_models, all_losses, par_dict, "validating", s, -1)
     print("Moving to true training")
     
     #Unpack the segment for training and validation
@@ -745,6 +763,7 @@ def training_loop(s: Settings, training_seg: Dict, validation_seg: Dict, all_mod
                 molec_dict = v_molec_dicts[file_num]
                 feed = total_feed_combinator.create_single_feed(batch_file_ptr, molec_dict, true_index, True)
                 single_feed_pass_through(feed, all_losses, all_models, par_dict) #Add feed stuff to feed
+                recursive_type_conversion(feed, ignore_keys = s.type_conversion_ignore_keys)
                 output = dftblayer(feed, all_models)
                 loss_for_feed = compute_loss(s, all_losses, losses, loss_tracker, feed, output)
                 validation_loss += loss_for_feed.item()
@@ -770,9 +789,10 @@ def training_loop(s: Settings, training_seg: Dict, validation_seg: Dict, all_mod
             optimizer.zero_grad()
             file_num, true_index = get_relative_batch_index(index, t_nperbatch)
             batch_file_ptr = t_batches[file_num]
-            molec_dict = t_batches[file_num]
+            molec_dict = t_molec_dicts[file_num]
             feed = total_feed_combinator.create_single_feed(batch_file_ptr, molec_dict, true_index, True)
             single_feed_pass_through(feed, all_losses, all_models, par_dict)
+            recursive_type_conversion(feed, ignore_keys = s.type_conversion_ignore_keys)
             output = dftblayer(feed, all_models)
             loss_for_feed = compute_loss(s, all_losses, losses, loss_tracker, feed, output)
             epoch_loss += loss_for_feed.item()
@@ -794,8 +814,8 @@ def training_loop(s: Settings, training_seg: Dict, validation_seg: Dict, all_mod
         if (i % s.charge_update_epochs == 0):
             #Changing the values in training_seg should carry over to the molecule
             # dictionaries through aliasing
-            charge_update_subroutine(training_seg, all_models, "training", s, i)
-            charge_update_subroutine(validation_seg, all_models, "validating", s, i)
+            charge_update_subroutine(training_seg, all_models, all_losses, par_dict, "training", s, i)
+            charge_update_subroutine(validation_seg, all_models, all_losses, par_dict, "validating", s, i)
         
         times_per_epoch.append(time.time() - start)
         
@@ -902,7 +922,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         all_ptrs.append(h5py.File(fold_file_mapping[fold]['batch'], 'r'))
     all_mod_specs = collect_all_models_all_batches(all_ptrs)
     losses, all_losses, loss_tracker = generate_losses_losstracker(settings)
-    all_models, model_variables = generate_models_variables(settings_obj, all_mod_specs)
+    all_models, model_variables = generate_models_variables(settings, all_mod_specs)
     
     split_mapping = settings.split_mapping #split_mapping must be defined within settings file
     split_mapping = convert_key_to_num(split_mapping)
@@ -940,8 +960,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
 
 
 #%% Testing
-if __name__ == '__main__':
-    # Some starting memory tests
+def test_everything():
     top_level_fold_path = os.path.join("fold_molecs_test", "Fold0")
     batch_file = os.path.join(top_level_fold_path, "batches.h5")
     molec_filename = os.path.join(top_level_fold_path, "molecs.h5")
@@ -1010,5 +1029,20 @@ if __name__ == '__main__':
         assert(seg_dict['dftblst_lsts'][test_index_location] is fold_file_mapping[indices[test_index // 20]]['dftblst'][test_index % 20])
         
         print("Shuffled correspondence passed")
+    
+    print("All tests passed!")
+
+#%% Main
+if __name__ == '__main__':
+    # Execute test cases
+    # test_everything() 
+    
+    # Try runnning through an actual run
+    settings_file_name = "settings_default.json"
+    defaults_file_name = "defaults.json"
+    run_method(settings_file_name, defaults_file_name)
+    
+    
+    
     
     pass

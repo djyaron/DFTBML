@@ -899,7 +899,7 @@ class total_feed_combinator:
         
         #Now just use the master correction function in the per_molec_h5handler
         single_feeds = [feed]
-        print(f"{sys.getsizeof(feed)}")
+        #print(f"{sys.getsizeof(feed)}")
         per_molec_h5handler.add_per_molec_info(single_feeds, master_molec_dict, ragged_dipole_mat)
         
         return single_feeds[0]
