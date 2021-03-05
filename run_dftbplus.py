@@ -6,8 +6,11 @@ Created on Mon Feb  8 18:19:17 2021
 @author: yaron
 """
 import os
+import shutil
 from subprocess import call
 import numpy as np
+import scipy
+import pickle as pkl
 from h5py import File
 from collections import Counter
 from matplotlib import pyplot as plt
@@ -19,34 +22,9 @@ from auorg_1_1 import ParDict
 from dftb import DFTB
 pardict = ParDict()
 
-#load data
-
-data_type = 'au' # or 'ani1'
-max_config = 1
-
-# for 'au' only
-max_mol = 1000
-
-# for 'ani1' only
-allowed_Zs = [1, 6, 7, 8]
-maxheavy = 2
-
-fermi_temp = 300.0
 
 
-if os.getenv("USER") == "yaron":
-    dftb_exec = "/home/yaron/code/dftbplusexe/dftbplus-20.2.1/bin/dftb+"
-    Au_data_path = "/home/yaron/code/dftbtorch/data/Au_energy_clean.h5"
-    des_path = "/home/yaron/code/dftbtorch/data/aec_dftb.h5"
-else:
-    dftb_exec = "C:\\Users\\Frank\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    Au_data_path = "/home/francishe/Downloads/Datasets/Au_energy_clean.h5"
-    des_path = "/home/francishe/Downloads/Datasets/aec_dftb.h5"
-
-#dftb_exec = "/home/francishe/dftbplus-20.2.1/bin/dftb+"
-scratch_dir = "dftbscratch"
-
-if data_type == 'ani1':
+def load_ani1(maxheavy=8, allowed_Zs=[1, 6, 7, 8]):
     target = {'dt': 'dt', 'dr': 'dr', 'pt': 'pt', 'pe': 'pe', 'pr': 'pr',
               'cc': 'cc', 'ht': 'ht',
               'dipole': 'wb97x_dz.dipole',
@@ -58,23 +36,54 @@ if data_type == 'ani1':
     skf_dir = os.path.join(skf_type)
 
     dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
+    return dataset
 
-elif data_type == 'au':
-    skf_type = 'au'
-    skf_dir = os.path.join(skf_type)
+def load_au(au_type, max_mol, max_config, include_au2):
+    '''
+    input:
+        au_type = 'full' for all or 'diff' for those with large differences
+        max_mol = maximum number of different molecules (by name)
+        max_config = for each mol, max number of configurations
+        include_au2 = bool, False to exclude all molecules with just 2 Au atoms
+        
+    output:
+        dataset: list of all configurations
+          target field keys start with:
+                  a: Adam   d: dftb.py    p: dftb+
+             then:
+                 e: elec   r: repulsive  t: total
+            or 
+             dft
+    '''
+    if os.getenv("USER") == "yaron":
+        Au_data_path = "/home/yaron/code/dftbtorch/data/Au_energy_clean.h5"
+        Au_large_diff_path = "/home/yaron/code/dftbtorch/data/Au_large_diff.h5"
+    else:
+        Au_data_path = "/home/francishe/Downloads/Datasets/Au_energy_clean.h5"
+        Au_large_diff_path = "/home/francishe/Downloads/Datasets/Au_large_diff.h5"
     dataset = []
-    # targets starting with a refer to the value sent by Adam McSloy, generating
-    # using or dftb code
-    targets = {'ae': 'dftb_plus.elec_energy',
-                'ar': 'dftb_plus.rep_energy',
-                'at': 'dftb_plus.energy',
-                'wd': 'wb97x_dz.energy'}
+    if au_type == 'full':
+        file_path = Au_data_path
+        # targets starting with a refer to the value sent by Adam McSloy, generating
+        # using or dftb code
+        targets = {'ae': 'dftb_plus.elec_energy',
+                   'ar': 'dftb_plus.rep_energy',
+                   'at': 'dftb_plus.energy',
+                   'dft': 'wb97x_dz.energy'}
+    else:
+        file_path = Au_large_diff_path
+        targets = {'de': 'dftb.elec_energy',
+                   'dr': 'dftb.rep_energy',
+                   'dt': 'dftb.energy',
+                   'pt': 'dftb_plus.energy',
+                   'dft': 'wb97x_dz.energy'}
+        
     
-    with File(Au_data_path, 'r') as h5data:
+    with File(file_path, 'r') as h5data:
         for mol_name in h5data.keys():
             Zs = h5data[mol_name]['atomic_numbers'][()]
             emp_formula = Counter(Zs)
-            if emp_formula[79] <= 2:
+            if not include_au2 and emp_formula[79] <= 2:
                 continue
             if len(dataset) >= max_mol:
                 continue
@@ -83,114 +92,233 @@ elif data_type == 'au':
             targets_nconfig = {k: h5data[mol_name][v][()] for k, v in targets.items()}
             for iconfig in range(min(max_config, nconfig)):
                 curr = dict()
-                curr['name'] = mol_name
+                curr['name'] = mol_name + '_'+str(iconfig)
                 curr['atomic_numbers'] = Zs
                 curr['coordinates'] = coords[iconfig, :, :]
                 curr['targets'] = {k: targets_nconfig[k][iconfig] for k in targets}
+                curr['targets']['conv'] = True
                 dataset.append(curr)
-            # keys = [k for k in h5data[mol_name].keys()]
 
-#%% run calcs
+    return dataset
 
-DFTBoptions = {'ShellResolvedSCC': True}
+def add_dftb(dataset, skf_dir, do_our_dftb = True, do_dftbplus = True, fermi_temp = None):
+    if os.getenv("USER") == "yaron":
+        dftb_exec = "/home/yaron/code/dftbplusexe/dftbplus-20.2.1/bin/dftb+"
+    else:
+        dftb_exec = "C:\\Users\\Frank\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
 
-if fermi_temp is not None:
-    DFTBoptions['FermiTemp'] = fermi_temp
+    DFTBoptions = {'ShellResolvedSCC': True}
+    scratch_dir = "dftbscratch"
+    
+    if fermi_temp is not None:
+        DFTBoptions['FermiTemp'] = fermi_temp
+        
+    for imol,mol in enumerate(dataset):
+        print('starting', imol, mol['name'])
+        Zs = mol['atomic_numbers']
+        rcart = mol['coordinates']
+        
+        # Input format for python dftb.py
+        natom = len(Zs)
+        cart = np.zeros([natom,4])
+        cart[:,0] = Zs
+        for ix in range(3):
+            cart[:,ix+1] = rcart[:,ix]
+        charge = 0
+        mult = 1
 
+        
+        if do_our_dftb:
+            start_time = time()
+            res1 = dict()
+            try:
+                if fermi_temp is None:
+                    dftb_us = DFTB(pardict, cart, charge, mult)
+                else:
+                    smearing = {'scheme': 'fermi',
+                                'width' : 3.16679e-6 * fermi_temp}                 
+                    dftb_us = DFTB(pardict, cart, charge, mult,
+                                   smearing = smearing)
+                res1['e'],focklist,_ = dftb_us.SCF()
+                eorbs, _ = scipy.linalg.eigh(a=focklist[0], b = dftb_us.GetOverlap())
+                homo = eorbs[ dftb_us.GetNumElecAB()[1] - 1]
+                lumo = eorbs[ dftb_us.GetNumElecAB()[1]]
+                res1['gap'] = (lumo - homo) * 27.211
+                res1['r'] = dftb_us.repulsion
+                res1['t'] = res1['e'] + res1['r']
+                res1['conv'] = True
+            except Exception:
+                res1['conv'] = False
+            end_time = time()
+            res1['time'] = end_time-start_time
+            if fermi_temp is None:
+                res_key = 'dzero'
+            else:
+                res_key = 'd300'
+            mol[res_key] = res1
+            
+        if do_dftbplus:
+            dftb_infile = os.path.join(scratch_dir,'dftb_in.hsd')
+            dftb_outfile = os.path.join(scratch_dir,'dftb.out')
+            write_dftb_infile(Zs, rcart, dftb_infile, skf_dir,DFTBoptions)
+            start_time = time()
+            with open(dftb_outfile,'w') as f:
+                res2 = dict()
+                try:
+                    res = call(dftb_exec,cwd=scratch_dir,stdout = f, shell=False)
+                    dftb_res = read_dftb_out(dftb_outfile)
+                    res2['t'] = dftb_res['Ehartree']
+                    res2['conv'] = True
+                    if fermi_temp is None:
+                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                                                     mol['name']+'_zero.out')
+                    else:
+                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                                                     mol['name']+'_300.out')
+
+                    shutil.copy(os.path.join(scratch_dir,'detailed.out'), 
+                                dftb_savefile)
+                except Exception:
+                    if fermi_temp is None:
+                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                                                     'err_' + mol['name']+'_zero.out')
+                    else:
+                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                                                     'err_' + mol['name']+'_300.out')
+                    shutil.copy(os.path.join(scratch_dir,'detailed.out'), 
+                                dftb_savefile)
+                    res2['conv'] = False
+            end_time = time()
+            res2['time'] = end_time-start_time
+            if fermi_temp is None:
+                res_key = 'pzero'
+            else:
+                res_key = 'p300'
+            mol[res_key] = res1
+            mol[res_key] = res2
+
+        if 'dconv' in mol[res_key] and 'pconv' in mol[res_key]:
+            mol1 = mol[res_key]
+            if mol1['dconv'] and mol1['pconv']:
+                print(f"{mol['name']} us elec {mol1['de']:7.4f} rep {mol1['dr']:7.4f} sum {mol1['dt']:7.4f}" \
+                      f" diff DFTB+ {np.abs(mol1['dt']-mol1['pt']):7.4e}") 
+            elif mol1['dconv']:
+                print(f"{mol['name']} DFTB+ failed")
+            elif mol1['pconv']:
+                print(f"{mol['name']} our dftb failed")
+            else:
+                print(f"{mol['name']} both our dftb and DFTB+ failed")
+            #ts = mol['targets']
+            #print(f"H5 elec {ts['pe']} rep {ts['pr']} sum {ts['pe'] +ts['pr']}" \
+            #      f"tot {ts['pt']}  diff {ts['pt'] - ts['pe'] -ts['pr']} ")
+            #print(f"{skf_type} on mol {imol} E(H) = {Ehartree:7.3f} " \
+            #  #f" diff resolved(kcal/mol) {np.abs(Ehartree-mol['targets']['dt'])*627.0:7.3e}" \
+            #  f" not resolved {np.abs(Ehartree-mol['targets']['pt'])*627.0:7.3e}" )
+
+# def compare_convergence(dataset):
+#     failed = dict()
+#     failed['our dftb'] = [x['name'] for x in dataset if not x['dconv'] and x['pconv']]
+#     failed['dftb+'] = [x['name'] for x in dataset if not x['pconv'] and x['dconv']]
+#     failed['both'] = [x['name'] for x in dataset if not x['pconv'] and not x['dconv']]
+#     for ftype,names in failed.items():
+#         print(f"{len(names)} molecules failed {ftype}")
+#         #print(names)
+
+def compare_results(dataset, type1, field1, type2, field2):
+    failed = dict()
+    failed[type1] = [x['name'] for x in dataset if not x[type1]['conv'] and     x[type2]['conv']]
+    failed[type2] = [x['name'] for x in dataset if     x[type1]['conv'] and not x[type2]['conv']]
+    failed['both'] = [x['name'] for x in dataset if not x[type1]['conv'] and not x[type2]['conv']]
+    for ftype,names in failed.items():
+        print(f"{len(names)} molecules failed {ftype}")
+    conv = [x for x in dataset if x[type1]['conv'] and x[type2]['conv']]
+    if len(conv) == 0:
+        print('no results to compare')
+        return
+    diff = np.array([x[type1][field1] - x[type2][field2] for x in conv]) * 627.0
+    print(f"rms diff  {np.sqrt(np.average(np.square(diff)))} kcal/mol")
+    print(f"mae diff  {np.average(np.abs(diff))} kcal/mol")
+    print(f"max diff {np.max(np.abs(diff))} kcal/mol")
+#%%
+# There are 154275 conformations without Au2, of which 104 have diffs
+#  82 configs of s03_19_Au6
+#  13 configs of s03_19_Au10
+#   7 configs of s02_12_Au10
+#   1 config of  s03_15_Au10_0
+#   1 config of  s04_Au10_0
+# and 37121 conformations with Au2, of which 5695 have diffs
+max_mol = 2000000
+max_config = 1
+include_au2 = False
+dataset = load_au('full',max_mol,max_config,include_au2)
+print(f"loaded {len(dataset)} molecular configurations")
+#%%
 do_our_dftb = True
 do_dftbplus = True
+fermi_temp = None
+add_dftb(dataset, 'au', do_our_dftb, do_dftbplus, fermi_temp)
+fermi_temp = 300.0
+add_dftb(dataset, 'au', do_our_dftb, do_dftbplus, fermi_temp)
 
-for imol,mol in enumerate(dataset):
-    Zs = mol['atomic_numbers']
-    rcart = mol['coordinates']
+#%%
+#pkl.dump(dataset, open('rundftb_normal.pkl', 'wb'))
+#%% print results
+#print('**** new dftbd versus target dftb')
+#compare_results(dataset,'dzero','t','targets','dt')
+print('**** new dftb versus dftb+ at 300K')
+compare_results(dataset,'d300','t','p300','t')
+print('**** dftbd 0K to dftb+ 300K')
+compare_results(dataset,'dzero', 't', 'p300','t')
+#print('*** gaps at 0K versus 300 K')
+#compare_results(dataset,'dzero', 'gap', 'd300','gap')
+print('*** dftb+ at 300K versus at')
+compare_results(dataset,'d300', 't', 'targets','at')
+
+#%%
+gaps = []
+diffs = []
+for x in dataset:
+    if x['dzero']['conv'] and x['p300']['conv']:
+        gaps.append(x['dzero']['gap'])
+        diffs.append(x['p300']['t'] - x['dzero']['t'])
+plt.figure(1)
+plt.plot(gaps, np.abs(diffs)*627.0, 'r.')
+plt.xlabel('HOMO-LUMO gap from 0 K calculation (eV)')
+plt.ylabel('Etot (DFTB+ at 300 K) - Etot(dftbd at 0 K)')
+#%%
+gaps = []
+diffs = []
+for x in dataset:
+    if x['d300']['conv'] and x['p300']['conv']:
+        gaps.append(x['d300']['gap'])
+        diffs.append(x['p300']['t'] - x['d300']['t'])
+plt.figure(2)
+plt.plot(gaps, np.abs(diffs)*627.0, 'r.')
+plt.xlabel('HOMO-LUMO gap from dftbd 300 K calculation (eV)')
+plt.ylabel('Etot (DFTB+ at 300 K) - Etot(dftbd at 300 K)')
+#%%
+gaps = []
+diffs = []
+for x in dataset:
+    if x['dzero']['conv'] and x['pzero']['conv'] and x['p300']['conv']:
+        gaps.append(x['dzero']['gap'])
+        diffs.append(x['p300']['t'] - x['pzero']['t'])
+plt.figure(3)
+plt.plot(gaps, np.abs(diffs)*627.0, 'r.')
+plt.xlabel('HOMO-LUMO gap from dftbd 0 K calculation (eV)')
+plt.ylabel('Etot (DFTB+ at 300 K) - Etot(DFTB+ at 0 K)')
+
+
+
+#%% Less old, commented out results
+# if False:    
+#     diff = np.array([x['dt'] - x['targets']['at'] for x in conv]) * 627.0
+#     print(f"rms diff us and Adam {np.sqrt(np.average(np.square(diff)))} kcal/mol")
+#     print(f"max diff us and Adam {np.max(np.abs(diff))} kcal/mol")
     
-    natom = len(Zs)
-    cart = np.zeros([natom,4])
-    cart[:,0] = Zs
-    for ix in range(3):
-        cart[:,ix+1] = rcart[:,ix]
-    charge = 0
-    mult = 1
-    
-    if do_our_dftb:
-        start_time = time()
-        try:
-            if fermi_temp is None:
-                dftb_us = DFTB(pardict, cart, charge, mult)
-                mol['de'],_,_ = dftb_us.SCF()
-                mol['dr'] = dftb_us.repulsion
-                mol['dt'] = mol['de'] + mol['dr']
-                mol['dconv'] = True
-            else:
-                smearing = {'scheme': 'fermi',
-                            'width' : 3.16679e-6 * fermi_temp}
-                dftb_us = DFTB(pardict, cart, charge, mult, smearing = None)
-                mol['de'],_,_ = dftb_us.SCF()
-                mol['dr'] = dftb_us.repulsion
-                mol['dt'] = mol['de'] + mol['dr']
-                mol['dconv'] = True
-                
-        except Exception:
-            mol['dconv'] = False
-        end_time = time()
-        mol['dtime'] = end_time-start_time
-    
-    if do_dftbplus:
-        dftb_infile = os.path.join(scratch_dir,'dftb_in.hsd')
-        dftb_outfile = os.path.join(scratch_dir,'dftb.out')
-        write_dftb_infile(Zs, rcart, dftb_infile, skf_dir,DFTBoptions)
-        start_time = time()
-        with open(dftb_outfile,'w') as f:
-            try:
-                res = call(dftb_exec,cwd=scratch_dir,stdout = f, shell=False)
-                dftb_res = read_dftb_out(dftb_outfile)
-                mol['pt'] = dftb_res['Ehartree']
-                mol['pconv'] = True
-            except Exception:
-                mol['pconv'] = False
-        end_time = time()
-        mol['ptime'] = end_time-start_time
-    
-    if 'dconv' in mol and 'pconv' in mol:
-        if mol['dconv'] and mol['pconv']:
-            print(f"{mol['name']} us elec {mol['de']:7.4f} rep {mol['dr']:7.4f} sum {mol['dt']:7.4f}" \
-                  f" diff DFTB+ {np.abs(mol['dt']-mol['pt']):7.4e}") 
-        elif mol['dconv']:
-            print(f"{mol['name']} DFTB+ failed")
-        elif mol['pconv']:
-            print(f"{mol['name']} our dftb failed")
-        else:
-            print(f"{mol['name']} both our dftb and DFTB+ failed")
-        #ts = mol['targets']
-        #print(f"H5 elec {ts['pe']} rep {ts['pr']} sum {ts['pe'] +ts['pr']}" \
-        #      f"tot {ts['pt']}  diff {ts['pt'] - ts['pe'] -ts['pr']} ")
-        #print(f"{skf_type} on mol {imol} E(H) = {Ehartree:7.3f} " \
-        #  #f" diff resolved(kcal/mol) {np.abs(Ehartree-mol['targets']['dt'])*627.0:7.3e}" \
-        #  f" not resolved {np.abs(Ehartree-mol['targets']['pt'])*627.0:7.3e}" )
-
-#%% print summary of Au results
-conv = [x for x in dataset if x['dconv'] and x['pconv']]
-diff = np.array([x['dt'] - x['pt'] for x in conv]) * 627.0
-print(f"rms diff us and DFTB+ {np.sqrt(np.average(np.square(diff)))} kcal/mol")
-print(f"max diff us and DFTB+ {np.max(np.abs(diff))} kcal/mol")
-
-diff = np.array([x['dt'] - x['targets']['at'] for x in conv]) * 627.0
-print(f"rms diff us and Adam {np.sqrt(np.average(np.square(diff)))} kcal/mol")
-print(f"max diff us and Adam {np.max(np.abs(diff))} kcal/mol")
-
-our_time = np.abs([x['dtime'] for x in dataset])
-plus_time = np.abs([x['ptime'] for x in dataset])
-print(f"our time {np.sum(our_time)}  plus time {np.sum(plus_time)}")
-
-failed = dict()
-failed['our dftb'] = [x['name'] for x in dataset if not x['dconv'] and x['pconv']]
-failed['dftb+'] = [x['name'] for x in dataset if not x['pconv'] and x['dconv']]
-failed['both'] = [x['name'] for x in dataset if not x['pconv'] and not x['dconv']]
-
-for ftype,names in failed.items():
-    print(f"{len(names)} molecules failed {ftype}")
-    print(names)
-         
+#     our_time = np.abs([x['dtime'] for x in dataset])
+#     plus_time = np.abs([x['ptime'] for x in dataset])
+#     print(f"our time {np.sum(our_time)}  plus time {np.sum(plus_time)}")
 
 #%% OLD, commented out, CODE FROM HERE DOWN
 
