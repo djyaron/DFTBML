@@ -21,7 +21,9 @@ import torch.optim as optim
 from typing import Dict, List, Union
 from dftb_layer_splines_4 import load_data, dataset_sorting, graph_generation, model_loss_initialization,\
     feed_generation, saving_data, total_type_conversion, model_range_correction, get_ani1data, energy_correction,\
-        assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2, DFTB_Layer
+        assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2, DFTB_Layer,\
+            assemble_rep_input_single_feed, combine_rep_dictionaries, assemble_rep_input_all_feeds, obtain_repulsive_opts,\
+                driver, conversion_to_nparray
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 import importlib
 import os, os.path
@@ -33,9 +35,10 @@ import pickle
 
 #Trick for toggling print statements globally, code was found here:
 # https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
-def print(*args, **kwargs):
-    if enable_print:
-        return __builtins__.print(*args, **kwargs)
+# Apparently need to comment out this print when debugging in console??
+# def print(*args, **kwargs):
+#     if enable_print:
+#         return __builtins__.print(*args, **kwargs)
 
 # Construct the parser
 parser = argparse.ArgumentParser()
@@ -330,7 +333,7 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     
     print("Performing model range correction")
     s.low_end_correction_dict = dictionary_tuple_correction(s.low_end_correction_dict)
-    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict)
+    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, universal_high = s.universal_high)
     
     #Change the tuples over if a cutoff dictionary is given
     if s.cutoff_dictionary is not None:
@@ -487,6 +490,15 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
                                                      patience = s.scheduler_patience, threshold = s.scheduler_threshold)
     
+    ### TESTING CODE FOR REPULSIVE TRAINING DRIVER ###
+    # total_dict = assemble_rep_input_all_feeds(training_feeds, all_models, dftblayer)
+    # repulsive_opts = obtain_repulsive_opts(s)
+    # conversion_to_nparray(total_dict)
+    # c_sparse, loc = driver.train_repulsive_model(total_dict, repulsive_opts)
+    
+    
+    ### END TESTING CODE FOR REPULSIVE TRAINING DRIVER ###
+    
     validation_losses, training_losses = list(), list()
     
     times_per_epoch = list()
@@ -540,6 +552,9 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         
         #Training routine
         epoch_loss = 0.0
+        
+        # import pdb; pdb.set_trace()
+        
         for feed in training_feeds:
             optimizer.zero_grad()
             output = dftblayer(feed, all_models)
@@ -728,7 +743,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         default_settings_dict = json.load(read_file)
     final_settings = construct_final_settings_dict(input_settings_dict, default_settings_dict)
     
-    print(final_settings)
+    print(final_settings) 
     
     #Convert settings to an object for easier handling
     settings = Settings(final_settings)
@@ -785,7 +800,6 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
-            # import pdb; pdb.set_trace()
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
@@ -808,8 +822,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             assert(model_variables is established_variables)
 
 if __name__ == "__main__":
-    args = parser.parse_args()
-    enable_print = 1 if args.verbose else 0
+    # args = parser.parse_args()
+    enable_print = 1 #if args.verbose else 0
     
     # Testing code
     # This testing code assumes the following command line is used:
@@ -938,7 +952,7 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method("settings_default.json", "defaults.json")
     print(loss_tracker)
         
     

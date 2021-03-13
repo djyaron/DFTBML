@@ -1117,8 +1117,9 @@ def compute_graphs_from_folds(s: Settings, top_level_molec_path: str, copy_molec
         with open(total_path, 'rb') as handle:
             molecs = pickle.load(handle)
             random.shuffle(molecs)
-            for elem in molecs:
-                energy_correction(elem)
+            if s.train_ener_per_heavy: #Only perform the energy correction if training per heavy atom
+                for elem in molecs:
+                    energy_correction(elem)
             feeds, dftb_lsts = single_fold_precompute(s, molecs, par_dict)
             destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
             save_feed_h5(s, feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)

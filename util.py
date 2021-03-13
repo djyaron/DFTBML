@@ -12,7 +12,15 @@ import logging
 from itertools import cycle, islice
 import sys
 
-sys.path.insert(0, '../chemtools-webapp/chemtools')
+from typing import Optional
+from hashlib import sha256
+import matplotlib as mpl
+from _pickle import UnpicklingError
+from h5py import File
+import pickle as pkl
+
+
+#sys.path.insert(0, '../chemtools-webapp/chemtools')
 
 logger = logging.getLogger(__name__)
 
@@ -456,3 +464,165 @@ def format_multiline(strings, linewidth=80):
     if len(line) > 0:
         full_msg += '\n' + line
     return full_msg
+
+#%% Functions for repulsive utility
+
+class Timer:
+
+    def __init__(self, prompt: Optional[str] = None) -> None:
+        r"""Print the wall time of the execution of a code block
+
+        Args:
+            prompt (str): Specify the prompt in the output. Optional.
+
+        Returns:
+            None
+
+        Examples:
+            >>> from util import Timer
+            >>> with Timer("TEST"):
+            ...     # CODE_BLOCK
+            Wall time of TEST: 0.0 seconds
+            >>> from util import Timer
+            >>> with Timer():
+            ...     # CODE_BLOCK
+            Wall time: 0.0 seconds
+        """
+        self.prompt = prompt
+
+    def __enter__(self):
+        self.start = time()  # <-- Record the time when Timer is called
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.end = time()  # <-- Record the time when Timer exits
+        self.seconds = self.end - self.start  # <-- Compute the time interval
+        if self.prompt:
+            print(f"Wall time of {self.prompt}: {self.seconds:.1f} seconds")
+        else:
+            print(f"Wall time: {self.seconds:.1f} seconds")
+
+
+def get_sha256(file_path: str) -> str:
+    r"""Calculate file hash using SHA-256 algorithm
+
+    Args:
+        file_path: Path of the input file
+
+    Returns:
+        file_hash.hexdigest(): Hexadecimal digest of the file hash
+
+    Examples:
+        >>> from util import get_sha256
+        >>> file_path = "DIR/FILE"
+        >>> get_sha256(file_path)
+        'c2b06b82cdbcf89aa28e73b506a77d5ae271d82f6c617334647b07a522f9159d'
+    """
+    file_hash = sha256()  #: Create the hash object, can use something other than `.sha256()` if you wish
+    BLOCK_SIZE = 65536  #: The size of each read from the file
+
+    with open(file_path, 'rb') as f:  #: Open the file to read it's bytes
+        fb = f.read(BLOCK_SIZE)  #: Read from the file. Take in the amount declared above
+        while len(fb) > 0:  #: While there is still data being read from the file
+            file_hash.update(fb)  #: Update the hash
+            fb = f.read(BLOCK_SIZE)  #: Read the next block from the file
+
+    return file_hash.hexdigest()  #: Return the hexadecimal digest of the hash
+
+
+def path_check(file_path: str) -> None:
+    r"""Check if the specified path exists, if not then create the parent directories recursively
+
+    Args:
+        file_path: Path to be checked
+
+    Returns:
+        None
+
+    Examples:
+        >>> from util import path_check
+        >>> file_path_1 = "EXISTING_DIR/NOT_EXISTING_FILE"
+        >>> path_check(file_path_1)
+        # No output
+        >>> file_path_2 = "NOT_EXISTING_DIR/NOT_EXISTING_FILE"
+        >>> path_check(file_path_2)
+        # "/NOT_EXISTING_DIR" is created
+    """
+    dir_path = os.path.dirname(file_path)
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)  #: Recursively create the parent directories of the file
+
+
+def get_dataset_type(dataset_path: str) -> str:
+    r"""Check the dataset type (HDF5 or pickle) and the validity of the dataset
+
+    Args:
+        dataset_path: Path to the dataset
+
+    Returns:
+        dataset_type: "h5" or "pkl"
+
+    Examples:
+        >>> from util import get_dataset_type
+        >>> dataset_path_1 = "DIR/valid_dataset.h5"
+        >>> get_dataset_type(dataset_path_1)
+        'h5'
+        >>> dataset_path_2 = "DIR/corrupted_dataset.pkl"
+        >>> get_dataset_type(dataset_path_2)
+        ValueError: DIR/corrupted_dataset.pkl is not a valid pickle dataset
+
+    Raises:
+        FileNotFoundError: if the dataset does not exist
+        ValueError: if dataset cannot be opened
+        NotImplementedError: if the extension of the dataset is not one of the following
+                             '.hdf', '.h4', '.hdf4', '.he2', '.h5', '.hdf5', '.he5',
+                             '.pkl', '.pickle', '.p'
+    """
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f"{dataset_path} not exists")
+
+    ext = os.path.splitext(dataset_path)[-1].lower()
+    if ext in ('.hdf', '.h4', '.hdf4', '.he2', '.h5', '.hdf5', '.he5'):
+        try:
+            with File(dataset_path, 'r'):
+                dataset_type = 'h5'
+        except OSError:
+            raise ValueError(f"{dataset_path} is not a valid HDF5 dataset")
+    elif ext in ('.pkl', '.pickle', '.p'):
+        try:
+            with open(dataset_path, 'rb') as f:
+                pkl.load(f)
+                dataset_type = 'pkl'
+        except UnpicklingError:
+            raise ValueError(f"{dataset_path} is not a valid pickle dataset")
+    else:
+        raise NotImplementedError(f"{dataset_path} is not a supported dataset")
+
+    return dataset_type
+
+
+def mpl_default_setting():
+    mpl.rcParams['axes.labelsize'] = 'large'
+    mpl.rcParams['figure.subplot.hspace'] = 0.3
+    mpl.rcParams['figure.subplot.wspace'] = 0.3
+    mpl.rcParams['figure.titlesize'] = 'large'
+
+    mpl.rcParams['font.family'] = ['Arial']
+    mpl.rcParams['font.size'] = 14
+
+    mpl.rcParams['legend.fontsize'] = 'small'
+    mpl.rcParams['legend.loc'] = 'upper right'
+
+    mpl.rcParams['xtick.direction'] = 'in'
+    mpl.rcParams['xtick.labelsize'] = 'large'
+    mpl.rcParams['xtick.major.size'] = 0
+    mpl.rcParams['xtick.minor.size'] = 0
+    mpl.rcParams['ytick.direction'] = 'in'
+    mpl.rcParams['ytick.labelsize'] = 'large'
+    mpl.rcParams['ytick.major.size'] = 0
+    mpl.rcParams['ytick.minor.size'] = 0
+
+    mpl.rcParams['savefig.dpi'] = 300
+    mpl.rcParams['savefig.format'] = 'png'
+    mpl.rcParams['savefig.transparent'] = False
+    mpl.rcParams['savefig.bbox'] = 'tight'

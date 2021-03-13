@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+ # -*- coding: utf-8 -*-
 """
 Created on Sat Nov 14 14:05:22 2020
 
@@ -60,6 +60,16 @@ from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss
 
 from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
 from functools import partial
+
+# Fix the system path to append some new stuff
+# Courtesy of https://stackoverflow.com/questions/4383571/importing-files-from-different-folder
+# NOTE: THIS IS NOT A PERMANENT SOLUTION! Files will have to be merged properly eventually
+# Also, this solution assumes that the DFTBRepulsive directory and dftbtorch directory 
+#   are at the same level and together
+import os, os.path
+sys.path.insert(1, os.path.join(os.getcwd(), "..", "DFTBRepulsive"))
+import driver #Should be the driver coming from DFTBRepulsive
+
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
@@ -2099,6 +2109,186 @@ def energy_correction(molec: Dict) -> None:
     heavy_counts = [zcount[x] for x in ztypes if x > 1]
     num_heavy = sum(heavy_counts)
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
+
+def assemble_rep_input_single_feed(feed: Dict, all_models: Dict, layer: DFTB_Layer) -> Dict:
+    r"""Generates the input dictionary for a single feed into the repulsive model
+        training driver
+    
+    Arguments:
+        feed (Dict): The feed dictionary to extract the information
+        all_models (Dict): The dictionary containing all the models mapped by
+            their model specification
+        layer (DFTB_layer): The DFTB layer object that is currently being used
+            in the driver
+    
+    Returns:
+        final_dictionary (Dict): The dictionary containing the necessary
+            information for running through the repulsive driver procedure.
+            Each entry is indexed by the molecule name and then the configuration 
+            number. 
+    
+    Notes: The organization by the configuration number is to ensure that
+        the molecules with the same empirical molecular formula do not get 
+        overwritten.
+        
+        This method also requires a pass through the dftblayer. The conex
+        minimization problem solved by the repulsive only requires the 
+        electronic from the output, which will be the value populating the
+        'baseline' key.
+    """
+    final_dictionary = dict()
+    all_bsizes = feed['basis_sizes']
+    output = layer(feed, all_models)
+    for bsize in all_bsizes:
+        output_elec = output['Eelec'][bsize]
+        true_ener = feed['Etot'][bsize]
+        curr_names = feed['names'][bsize]
+        curr_glabels = feed['glabels'][bsize]
+        curr_iconfigs = feed['iconfigs'][bsize]
+        assert(len(curr_names) == len(curr_glabels) == len(curr_iconfigs))
+        for index, name in enumerate(curr_names):
+            if name not in final_dictionary:
+                final_dictionary[name] = dict()
+                #All empirical formulas have the same atomic numbers
+                final_dictionary[name]['atomic_numbers'] = feed['geoms'][curr_glabels[index]].z 
+            iconf = curr_iconfigs[index]
+            glabel = curr_glabels[index]
+            curr_coords = feed['geoms'][glabel].rcart.T #Transpose to get right shape (natom, 3)
+            baseline = output_elec[index]
+            target = true_ener[index]
+            final_dictionary[name][iconf] = dict()
+            final_dictionary[name][iconf]['coordinates'] = curr_coords
+            final_dictionary[name][iconf]['baseline'] = baseline
+            final_dictionary[name][iconf]['target'] = target
+    return final_dictionary
+
+def combine_rep_dictionaries(total_dict: Dict, new_dict: Dict) -> None:
+    r"""Combines new_dict into total_dict by joining the 'baseline', 'target', and 'coordinates' fields.
+        All of this is according to the input specification for train_repulsive_model()
+    
+    Arguments:
+        total_dict (Dict): The dict that will contain all the data for training the repulsive model
+        new_dict (Dict): The dictionary contianing the information for a single fold that needs 
+            to be added in
+    
+    Returns:
+        None
+    
+    Notes: The contents of new_dict are used to destructively update the fields of total_dict
+    """
+    for molecule in new_dict:
+        if molecule not in total_dict:
+            total_dict[molecule] = dict()
+            #Copy over the atomic numbers and initialize the arrays for the 
+            # various fields of interest
+            total_dict[molecule]['atomic_numbers'] = new_dict[molecule]['atomic_numbers']
+            total_dict[molecule]['coordinates'] = []
+            total_dict[molecule]['baseline'] = []
+            total_dict[molecule]['target'] = []
+        config_nums = [key for key in new_dict[molecule] if key != 'atomic_numbers']
+        for config in config_nums:
+            total_dict[molecule]['baseline'].append(new_dict[molecule][config]['baseline'])
+            assert(new_dict[molecule][config]['coordinates'].shape == (len(total_dict[molecule]['atomic_numbers']), 3)) #Must be (n_atom, 3)
+            total_dict[molecule]['coordinates'].append(new_dict[molecule][config]['coordinates'])
+            total_dict[molecule]['target'].append(new_dict[molecule][config]['target'])
+
+def assemble_rep_input_all_feeds(feeds: List[Dict], all_models: Dict, layer: DFTB_Layer) -> Dict:
+    r"""Generates the required information dictionary for each feed and then 
+        combines the dictionaries together into the final dictionary for the 
+        repulsive training.
+        
+    Arguments:
+        feeds (List[Dict]): The list of all feed dictionaries involved in training
+        all_models (Dict): Dictionary mapping models based on their specifications
+        layer (DFTB_Layer): The current DFTB_Layer object to be used
+    
+    Returns:
+        rep_dict (Dict): The final dictionary that is requires as input to the 
+            repulsive training method
+    """
+    total_dict = dict()
+    for feed in feeds:
+        feed_rep_input = assemble_rep_input_single_feed(feed, all_models, layer)
+        combine_rep_dictionaries(total_dict, feed_rep_input)
+    return total_dict
+
+def obtain_repulsive_opts(s) -> Dict:
+    r"""Generates a dictionary of options from the given Settings object
+    
+    Arguments:
+        s (Settings): The Settings object containing the hyperparameter settings
+    
+    Returns:
+        opt (Dict): The options dictionary required for train_repulsive_model()
+        
+    TODO: Clarify mapping of fields in opt to fields in settings files, add those
+        fields to the settings files
+    """
+    opt = dict()
+    opt['nknots'] = s.num_knots
+    opt['deg'] = s.spline_deg
+    opt['rmax'] = 'short' #not sure how this translates (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+    opt['bconds'] = 'vanishing' #makes sense for repulsive potentials to go 0
+    opt['shift'] = True #energy shifter, default to True (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+    opt['atom_types'] = 'infer' #Let the program infer it automatically from the data
+    opt['map_grid'] = 500 #not sure how this maps (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+    if 'convex' in s.losses:
+        opt['constraint'] = 'convex'
+    elif ('convex' not in losses) and ('monotonic' in s.losses):
+        opt['constraint'] = 'monotonic'
+    opt['pen_grid'] = 500 #Not sure what this is (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+    return opt
+
+def conversion_to_nparray(total_dict: Dict) -> None:
+    r"""Converts the fields for each molecule in total_dict to a numpy array
+    
+    Arguments:
+        total_dict (Dict): The dictionary input to train_repulsive_model that will
+            needs its fields converted
+    
+    Returns:
+        None
+    
+    Notes: The fields of total_dict may contain torch tensor values, in which case the 
+        value of the tensor is extracted using .item(). This only applies to the
+        'baseline' and 'target' fields
+    """
+    for molecule in total_dict:
+        total_dict[molecule]['coordinates'] = np.array(total_dict[molecule]['coordinates'])
+        if all([isinstance(val, torch.Tensor) for val in total_dict[molecule]['baseline']]):
+            new_baseline = np.array([elem.item() for elem in total_dict[molecule]['baseline']])
+            total_dict[molecule]['baseline'] = new_baseline
+        if all([isinstance(val, torch.Tensor) for val in total_dict[molecule]['target']]):
+            new_target = np.array([elem.item() for elem in total_dict[molecule]['target']])
+            total_dict[molecule]['target'] = new_target
+
+def obtain_repulsive_coeffs(full_data_dict: Dict, opt: Dict):
+    r"""Generates the repulsive coefficients from the given full_data_dict
+        and the options dictionary
+    
+    Arguments:
+        full_data_dict (Dict): The dictionary containing all the data required
+            for solving repulsive potentials, indexed by empirical formula
+        opt (Dict): The dictionary containing the options for training the 
+            repulsive model
+    
+    Returns: 
+        c_sparse: Coefficients of the sparse model
+        loc: Dictionary describing the content of c_sparse
+    
+    Notes: This requires a call to the driver function, so be sure that is
+        okay. The main reason that this function exists is to parse things 
+        out based on the returned loc, but not quite sure how that works right now...
+    
+    TODO: Finish implementing me!
+    """
+    conversion_to_nparray(full_data_dict)
+    c_sparse, loc = driver.train_repulsive_model(full_data_dict, opt)
+    
+    pass
+
+def update_repulsive_coeffs():
+    pass
 
 
 #%% Top level variable declaration
