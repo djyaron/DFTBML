@@ -36,9 +36,9 @@ import pickle
 #Trick for toggling print statements globally, code was found here:
 # https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
 # Apparently need to comment out this print when debugging in console??
-# def print(*args, **kwargs):
-#     if enable_print:
-#         return __builtins__.print(*args, **kwargs)
+def print(*args, **kwargs):
+    if enable_print:
+        return __builtins__.print(*args, **kwargs)
 
 # Construct the parser
 parser = argparse.ArgumentParser()
@@ -822,8 +822,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             assert(model_variables is established_variables)
 
 if __name__ == "__main__":
-    # args = parser.parse_args()
-    enable_print = 1 #if args.verbose else 0
+    args = parser.parse_args()
+    enable_print = 1 if args.verbose else 0
     
     # Testing code
     # This testing code assumes the following command line is used:
@@ -952,7 +952,7 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method("settings_default.json", "defaults.json")
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
     print(loss_tracker)
         
     

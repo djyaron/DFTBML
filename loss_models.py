@@ -59,6 +59,7 @@ def compute_mod_vals_derivs(all_models: Dict, par_dict: Dict, ngrid: int = 200,
     for model in all_models:
         try:
             #Only two-body H, G, R
+            # THE TRY AND EXCEPT IS EXCLUDING THE G MODELS
             if (model.oper not in op_ignore) and (len(model.Zs) == 2):
                 pairwise_lin = all_models[model]
                 r_low, r_high = pairwise_lin.pairwise_linear_model.r_range()

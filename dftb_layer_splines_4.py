@@ -507,13 +507,18 @@ class Input_layer_pairwise_linear:
         Notes: The matrix A and vector b returned by this function in the dictionary
             are initally numpy arrays, but they are converted to PyTorch tensors
             later on.
+        
+        TODO: Handle edge case of no non-zero values!
         """
         xeval = np.array([elem.rdist for elem in mod_raw])
         nval = len(xeval)
         izero = np.where(xeval > self.cutoff)[0]
         inonzero = np.where(xeval <= self.cutoff)[0]
         xnonzero = xeval[inonzero] # Predict only on the non-zero x vals
-        A,b = self.pairwise_linear_model.linear_model(xnonzero)
+        if len(inonzero) > 0:
+            A,b = self.pairwise_linear_model.linear_model(xnonzero)
+        elif len(inonzero) == 0:
+            A, b = None, None
         return {'A': A, 'b': b, 'nval' : nval, 'izero' : izero, 'inonzero' : inonzero}
     
     def get_values(self, feed: Dict) -> Tensor:
@@ -533,12 +538,15 @@ class Input_layer_pairwise_linear:
         A = feed['A']
         b = feed['b']
         nval = feed['nval']
-        izero = feed['izero']
-        inonzero = feed['inonzero']
+        izero = feed['izero'].long()
+        inonzero = feed['inonzero'].long()
+        if len(inonzero) == 0:
+            # If all values are zero, just return zeros with double datatype
+            return torch.zeros([nval], dtype = torch.double)
         result_temp = torch.matmul(A, self.variables) + b
         result = torch.zeros([nval], dtype = result_temp.dtype)
         result[inonzero] = result_temp
-        result[izero] = 0
+        result[izero] = 0.0
         return result
 
 class Input_layer_pairwise_linear_joined:
@@ -1973,6 +1981,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
         for model_spec in feed['models']:
             # print(model_spec)
             if (model_spec not in all_models):
+                print(model_spec)
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict,
                                                         spline_knots, buffer,
                                                         joined_cutoff, cutoff_dict,
@@ -1992,6 +2001,8 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
                 elif tag == 'noopt':
                     all_models[model_spec].variables.requires_grad = False
             model = all_models[model_spec]
+            # print(model_spec)
+            # print(model_spec == Model(oper='R', Zs=(8, 8), orb='ss'))
             feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
         
         for loss in all_losses:
