@@ -18,7 +18,7 @@ import json
 import torch
 import time
 import torch.optim as optim
-from typing import Dict, List, Union
+from typing import Dict, List
 from dftb_layer_splines_4 import load_data, dataset_sorting, graph_generation, model_loss_initialization,\
     feed_generation, saving_data, total_type_conversion, model_range_correction, get_ani1data, energy_correction,\
         assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2, DFTB_Layer,\
@@ -28,7 +28,7 @@ from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 import importlib
 import os, os.path
 import random
-from batch import Model, RawData, DFTBList
+from batch import DFTBList
 from skfwriter import main, atom_nums, atom_masses
 from fold_generator import loading_fold, load_combined_fold
 import pickle
@@ -225,7 +225,7 @@ def get_graph_data_CV(s: Settings, par_dict: Dict, fold: tuple, fold_num: int = 
     TODO: Figure out the framework for loading data for the different folds rather than
         computing it directly!
     """
-    print(f"Current parameter dictionary keys:")
+    print("Current parameter dictionary keys:")
     print(par_dict.keys())
     print("Getting validation, training molecules")
     if not s.loaded_data:

@@ -17,8 +17,20 @@ from geometry import Geometry
 import pickle
 from h5py import File
 import os, os.path
+from typing import Union, List, Dict
 
-def get_data_type(specs):
+def get_data_type(specs: Union[List[str], str]) -> List[str]:
+    r"""Obtains the corresponding ANI dataset keys from the keys specified
+        in specs
+    
+    Arguments:
+        specs (Union[List[str], str]): The abbreviated keys used to refer
+            to specific ANI dataset keys.
+    
+    Returns:
+        res (list[str]): The list of ANI keys corresponding to the 
+            given keys in specs.
+    """
     if not isinstance(specs,list):
         specs = [specs]
     ANI1TYPES = {'dt': 'dftb.energy',  # Dftb Total
@@ -49,9 +61,21 @@ def get_data_type(specs):
             res.append(spec) #To handle additional things
     return res
 
-def get_targets_from_h5file(data_specs, ani1_path, exclude = None):
-    # Modified to return a list containing array(s) instead of a singular array. 
-    # This will need to be handled in any calling functions
+def get_targets_from_h5file(data_specs: Union[List[str], str], ani1_path: str, 
+                            exclude: dict = None) -> dict:
+    r"""Obtains the necessary target information from the dataset stored at ani1_path
+    
+    Arguments:
+        data_specs (Union[List[str], str]): A string or list of strings encoding the 
+            data fields that should be extracted.
+        ani1_path (str): The string indicating the relative or total path to 
+            the h5 dataset file.
+        exclude (dict): Contains keys to exclude. Defaults to None.
+        
+    Returns:
+        target_molecs (dict): A dictionary mapping the molecule name to the
+            corresponding data for that molecule as specified in data_specs
+    """
     if exclude == None:
         exclude = dict()
     dtypes = get_data_type(data_specs)

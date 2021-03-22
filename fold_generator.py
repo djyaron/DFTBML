@@ -31,10 +31,10 @@ TODO:
     2) Start testing stuff out
 """
 
-from dftb_layer_splines_4 import load_data, saving_data, graph_generation, feed_generation, model_loss_initialization,\
+from dftb_layer_splines_4 import graph_generation, feed_generation, model_loss_initialization,\
     get_ani1data
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
-from typing import List, Union, Dict
+from typing import List, Dict
 from batch import DFTBList
 import collections
 import os, os.path
@@ -742,8 +742,6 @@ def perform_statistic_test(distances_1: Dict, distances_2: Dict, p_threshold: fl
                 return False
     return True
 
-
-
 def use_freedman_diaconis(data: List, x_min: float, x_max: float, return_as: str = 'num_bins'):
     r"""Implements the freedman diaconis rule.
     
@@ -884,8 +882,6 @@ def compare_distributions_distance_metric(distances_1: Dict, distances_2: Dict, 
                 print(key)
                 return False
     return True
-            
-            
 
 def compare_distributions(fold_molecs: List[List[Dict]],
                           p_threshold: float = 0.05, statistic_threshold: float = None,
