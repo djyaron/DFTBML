@@ -18,7 +18,7 @@ import matplotlib as mpl
 from _pickle import UnpicklingError
 from h5py import File
 import pickle as pkl
-
+from collections import Counter
 
 #sys.path.insert(0, '../chemtools-webapp/chemtools')
 
@@ -503,31 +503,9 @@ class Timer:
             print(f"Wall time: {self.seconds:.1f} seconds")
 
 
-def get_sha256(file_path: str) -> str:
-    r"""Calculate file hash using SHA-256 algorithm
-
-    Args:
-        file_path: Path of the input file
-
-    Returns:
-        file_hash.hexdigest(): Hexadecimal digest of the file hash
-
-    Examples:
-        >>> from util import get_sha256
-        >>> file_path = "DIR/FILE"
-        >>> get_sha256(file_path)
-        'c2b06b82cdbcf89aa28e73b506a77d5ae271d82f6c617334647b07a522f9159d'
-    """
-    file_hash = sha256()  #: Create the hash object, can use something other than `.sha256()` if you wish
-    BLOCK_SIZE = 65536  #: The size of each read from the file
-
-    with open(file_path, 'rb') as f:  #: Open the file to read it's bytes
-        fb = f.read(BLOCK_SIZE)  #: Read from the file. Take in the amount declared above
-        while len(fb) > 0:  #: While there is still data being read from the file
-            file_hash.update(fb)  #: Update the hash
-            fb = f.read(BLOCK_SIZE)  #: Read the next block from the file
-
-    return file_hash.hexdigest()  #: Return the hexadecimal digest of the hash
+def count_n_heavy_atoms(atomic_numbers):
+    counts = sum([c for a, c in dict(Counter(atomic_numbers)).items() if a > 1])
+    return counts
 
 
 def path_check(file_path: str) -> None:
@@ -608,7 +586,7 @@ def mpl_default_setting():
     mpl.rcParams['figure.titlesize'] = 'large'
 
     mpl.rcParams['font.family'] = ['Arial']
-    mpl.rcParams['font.size'] = 14
+    mpl.rcParams['font.size'] = 16
 
     mpl.rcParams['legend.fontsize'] = 'small'
     mpl.rcParams['legend.loc'] = 'upper right'

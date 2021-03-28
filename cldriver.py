@@ -22,8 +22,7 @@ from typing import Dict, List
 from dftb_layer_splines_4 import load_data, dataset_sorting, graph_generation, model_loss_initialization,\
     feed_generation, saving_data, total_type_conversion, model_range_correction, get_ani1data, energy_correction,\
         assemble_ops_for_charges, update_charges, Input_layer_pairwise_linear_joined, OffDiagModel2, DFTB_Layer,\
-            assemble_rep_input_single_feed, combine_rep_dictionaries, assemble_rep_input_all_feeds, obtain_repulsive_opts,\
-                driver, conversion_to_nparray
+                driver, repulsive_energy_2 #Need to change name of new repulsive energy model
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 import importlib
 import os, os.path
@@ -36,9 +35,9 @@ import pickle
 #Trick for toggling print statements globally, code was found here:
 # https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
 # Apparently need to comment out this print when debugging in console??
-def print(*args, **kwargs):
-    if enable_print:
-        return __builtins__.print(*args, **kwargs)
+# def print(*args, **kwargs):
+#     if enable_print:
+#         return __builtins__.print(*args, **kwargs)
 
 # Construct the parser
 parser = argparse.ArgumentParser()
@@ -352,10 +351,10 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     
     
     print("Some information:")
-    print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
-    print(f"s_mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S']}")
-    print(f"len of s_mods: {len([mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S'])}")
-    print(f"len of s_mods in all_models: {len([mod for mod in all_models if mod != 'Eref' and mod.oper == 'S'])}")
+    print(f"inflect mods: {[mod for mod in model_variables if (not isinstance(mod, str)) and mod.oper == 'S' and 'inflect' in mod.orb]}")
+    print(f"s_mods: {[mod for mod in model_variables if (not isinstance(mod, str)) and mod.oper == 'S']}")
+    print(f"len of s_mods: {len([mod for mod in model_variables if (not isinstance(mod, str)) and mod.oper == 'S'])}")
+    print(f"len of s_mods in all_models: {len([mod for mod in all_models if (not isinstance(mod, str)) and mod.oper == 'S'])}")
     print("losses")
     print(losses)
     print(all_losses)
@@ -426,7 +425,7 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
         print(f"Charge updates done for epoch {epoch}")
     else:
         print("Charge updates done")
-        
+
 def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
     r"""Shuffles two lists while maintaining element-wise corresponding ordering
     
@@ -447,7 +446,8 @@ def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
 def training_loop(s: Settings, all_models: Dict, model_variables: Dict, 
                   training_feeds: List[Dict], validation_feeds: List[Dict], 
                   training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
-                  losses: Dict, all_losses: Dict, loss_tracker: Dict):
+                  losses: Dict, all_losses: Dict, loss_tracker: Dict,
+                  init_repulsive: bool = False):
     r"""Training loop portion of the calculation
     
     Arguments:
@@ -469,6 +469,9 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         all_losses (Dict): Dictionary of target losses and their loss classes
         loss_tracker (Dict): Dictionary for keeping track of loss data during
             training. The first list is validation, the second list is training.
+        init_repulsive (bool): Whether or not to initialize the repulsive model.
+            Defaults to False. Note that this parameter only has meaning if
+            s.rep_setting == 'new' (this only works for new repulsive model)
     
     Returns:
         ref_ener_params (List[float]): The current reference energy parameters
@@ -483,27 +486,25 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         charge update subroutine.
     """
     #Instantiate the dftblayer, optimizer, and scheduler
-    dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = s.eig_method)
+    dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = s.eig_method, repulsive_method = s.rep_setting)
     learning_rate = s.learning_rate
     optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
     #TODO: Experiment with alternative learning rate schedulers
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
                                                      patience = s.scheduler_patience, threshold = s.scheduler_threshold)
     
-    ### TESTING CODE FOR REPULSIVE TRAINING DRIVER ###
-    # total_dict = assemble_rep_input_all_feeds(training_feeds, all_models, dftblayer)
-    # repulsive_opts = obtain_repulsive_opts(s)
-    # conversion_to_nparray(total_dict)
-    # c_sparse, loc = driver.train_repulsive_model(total_dict, repulsive_opts)
-    
-    
-    ### END TESTING CODE FOR REPULSIVE TRAINING DRIVER ###
-    
     validation_losses, training_losses = list(), list()
     
     times_per_epoch = list()
     print("Running initial charge update")
     charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models)
+    if s.rep_setting == 'new':
+        if init_repulsive:
+            print("Initializing repulsive model")
+            all_models['rep'] = repulsive_energy_2(s, training_feeds, validation_feeds, all_models, dftblayer, torch.double)
+        else:
+            print("Updating existing repulsive model")
+            all_models['rep'].update_model_crossover(s, training_feeds, validation_feeds, all_models, dftblayer, torch.double)
     
     nepochs = s.nepochs
     for i in range(nepochs):
@@ -511,26 +512,28 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         
         #Validation routine
         validation_loss = 0
-        for elem in validation_feeds:
+        for feed in validation_feeds:
             with torch.no_grad():
-                output = dftblayer(elem, all_models)
-                # loss = loss_layer.get_loss(output, elem)
+                output = dftblayer(feed, all_models)
+                #Add in the repulsive energies if using new repulsive model
+                if s.rep_setting == 'new':
+                    output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'valid')
                 tot_loss = 0
                 for loss in all_losses:
                     if loss == 'Etot':
                         if s.train_ener_per_heavy:
-                            val = losses[loss] * all_losses[loss].get_value(output, elem, True)
+                            val = losses[loss] * all_losses[loss].get_value(output, feed, True, s.rep_setting)
                         else:
-                            val = losses[loss] * all_losses[loss].get_value(output, elem, False)
+                            val = losses[loss] * all_losses[loss].get_value(output, feed, False, s.rep_setting)
                         tot_loss += val
                         loss_tracker[loss][2] += val.item()
                     elif loss == 'dipole':
-                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                        val = losses[loss] * all_losses[loss].get_value(output, feed)
                         loss_tracker[loss][2] += val.item()
                         if s.include_dipole_backprop:
                             tot_loss += val
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, elem)
+                        val = losses[loss] * all_losses[loss].get_value(output, feed)
                         tot_loss += val 
                         loss_tracker[loss][2] += val.item()
                 validation_loss += tot_loss.item()
@@ -558,15 +561,15 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         for feed in training_feeds:
             optimizer.zero_grad()
             output = dftblayer(feed, all_models)
-            #Comment out, testing new loss
-            # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
+            if s.rep_setting == 'new':
+                    output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
             tot_loss = 0
             for loss in all_losses:
                 if loss == 'Etot':
                     if s.train_ener_per_heavy:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, True)
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, True, s.rep_setting)
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, False)
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, False, s.rep_setting)
                     tot_loss += val
                     loss_tracker[loss][2] += val.item()
                 elif loss == 'dipole':
@@ -599,6 +602,9 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         #Update charges every charge_update_epochs:
         if (i % s.charge_update_epochs == 0):
             charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
+            if s.rep_setting == 'new':
+                print("Updating repulsive model")
+                all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
     
         times_per_epoch.append(time.time() - start)
     
@@ -792,6 +798,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
         
         # import pdb; pdb.set_trace()
         
+        init_repulsive = True #Always initialize repulsive model at the beginning 
+        
         for ind, fold in enumerate(folds_cv[:len(fold_mapping.keys())] if len(folds_cv) >= len(fold_mapping) else dummy_folds):
             #This is a HACK to constrain the number of iterations to the number of keys in fold_mapping. If a split_mapping
             # is provided, then only that many splits will be iterated over. If no split mapping is provided, then
@@ -802,7 +810,9 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
-                                                                                                        training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker)
+                                                                                                        training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, init_repulsive)
+            
+            init_repulsive = False #No longer need to initialize repulsive model, just update it
             
             write_output_lossinfo(settings, loss_tracker, times_per_epoch, ind, fold_mapping)
             write_output_skf(settings, all_models) #Write the skf files each time just in case things crash on PSC
@@ -822,8 +832,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             assert(model_variables is established_variables)
 
 if __name__ == "__main__":
-    args = parser.parse_args()
-    enable_print = 1 if args.verbose else 0
+    # args = parser.parse_args()
+    enable_print = 1 # if args.verbose else 0
     
     # Testing code
     # This testing code assumes the following command line is used:
@@ -952,7 +962,7 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method('settings_default.json', 'defaults.json')
     print(loss_tracker)
         
     

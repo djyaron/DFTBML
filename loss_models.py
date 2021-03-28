@@ -460,7 +460,7 @@ class TotalEnergyLoss(LossModel):
                 heavy_dict[bsize] = np.array(heavy_lst)
             feed['nheavy'] = heavy_dict
     
-    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool) -> Tensor:
+    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool, rep_method: str) -> Tensor:
         r"""Computes the loss for the total energy
         
         Arguments:
@@ -468,6 +468,8 @@ class TotalEnergyLoss(LossModel):
             feed (Dict): The original input dictionary for the DFTB layer
             per_atom_flag (bool): Whether the energy should be trained on a
                 per heavy atom basis
+            rep_method (str): 'old' means that we add Erep, Eelec, and Eref from the 
+                output whereas 'new' means we just add 'Erep' and 'Eelec' (no 'Eref')
             
         Returns:
             loss (Tensor): The value for the total energy loss with gradients
@@ -483,7 +485,11 @@ class TotalEnergyLoss(LossModel):
         target_tensors, computed_tensors = list(), list()
         for bsize in all_bsizes:
             n_heavy = feed['nheavy'][bsize].long()
-            computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
+            computed_result = None
+            if rep_method == 'old':
+                computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
+            elif rep_method == 'new':
+                computed_result = output['Eelec'][bsize] + output['Erep'][bsize]
             if per_atom_flag:
                 computed_result = torch.div(computed_result, n_heavy)
             target_result = feed['Etot'][bsize]
