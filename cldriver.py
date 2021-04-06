@@ -35,9 +35,9 @@ import pickle
 #Trick for toggling print statements globally, code was found here:
 # https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
 # Apparently need to comment out this print when debugging in console??
-# def print(*args, **kwargs):
-#     if enable_print:
-#         return __builtins__.print(*args, **kwargs)
+def print(*args, **kwargs):
+    if enable_print:
+        return __builtins__.print(*args, **kwargs)
 
 # Construct the parser
 parser = argparse.ArgumentParser()
@@ -443,6 +443,23 @@ def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
     lst_1, lst_2 = list(lst_1), list(lst_2)
     return lst_1, lst_2
 
+def exclude_R_backprop(model_variables: Dict) -> None:
+    r"""Removes the R-spline mods from the backpropagation of the network
+    
+    Arguments:
+        model_variables (Dict): Dictionary containing the model variables 
+    
+    Returns:
+        None
+    
+    Notes: Removes the R models from the model_variables dictionary so they 
+        are not optimized. This is only a necessity when using the new repulsive
+        model.
+    """
+    bad_mods = [mod for mod in model_variables if (not isinstance(mod, str)) and (mod.oper == 'R')]
+    for mod in bad_mods:
+        del model_variables[mod]
+
 def training_loop(s: Settings, all_models: Dict, model_variables: Dict, 
                   training_feeds: List[Dict], validation_feeds: List[Dict], 
                   training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
@@ -528,12 +545,12 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
                         tot_loss += val
                         loss_tracker[loss][2] += val.item()
                     elif loss == 'dipole':
-                        val = losses[loss] * all_losses[loss].get_value(output, feed)
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
                         loss_tracker[loss][2] += val.item()
                         if s.include_dipole_backprop:
                             tot_loss += val
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed)
+                        val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
                         tot_loss += val 
                         loss_tracker[loss][2] += val.item()
                 validation_loss += tot_loss.item()
@@ -562,7 +579,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
             optimizer.zero_grad()
             output = dftblayer(feed, all_models)
             if s.rep_setting == 'new':
-                    output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
+                output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
             tot_loss = 0
             for loss in all_losses:
                 if loss == 'Etot':
@@ -573,18 +590,20 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
                     tot_loss += val
                     loss_tracker[loss][2] += val.item()
                 elif loss == 'dipole':
-                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
                     loss_tracker[loss][2] += val.item()
                     if s.include_dipole_backprop:
                         tot_loss += val
                 else:
-                    val = losses[loss] * all_losses[loss].get_value(output, feed)
+                    val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
                     tot_loss += val
                     loss_tracker[loss][2] += val.item()
     
             epoch_loss += tot_loss.item()
             tot_loss.backward()
             optimizer.step()
+        #Train the repulsive model once per epoch
+        all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
         scheduler.step(epoch_loss) #Step on the epoch loss
         
         #Print some information
@@ -602,9 +621,10 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         #Update charges every charge_update_epochs:
         if (i % s.charge_update_epochs == 0):
             charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
-            if s.rep_setting == 'new':
-                print("Updating repulsive model")
-                all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
+            #Move the repulsive training routine outside so it updates every epoch
+            # if s.rep_setting == 'new':
+            #     print("Updating repulsive model")
+            #     all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
     
         times_per_epoch.append(time.time() - start)
     
@@ -769,6 +789,10 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
     if settings.driver_mode == "non-CV":
         #Do the pre-compute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict)
+        
+        #Remove R models from backpropagation if dealing with new rep setting
+        if settings.rep_setting == 'new':
+            exclude_R_backprop(model_variables)
     
         #Do the training loop stage
         reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
@@ -808,6 +832,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = pre_compute_stage(settings, par_dict, fold, ind, fold_mapping, 
                                                                                                                                                                         established_models, established_variables)
             
+            if settings.rep_setting == 'new':
+                exclude_R_backprop(model_variables)
             
             reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(settings, all_models, model_variables, training_feeds, validation_feeds,
                                                                                                         training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, init_repulsive)
@@ -832,8 +858,8 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             assert(model_variables is established_variables)
 
 if __name__ == "__main__":
-    # args = parser.parse_args()
-    enable_print = 1 # if args.verbose else 0
+    args = parser.parse_args()
+    enable_print = 1 if args.verbose else 0
     
     # Testing code
     # This testing code assumes the following command line is used:
@@ -962,7 +988,7 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method('settings_default.json', 'defaults.json')
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
     print(loss_tracker)
         
     

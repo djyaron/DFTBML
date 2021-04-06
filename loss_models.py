@@ -371,13 +371,14 @@ class LossModel:
         '''
         raise NotImplementedError
     
-    def get_value(self, output: Dict, feed: Dict) -> None:
+    def get_value(self, output: Dict, feed: Dict, rep_method: str) -> None:
         '''
         Computes the value of the loss directly against the feed from the output,
         returns the loss as a PyTorch object.
         
         For consistency, all losses have torch.sqrt applied since we are interested in 
-        RMSE loss.
+        RMSE loss. Also include argument for the rep_setting since different losses
+        (e.g. form penalty loss) are computed differently if new repulsive setting used
         '''
         raise NotImplementedError
 
@@ -640,12 +641,15 @@ class FormPenaltyLoss(LossModel):
                     FormPenaltyLoss.seen_dgrid_dict[model_spec] = dgrids
             feed['form_penalty'] = final_dict
     
-    def get_value(self, output: Dict, feed: Dict) -> Tensor:
+    def get_value(self, output: Dict, feed: Dict, rep_method: str) -> Tensor:
         r"""Computes the form penalty for the spline functional form
         
         Arguments:
             output (Dict): Output from the DFTB layer
             feed (Dict): The original feed into the DFTB layer
+            rep_method (str): The repulsive method used. 'old' means the form penalties 
+                are applied to the old spline-based Rs and 'new' means the form penalties
+                are excluded since the new DFTBrepulsive splines are used.
         
         Returns:
             loss (Tensor): The value for the form penalty loss with gradients
@@ -657,6 +661,8 @@ class FormPenaltyLoss(LossModel):
         total_loss = 0
         for model_spec in form_penalty_dict:
             # if model_spec.oper != 'G':
+            if (rep_method == 'new') and (model_spec.oper == 'R'):
+                continue #Skip built-in repulsive models if using DFTBrepulsive implementation
             pairwise_lin_mod, concavity, dgrids = form_penalty_dict[model_spec]
             inflection_point_val = pairwise_lin_mod.get_inflection_pt()
             # print(model_spec, inflection_point_val)
@@ -857,12 +863,14 @@ class DipoleLoss2(LossModel):
                 feed['dipoles'] = real_dipvecs
         pass
     
-    def get_value(self, output: Dict, feed: Dict) -> Tensor:
+    def get_value(self, output: Dict, feed: Dict, rep_method: str) -> Tensor:
         r"""Computes the penalty for the dipoles
         
         Arguments:
             output (Dict): Output from the DFTB layer
             feed (Dict): The original feed into the DFTB layer
+            rep_method (str): The repulsive method, 'new' for built-in splines
+                and 'old' for DFTBrepulsive splines. Has no effect here.
         
         Returns:
             loss (Tensor): The value for the dipole loss with gradients 
@@ -983,12 +991,15 @@ class ChargeLoss(LossModel):
                     charge_dict[bsize] = total_charges
                 feed['charges'] = charge_dict
     
-    def get_value(self, output: Dict, feed: Dict) -> Tensor:
+    def get_value(self, output: Dict, feed: Dict, rep_method: str) -> Tensor:
         r"""Computes the loss for charges
         
         Arguments:
             output (Dict): Output from the DFTB layer
             feed (Dict): The original feed into the DFTB layer
+            rep_method (str): The repulsive method being used. 'new' is the built-in
+                splines and 'old' is the DFTBrepulsive splines. Has no effect here, included
+                for consistency with interface.
         
         Returns:
             loss (Tensor): The value for the dipole loss with gradients 
