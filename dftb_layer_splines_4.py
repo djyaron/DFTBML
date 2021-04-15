@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+ # -*- coding: utf-8 -*-
 """
 Created on Sat Nov 14 14:05:22 2020
 
@@ -12,19 +12,18 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Encode new ranges for the spline models, so that they are not dependent on the 
-        ranges in the data
-        (The H block and S block should align in the skf files, similar to in the 
-         original ones)
-
+    1) Move repulsive input generation methods from refactored lvl functions 
+        into repulsive_energy_2 as class methods
+    2) Fix cldriver.py once the repulsive calculations have been abstracted
+        away in repulsive_energy_2 (i.e. cldriver only passes feeds and 
+        actual repulsive training happens here in the backend)
+    3) Think more carefully about cldriver abstraction (should only be passing feeds around)
 """
-import pdb, traceback, sys, code
+import pdb, traceback, sys
 
 import numpy as np
 import random
 import pickle
-import matplotlib.pyplot as plt
-from matplotlib.ticker import AutoMinorLocator
 import math
 
 from collections import OrderedDict
@@ -33,33 +32,37 @@ import torch
 torch.set_printoptions(precision = 10)
 from copy import deepcopy
 import torch.nn as nn
-import torch.optim as optim
 import time
-from tfspline import Bcond
 
-from geometry import Geometry, to_cart
-from auorg_1_1 import ParDict
-from dftb import DFTB
+from geometry import Geometry
 from eig import SymEigB
 from batch import create_batch, create_dataset, DFTBList
 
 from modelspline import get_dftb_vals
 from SplineModel_v3 import SplineModel, fit_linear_model, JoinedSplineModel
 
-from numbers import Real
-from typing import Union, List, Optional, Dict, Any, Literal
+from typing import Union, List, Dict
 Tensor = torch.Tensor
 Array = np.ndarray
 from batch import Model, RawData
 
 from dftb_layer_splines_ani1ccx import get_targets_from_h5file
-from h5handler import model_variable_h5handler, per_molec_h5handler, per_batch_h5handler,\
+from h5handler import per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds
-from loss_models import TotalEnergyLoss, FormPenaltyLoss, DipoleLoss, ChargeLoss, DipoleLoss2,\
-    ReferenceEnergyLoss
+from loss_models import TotalEnergyLoss, FormPenaltyLoss, ChargeLoss, DipoleLoss2
 
 from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
 from functools import partial
+
+# Fix the system path to append some new stuff
+# Courtesy of https://stackoverflow.com/questions/4383571/importing-files-from-different-folder
+# NOTE: THIS IS NOT A PERMANENT SOLUTION! Files will have to be merged properly eventually
+# Also, this solution assumes that the DFTBRepulsive directory and dftbtorch directory 
+#   are at the same level and together
+import os, os.path
+sys.path.insert(1, os.path.join(os.getcwd(), "..", "DFTBrepulsive"))
+import driver #Should be the driver coming from DFTBRepulsive
+
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
@@ -497,13 +500,18 @@ class Input_layer_pairwise_linear:
         Notes: The matrix A and vector b returned by this function in the dictionary
             are initally numpy arrays, but they are converted to PyTorch tensors
             later on.
+        
+        TODO: Handle edge case of no non-zero values!
         """
         xeval = np.array([elem.rdist for elem in mod_raw])
         nval = len(xeval)
         izero = np.where(xeval > self.cutoff)[0]
         inonzero = np.where(xeval <= self.cutoff)[0]
         xnonzero = xeval[inonzero] # Predict only on the non-zero x vals
-        A,b = self.pairwise_linear_model.linear_model(xnonzero)
+        if len(inonzero) > 0:
+            A,b = self.pairwise_linear_model.linear_model(xnonzero)
+        elif len(inonzero) == 0:
+            A, b = None, None
         return {'A': A, 'b': b, 'nval' : nval, 'izero' : izero, 'inonzero' : inonzero}
     
     def get_values(self, feed: Dict) -> Tensor:
@@ -523,12 +531,15 @@ class Input_layer_pairwise_linear:
         A = feed['A']
         b = feed['b']
         nval = feed['nval']
-        izero = feed['izero']
-        inonzero = feed['inonzero']
+        izero = feed['izero'].long()
+        inonzero = feed['inonzero'].long()
+        if len(inonzero) == 0:
+            # If all values are zero, just return zeros with double datatype
+            return torch.zeros([nval], dtype = torch.double)
         result_temp = torch.matmul(A, self.variables) + b
         result = torch.zeros([nval], dtype = result_temp.dtype)
         result[inonzero] = result_temp
-        result[izero] = 0
+        result[izero] = 0.0
         return result
 
 class Input_layer_pairwise_linear_joined:
@@ -958,6 +969,287 @@ class OffDiagModel2:
             results[nonzero_indices] = 1.0 / r12 - expr                      
             
         return results
+
+class repulsive_energy_2:
+    
+    #TODO: REDESIGN SO THAT you just pass feeds into the model and it handles
+    #   all the calculations internally
+    
+    def __init__(self, s, training_feeds: List[Dict], validation_feeds: List[Dict],
+                 all_models: Dict, layer, dtype: torch.dtype) -> None:
+        r"""Initializes the repulsive_energy_2 model using the given training
+            and validation feeds
+        
+        Arguments:
+            s (Settings): Object containing all the hyperparameter settings
+            training_feeds (List[Dict]): List of training feeds
+            validation_feeds (List[Dict]): List of validation feeds
+            all_models (Dict): Dictionary containing references to all the models
+                used in training
+            layer (DFTB_Layer): Instance of the DFTB_Layer object used for passing through
+                the feeds.
+            dtype (torch.dtype): The datatype for the generated energies to have.
+                
+        Returns:
+            None
+        
+        Notes: This method generates the coefficient vector from the training set and
+            saves the loc, gammas, and config_tracker of both the training and validation
+            sets. This serves to abstract away all the repulsive calculations from the
+            higher level driver code.
+        """
+        repulsive_opts = self.obtain_repulsive_opts(s)
+        self.repulsive_opts = repulsive_opts
+        if len(training_feeds) > 0:
+            total_dict_train, config_tracker_train = self.assemble_rep_input_all_feeds(training_feeds, all_models, layer)
+            self.conversion_to_nparray(total_dict_train)
+            self.c_sparse, self.loc_train, self.gammas_train = driver.train_repulsive_model(total_dict_train, repulsive_opts)
+            self.config_tracker_train = config_tracker_train
+        if len(validation_feeds) > 0:
+            total_dict_valid, config_tracker_valid = self.assemble_rep_input_all_feeds(validation_feeds, all_models, layer)
+            self.conversion_to_nparray(total_dict_valid)
+            self.c_sparse_2, self.loc_valid, self.gammas_valid = driver.train_repulsive_model(total_dict_valid, repulsive_opts)
+            self.config_tracker_valid = config_tracker_valid
+            #Sanity check on coefficient vecto
+            assert(len(self.c_sparse) == len(self.c_sparse_2))
+        self.dtype = dtype
+    
+    def generate_repulsive_energies(self, feed: Dict, flag: str) -> Dict:
+        r"""Get values for the repulsive energies for the given feed, organized by basis size
+        
+        Arguments:
+            feed (Dict): Dictionary that needs to have repulsive energies generated
+                for the molecules
+            flag (str): 'train' or 'valid', and it indicates which gamma, loc, config_tracker set to use
+            
+        Returns:
+            repulsive_dict (Dict): Dictionary of repulsive energies for the configurations
+                presented in the feed, organized by bsizes
+        
+        Notes: Predictions are generated for each specific configuration, and are 
+            done by name and iconfig. The results are organized per basis size, so 
+            things remain consistent with later parts of the workflow
+        """
+        gammas = self.gammas_train if flag == 'train' else self.gammas_valid
+        config_tracker = self.config_tracker_train if flag == 'train' else self.config_tracker_valid
+        all_bsizes = feed['basis_sizes']
+        repulsive_dict = dict()
+        for bsize in all_bsizes:
+            curr_names = feed['names'][bsize]
+            curr_iconfigs = feed['iconfigs'][bsize]
+            assert(len(curr_names) == len(curr_iconfigs))
+            #For efficiency, compute the dimension of the merged array first
+            final_gammas_arr = np.zeros((len(curr_iconfigs), len(self.c_sparse)))
+            #Assemble the reduced gammas
+            for index, name in enumerate(curr_names):
+                name, config = curr_names[index], curr_iconfigs[index]
+                true_conf_num = config_tracker[name].index(config)
+                final_gammas_arr[index, :] = gammas[name]['gammas'][true_conf_num]
+            #Single dot to obtain the repulsive energies
+            bsize_repulsive_eners = final_gammas_arr.dot(self.c_sparse)
+            repulsive_dict[bsize] = torch.from_numpy(bsize_repulsive_eners).type(self.dtype)
+        return repulsive_dict
+    
+    def assemble_rep_input_single_feed(self, feed: Dict, all_models: Dict, layer) -> Dict:
+        r"""Generates the input dictionary for a single feed into the repulsive model
+            training driver
+        
+        Arguments:
+            feed (Dict): The feed dictionary to extract the information
+            all_models (Dict): The dictionary containing all the models mapped by
+                their model specification
+            layer (DFTB_layer): The DFTB layer object that is currently being used
+                in the driver
+        
+        Returns:
+            final_dictionary (Dict): The dictionary containing the necessary
+                information for running through the repulsive driver procedure.
+                Each entry is indexed by the molecule name and then the configuration 
+                number. 
+        
+        Notes: The organization by the configuration number is to ensure that
+            the molecules with the same empirical molecular formula do not get 
+            overwritten.
+            
+            This method also requires a pass through the dftblayer. The conex
+            minimization problem solved by the repulsive only requires the 
+            electronic from the output, which will be the value populating the
+            'baseline' key.
+        """
+        final_dictionary = dict()
+        all_bsizes = feed['basis_sizes']
+        output = layer(feed, all_models)
+        for bsize in all_bsizes:
+            output_elec = output['Eelec'][bsize]
+            true_ener = feed['Etot'][bsize]
+            curr_names = feed['names'][bsize]
+            curr_glabels = feed['glabels'][bsize]
+            curr_iconfigs = feed['iconfigs'][bsize]
+            assert(len(curr_names) == len(curr_glabels) == len(curr_iconfigs))
+            for index, name in enumerate(curr_names):
+                if name not in final_dictionary:
+                    final_dictionary[name] = dict()
+                    #All empirical formulas have the same atomic numbers
+                    final_dictionary[name]['atomic_numbers'] = feed['geoms'][curr_glabels[index]].z 
+                iconf = curr_iconfigs[index]
+                glabel = curr_glabels[index]
+                curr_coords = feed['geoms'][glabel].rcart.T #Transpose to get right shape (natom, 3)
+                baseline = output_elec[index]
+                target = true_ener[index]
+                final_dictionary[name][iconf] = dict()
+                final_dictionary[name][iconf]['coordinates'] = curr_coords
+                final_dictionary[name][iconf]['baseline'] = baseline
+                final_dictionary[name][iconf]['target'] = target
+        return final_dictionary
+    
+    def combine_rep_dictionaries(self, total_dict: Dict, config_tracker: Dict, new_dict: Dict) -> None:
+        r"""Combines new_dict into total_dict by joining the 'baseline', 'target', and 'coordinates' fields.
+            All of this is according to the input specification for train_repulsive_model()
+        
+        Arguments:
+            total_dict (Dict): The dict that will contain all the data for training the repulsive model
+            config_tracker (Dict): The dictionary that will keep track of the configuration number order
+                so that everything remains consistent
+            new_dict (Dict): The dictionary contianing the information for a single fold that needs 
+                to be added in
+        
+        Returns:
+            None
+        
+        Notes: The contents of new_dict are used to destructively update the fields of total_dict
+        """
+        for molecule in new_dict:
+            if molecule not in total_dict:
+                total_dict[molecule] = dict()
+                config_tracker[molecule] = list()
+                #Copy over the atomic numbers and initialize the arrays for the 
+                # various fields of interest
+                total_dict[molecule]['atomic_numbers'] = new_dict[molecule]['atomic_numbers']
+                total_dict[molecule]['coordinates'] = []
+                total_dict[molecule]['baseline'] = []
+                total_dict[molecule]['target'] = []
+            config_nums = [key for key in new_dict[molecule] if key != 'atomic_numbers']
+            for config in config_nums:
+                total_dict[molecule]['baseline'].append(new_dict[molecule][config]['baseline'])
+                assert(new_dict[molecule][config]['coordinates'].shape == (len(total_dict[molecule]['atomic_numbers']), 3)) #Must be (n_atom, 3)
+                total_dict[molecule]['coordinates'].append(new_dict[molecule][config]['coordinates'])
+                total_dict[molecule]['target'].append(new_dict[molecule][config]['target'])
+                config_tracker[molecule].append(config) #Add the config number to the ordered list
+                
+    def assemble_rep_input_all_feeds(self, feeds: List[Dict], all_models: Dict, layer) -> Dict:
+        r"""Generates the required information dictionary for each feed and then 
+            combines the dictionaries together into the final dictionary for the 
+            repulsive training.
+            
+        Arguments:
+            feeds (List[Dict]): The list of all feed dictionaries involved in training
+            all_models (Dict): Dictionary mapping models based on their specifications
+            layer (DFTB_Layer): The current DFTB_Layer object to be used
+        
+        Returns:
+            rep_dict (Dict): The final dictionary that is requires as input to the 
+                repulsive training method
+            config_tracker (Dict): The final dictionary keeping track of all configuration
+                numbers for all molecules passed as input, and the ordering
+        """
+        total_dict = dict()
+        config_tracker = dict()
+        for feed in feeds:
+            feed_rep_input = self.assemble_rep_input_single_feed(feed, all_models, layer)
+            self.combine_rep_dictionaries(total_dict, config_tracker, feed_rep_input)
+        return total_dict, config_tracker
+    
+    def obtain_repulsive_opts(self, s) -> Dict:
+        r"""Generates a dictionary of options from the given Settings object
+        
+        Arguments:
+            s (Settings): The Settings object containing the hyperparameter settings
+        
+        Returns:
+            opt (Dict): The options dictionary required for train_repulsive_model()
+            
+        TODO: Clarify mapping of fields in opt to fields in settings files, add those
+            fields to the settings files
+        """
+        opt = dict()
+        opt['nknots'] = s.num_knots
+        opt['deg'] = s.spline_deg
+        opt['rmax'] = 'short' #not sure how this translates (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+        opt['bconds'] = 'vanishing' #makes sense for repulsive potentials to go 0
+        opt['shift'] = True #energy shifter, default to True (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+        opt['scale'] = True
+        opt['atom_types'] = 'infer' #Let the program infer it automatically from the data
+        opt['map_grid'] = 500 #not sure how this maps (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+        if 'convex' in s.losses:
+            opt['constraint'] = 'convex'
+        elif ('convex' not in s.losses) and ('monotonic' in s.losses):
+            opt['constraint'] = 'monotonic'
+        opt['pen_grid'] = 500 #Not sure what this is (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+        opt['n_worker'] = 1 #Will have to add this to the settings files
+        return opt
+    
+    def conversion_to_nparray(self, total_dict: Dict) -> None:
+        r"""Converts the fields for each molecule in total_dict to a numpy array
+        
+        Arguments:
+            total_dict (Dict): The dictionary input to train_repulsive_model that will
+                needs its fields converted
+        
+        Returns:
+            None
+        
+        Notes: The fields of total_dict may contain torch tensor values, in which case the 
+            value of the tensor is extracted using .item(). This only applies to the
+            'baseline' and 'target' fields
+        """
+        for molecule in total_dict:
+            total_dict[molecule]['coordinates'] = np.array(total_dict[molecule]['coordinates'])
+            if all([isinstance(val, torch.Tensor) for val in total_dict[molecule]['baseline']]):
+                new_baseline = np.array([elem.item() for elem in total_dict[molecule]['baseline']])
+                total_dict[molecule]['baseline'] = new_baseline
+            if all([isinstance(val, torch.Tensor) for val in total_dict[molecule]['target']]):
+                new_target = np.array([elem.item() for elem in total_dict[molecule]['target']])
+                total_dict[molecule]['target'] = new_target
+    
+    def update_model_training(self, s, training_feeds: List[Dict], all_models: Dict, layer) -> None:
+        r"""Updates the component of the model from training the repulsive model
+        
+        Arguments:
+            s (Settings): Object containing hyperparameter settings
+            training_feeds (List[Dict]): List of training dictionaries
+            all_models (Dict): Dictionary containing references to all the 
+                models used in training
+            layer (DFTB_Layer): The DFTB_Layer instance used for passthrough
+        
+        Returns:
+            None
+        
+        Notes: Just sets the fields accordingly, but only update the training
+            fields as we will never train the repulsive model on the
+            validation set. This is also the only time to update the 
+            coefficient vector.
+        """
+        total_dict, config_tracker = self.assemble_rep_input_all_feeds(training_feeds, all_models, layer)
+        self.conversion_to_nparray(total_dict)
+        self.c_sparse, self.loc_train, self.gammas_train = driver.train_repulsive_model(total_dict, self.repulsive_opts)
+        self.config_tracker_train = config_tracker
+
+    def update_model_crossover(self, s, training_feeds: List[Dict], validation_feeds: List[Dict],
+                 all_models: Dict, layer, dtype: torch.dtype) -> None:
+        r"""Updates the gammas, locs, and config_trackers when doing a split crossover
+        
+        Arguments:
+            Same as given in __init__() docstring
+        
+        Returns:
+            None
+        
+        Notes: Just calls init with all the different variables. Coefficient vector
+            does not need to be saved...
+        """
+        #c_save = self.c_sparse
+        self.__init__(s, training_feeds, validation_feeds, all_models, layer, dtype)
+        #self.c_sparse = c_save
         
 class Reference_energy:
 
@@ -1327,7 +1619,8 @@ def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, d
 
 class DFTB_Layer(nn.Module):
     
-    def __init__(self, device: torch.device, dtype: torch.dtype, eig_method: str = 'new') -> None:
+    def __init__(self, device: torch.device, dtype: torch.dtype, eig_method: str = 'new',
+                 repulsive_method: str = 'old') -> None:
         r"""Initializes the DFTB deep learning layer for the network
         
         Arguments:
@@ -1335,7 +1628,11 @@ class DFTB_Layer(nn.Module):
             dtype (torch.dtype): The torch datatype for the calculations
             eig_method (str): The eigenvalue method for the symmetric eigenvalue decompositions.
                 'old' means the original PyTorch symeig method, and 'new' means the 
-                eigenvalue broadening method implemented in eig.py. Defaults to 'new'.
+                eigenvalue broadening method implemented in eig.py. Defaults to 'new'
+            repulsive_method (str): The repulsive method to use. If the repulsive method is 
+                'old', then the pairwise splines initiated are still used. If the repulsive method 
+                if 'new', then the repulsive energy is not computed from the DFTB Layer 
+                but rather from the DFTBrepulsive model externally.
         
         Returns:
             None
@@ -1356,6 +1653,7 @@ class DFTB_Layer(nn.Module):
         self.device = device
         self.dtype = dtype
         self.method = eig_method
+        self.repulsive_method = repulsive_method
     
     def forward(self, data_input: Dict, all_models: Dict) -> Dict:
         r"""Forward pass through the DFTB layer to generate molecular properties
@@ -1377,7 +1675,8 @@ class DFTB_Layer(nn.Module):
             solving the generalized eigenvalue problem for the the fock operator. 
         """
         model_vals = list()
-        for model_spec in data_input['models']:
+        #Maybe won't need additional filtering here if going off feed['models']
+        for model_spec in data_input['models']: 
             model_vals.append( all_models[model_spec].get_values(data_input[model_spec]) )
         net_vals = torch.cat(model_vals)
         calc = OrderedDict() 
@@ -1424,8 +1723,9 @@ class DFTB_Layer(nn.Module):
             calc['F'][bsize] = calc['H'][bsize] + couMat 
             vals = net_vals[data_input['gather_for_rep'][bsize].long()] # NET VALS ERROR OCCURS HERE
             #The segment_sum is going to be problematic
-            calc['Erep'][bsize] = torch_segment_sum(vals,
-                                data_input['segsum_for_rep'][bsize].long(), self.device, self.dtype)
+            if self.repulsive_method == 'old':
+                calc['Erep'][bsize] = torch_segment_sum(vals,
+                                    data_input['segsum_for_rep'][bsize].long(), self.device, self.dtype)
         
         ## SOLVE GEN-EIG PROBLEM FOR FOCK ##
         calc['Eelec']= {}
@@ -1963,6 +2263,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
         for model_spec in feed['models']:
             # print(model_spec)
             if (model_spec not in all_models):
+                print(model_spec)
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict,
                                                         spline_knots, buffer,
                                                         joined_cutoff, cutoff_dict,
@@ -1982,6 +2283,8 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
                 elif tag == 'noopt':
                     all_models[model_spec].variables.requires_grad = False
             model = all_models[model_spec]
+            # print(model_spec)
+            # print(model_spec == Model(oper='R', Zs=(8, 8), orb='ss'))
             feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
         
         for loss in all_losses:
@@ -2101,621 +2404,7 @@ def energy_correction(molec: Dict) -> None:
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
 
 
-#%% Top level variable declaration
+
 if __name__ == "__main__":
-    '''
-    If loading data from h5 files, make sure to note the allowed_Zs and heavy_atoms of the dataset and
-    set them accordingly!
-    '''
-    allowed_Zs = [1,6,7,8]
-    heavy_atoms = [1,2,3,4,5]
-    #Still some problems with oxygen, molecules like HNO3 are problematic due to degeneracies
-    max_config = 10
-    # target = 'dt'
-    target = {'Etot' : 'dt',
-              'dipole' : 'wb97x_dz.dipole',
-              'charges' : 'wb97x_dz.cm5_charges'}
-    exclude = ['O3', 'N2O1', 'H1N1O3']
-    # Parameters for configuring the spline
-    num_knots = 50
-    max_val = None
-    num_per_batch = 10
-    
-    #Method for eigenvalue decomposition
-    eig_method = 'new'
-    
-    #Proportion for training and validation
-    prop_train = 0.8
-    prop_valid = 0.2
-    
-    reference_energies = list() # Save the reference energies to see how the losses are really changing
-    training_losses = list()
-    validation_losses = list()
-    times = collections.OrderedDict()
-    times['init'] = time.process_time()
-    dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
-    times['dataset'] = time.process_time()
-    print('number of molecules retrieved', len(dataset))
-    
-    config = dict()
-    config['opers_to_model'] = ['H', 'R', 'G'] #This actually matters now
-    
-    #loss weights
-    losses = dict()
-    target_accuracy_energy = 6270 #Ha^-1
-    target_accuracy_dipole = 100 # debye
-    target_accuracy_charges = 100
-    target_accuracy_convex = 1000
-    target_accuracy_monotonic = 1000
-    
-    losses['Etot'] = target_accuracy_energy
-    losses['dipole'] = target_accuracy_dipole 
-    losses['charges'] = target_accuracy_charges #Not working on charge loss just yet
-    losses['convex'] = target_accuracy_convex
-    losses['monotonic'] = target_accuracy_monotonic
-    
-    #Initialize the parameter dictionary
-    par_dict = ParDict()
-    
-    #Compute or load?
-    loaded_data = False
-    
-    #Training scheme
-    # If this flag is set to true, the dataset will be changed such that you 
-    # train on up to lower_limit heavy atoms and test on the rest
-    
-    # If test_set is set to 'pure', then the test set will only have molecules with
-    # more than lower_limit heavy atoms; otherwise, test set will have a blend of 
-    # molecules between those with up to lower_limit heavy atoms and those with more
-    
-    # impure_ratio indicates what fraction of the molecules found with up to lower_limit
-    # heavy atoms should be added to the test set if the test_set is not 'pure'
-    transfer_training = False
-    test_set = 'pure' #either 'pure' or 'impure'
-    impure_ratio = 0.2
-    lower_limit = 4
-    
-    # Flag indicates whether or not to fit to the total energy per molecule or the 
-    # total energy as a function of the number of heavy atoms. 
-    train_ener_per_heavy = True
-    
-    # Debug flag. If set to true, get_feeds() for the loss models adds data based on
-    # dftb results rather than from ANI-1
-    # Note that for total energy, debug mode gives total energy per molecule,
-    # NOT total energy per heavy atom!
-    debug = False
-    
-    # debug and train_ener_per_heavy should be opposite
-    assert(not(debug and train_ener_per_heavy))
-    
-    # Flag indicating whether or not to include the dipole in backprop
-    include_dipole_backprop = True
-    
-    #%% Degbugging h5 (Extraction and combination)
-    x = time.time()
-    training_feeds = total_feed_combinator.create_all_feeds("final_batch_test.h5", "final_molec_test.h5", True)
-    validation_feeds = total_feed_combinator.create_all_feeds("final_valid_batch_test.h5", "final_valid_molec_test.h5", True)
-    print(f"{time.time() - x}")
-    compare_feeds("reference_data1.p", training_feeds)
-    compare_feeds("reference_data2.p", validation_feeds)
-    
-    training_molec_batches = []
-    validation_molec_batches = []
-    
-    #Need to regenerate the molecule batches for both train and validation
-    # master_train_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_molec_test.h5")
-    # master_valid_molec_dict = per_molec_h5handler.extract_molec_feeds_h5("final_valid_molec_test.h5")
-    
-    # #Reconstitute the lists 
-    # training_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_train_molec_dict,
-    #                                                                         training_feeds, ["Etot", "dipoles", "charges"])
-    # validation_molec_batches = per_molec_h5handler.create_molec_batches_from_feeds_h5(master_valid_molec_dict,
-    #                                                                         validation_feeds, ["Etot", "dipoles", "charges"])
-    
-    #Load dftb_lsts
-    training_dftblsts = pickle.load(open("training_dftblsts.p", "rb"))
-    validation_dftblsts = pickle.load(open("validation_dftblsts.p", "rb"))
-    
-    print("Check me!")
-    
-    #%% Dataset Sorting
-    print("Running degeneracy rejection")
-    degeneracy_tolerance = 1.0e-3
-    bad_indices = set()
-    # NOTE: uncomment this section if using torch.symeig; if using new symeig, 
-    #       can leave this step out
-    # for index, batch in enumerate(dataset, 0):
-    #     try:
-    #         feed, _ = create_graph_feed(config, batch, allowed_Zs)
-    #         eorb = list(feed['eorb'].values())[0]
-    #         degeneracy = np.min(np.diff(np.sort(eorb)))
-    #         if degeneracy < degeneracy_tolerance:
-    #             bad_indices.add(index)
-    #     except:
-    #         print(batch[0]['name'])
-    
-    cleaned_dataset = list()
-    for index, item in enumerate(dataset, 0):
-        if index not in bad_indices:
-            cleaned_dataset.append(item[0])
-    
-    print('Number of total molecules after degeneracy rejection', len(cleaned_dataset))
-    
-    if transfer_training:
-        print("Transfer training dataset")
-        # Separate into molecules with up to lower_limit heavy atoms and those with
-        # more
-        up_to_ll, more = list(), list()
-        for molec in cleaned_dataset:
-            zcount = collections.Counter(molec['atomic_numbers'])
-            ztypes = list(zcount.keys())
-            heavy_counts = [zcount[x] for x in ztypes if x > 1]
-            num_heavy = sum(heavy_counts)
-            if num_heavy > lower_limit:
-                if train_ener_per_heavy: 
-                    molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
-                more.append(molec)
-            else:
-                if train_ener_per_heavy:
-                    molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
-                up_to_ll.append(molec)
-        
-        # Check whether test_set should be pure
-        training_molecs, validation_molecs = None, None
-        if test_set == 'pure':
-            random.shuffle(up_to_ll)
-            training_molecs = up_to_ll
-            num_valid = (int(len(up_to_ll) / prop_train)) - len(up_to_ll)
-            validation_molecs = random.sample(more, num_valid)
-        elif test_set == 'impure':
-            indices = [i for i in range(len(up_to_ll))]
-            chosen_for_blend = set(random.sample(indices, int(len(up_to_ll) * impure_ratio)))
-            training_molecs, blend_temp = list(), list()
-            for ind, elem in enumerate(up_to_ll, 0):
-                if ind not in chosen_for_blend:
-                    training_molecs.append(elem)
-                else:
-                    blend_temp.append(elem)
-            num_valid = (int(len(training_molecs) / prop_train)) - (len(training_molecs) + len(blend_temp))
-            rest_temp = random.sample(more, num_valid)
-            validation_molecs = blend_temp + rest_temp
-            random.shuffle(validation_molecs)
-    else:
-        #Shuffle the dataset before feeding into data_loader
-        print("Non-transfer training dataset")
-        random.shuffle(cleaned_dataset)
-        
-        #Sample the indices that will be used for the training dataset randomly from the shuffled data
-        indices = [i for i in range(len(cleaned_dataset))]
-        sampled_indices = set(random.sample(indices, int(len(cleaned_dataset) * prop_train)))
-        
-        #Separate into the training and validation sets
-        training_molecs, validation_molecs = list(), list()
-        for i in range(len(cleaned_dataset)):
-            molec = cleaned_dataset[i]
-            if train_ener_per_heavy:
-                zcount = collections.Counter(molec['atomic_numbers'])
-                ztypes = list(zcount.keys())
-                heavy_counts = [zcount[x] for x in ztypes if x > 1]
-                num_heavy = sum(heavy_counts)
-                molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
-            if i in sampled_indices:
-                training_molecs.append(molec)
-            else:
-                validation_molecs.append(molec)
-    
-    #Logging data
-    total_num_molecs = len(cleaned_dataset)
-    total_num_train_molecs = len(training_molecs)
-    total_num_valid_molecs = len(validation_molecs)
-    
-    #Now run through the graph and feed generation procedures for both the training
-    #   and validation molecules
-    
-    #NOTE: The order of the geometries in feed corresponds to the order of the 
-    # geometries in batch, i.e. the glabels match the indices of batch (everything
-    # is added sequentially)
-    
-    # Can go based on the order of the 'glabels' key in feeds, which dictates the 
-    # ordering for everything as a kvp with bsize -> values for each molecule, glabels are sorted
-    print(f'Number of molecules used for training: {len(training_molecs)}')
-    print(f"Number of molecules used for testing: {len(validation_molecs)}")
-    #%% Graph generation
-    x = time.time()
-    print("Making Training Graphs")
-    train_dat_set = data_loader(training_molecs, batch_size = num_per_batch)
-    training_feeds, training_dftblsts = list(), list()
-    training_molec_batches = list()
-    for index, batch in enumerate(train_dat_set):
-        feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs, par_dict)
-        all_bsizes = list(feed['Eelec'].keys())
-        
-        # Better organization for saved names and config numbers
-        feed['names'] = dict()
-        feed['iconfigs'] = dict()
-        for bsize in all_bsizes:
-            glabels = feed['glabels'][bsize]
-            all_names = [batch[x]['name'] for x in glabels]
-            all_configs = [batch[x]['iconfig'] for x in glabels]
-            feed['names'][bsize] = all_names
-            feed['iconfigs'][bsize] = all_configs
-                        
-        training_feeds.append(feed)
-        training_dftblsts.append(batch_dftb_lst)
-        training_molec_batches.append(batch) #Save the molecules to be used later for generating feeds
-    
-    print("Making Validation Graphs")
-    validation_dat_set = data_loader(validation_molecs, batch_size = num_per_batch)
-    validation_feeds, validation_dftblsts = list(), list()
-    validation_molec_batches = list()
-    for index, batch in enumerate(validation_dat_set):
-        feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs, par_dict)
-        all_bsizes = list(feed['Eelec'].keys())
-        
-        feed['names'] = dict()
-        feed['iconfigs'] = dict()
-        for bsize in all_bsizes:
-            glabels = feed['glabels'][bsize]
-            all_names = [batch[x]['name'] for x in glabels]
-            all_configs = [batch[x]['iconfig'] for x in glabels]
-            feed['names'][bsize] = all_names
-            feed['iconfigs'][bsize] = all_configs
-    
-        validation_feeds.append(feed)
-        validation_dftblsts.append(batch_dftb_lst) #Save the validation dftblsts for charge updates on the validation set
-        validation_molec_batches.append(batch)
-    print(f"{time.time() - x}")
-    #%% Model and loss initialization
-    all_models = dict()
-    model_variables = dict() #This is used for the optimizer later on
-    
-    all_models['Eref'] = Reference_energy(allowed_Zs)
-    model_variables['Eref'] = all_models['Eref'].get_variables()
-    
-    #More nuanced construction of config dictionary
-    model_range_dict = create_spline_config_dict(training_feeds + validation_feeds)
-    
-    #Constructing the losses using the models implemented in loss_models
-    all_losses = dict()
-    
-    #loss_tracker to keep track of values for each 
-    #Each loss maps to tuple of two lists, the first is the validation loss,the second
-    # is the training loss, and the third is a temp so that average losses for validation/train 
-    # can be computed
-    loss_tracker = dict() 
-    
-    for loss in losses:
-        if loss == "Etot":
-            all_losses['Etot'] = TotalEnergyLoss()
-            loss_tracker['Etot'] = [list(), list(), 0]
-        elif loss in ["convex", "monotonic", "smooth"]:
-            all_losses[loss] = FormPenaltyLoss(loss)
-            loss_tracker[loss] = [list(), list(), 0]
-        elif loss == "dipole":
-            all_losses['dipole'] = DipoleLoss2() #Use DipoleLoss2 for dipoles computed from ESP charges!
-            loss_tracker['dipole'] = [list(), list(), 0]
-        elif loss == "charges":
-            all_losses['charges'] = ChargeLoss()
-            loss_tracker['charges'] = [list(), list(), 0]
-    
-    #%% Feed generation
-    x = time.time()
-    print('Making training feeds')
-    for ibatch,feed in enumerate(training_feeds):
-       for model_spec in feed['models']:
-           if (model_spec not in all_models):
-               mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
-               all_models[model_spec] = mod_res
-               #all_models[model_spec] = get_model_dftb(model_spec)
-               if tag != 'noopt' and not isinstance(mod_res, OffDiagModel):
-                   model_variables[model_spec] = all_models[model_spec].get_variables()
-               # Detach it from the computational graph (unnecessary)
-               elif tag == 'noopt':
-                   all_models[model_spec].variables.requires_grad = False
-           model = all_models[model_spec]
-           feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
-       
-       for loss in all_losses:
-           try:
-               all_losses[loss].get_feed(feed, [] if loaded_data else training_molec_batches[ibatch], all_models, par_dict, debug)
-           except Exception as e:
-               print(e)
-    
-    
-    print('Making validation feeds')
-    for ibatch, feed in enumerate(validation_feeds):
-        for model_spec in feed['models']:
-            if (model_spec not in all_models):
-                mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict)
-                all_models[model_spec] = mod_res
-                #all_models[model_spec] = get_model_dftb(model_spec)
-                if tag != 'noopt' and not isinstance(mod_res, OffDiagModel):
-                    model_variables[model_spec] = all_models[model_spec].get_variables()
-                elif tag == 'noopt':
-                    all_models[model_spec].variables.requires_grad = False
-            model = all_models[model_spec]
-            feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
-        
-        for loss in all_losses:
-            try:
-                all_losses[loss].get_feed(feed, [] if loaded_data else validation_molec_batches[ibatch], all_models, par_dict, debug)
-            except Exception as e:
-                print(e)
-    print(f"{time.time() - x}")
-    #%% Debugging h5 (Saving)
-    
-    #Save all the molecular information
-    per_molec_h5handler.save_all_molec_feeds_h5(training_feeds, 'final_molec_test.h5')
-    per_batch_h5handler.save_multiple_batches_h5(training_feeds, 'final_batch_test.h5')
-    
-    per_molec_h5handler.save_all_molec_feeds_h5(validation_feeds, 'final_valid_molec_test.h5')
-    per_batch_h5handler.save_multiple_batches_h5(validation_feeds, 'final_valid_batch_test.h5')
-    
-    with open("reference_data1.p", "wb") as handle:
-        pickle.dump(training_feeds, handle)
-    with open("reference_data2.p", "wb") as handle:
-        pickle.dump(validation_feeds, handle)
-        
-    # Also save the dftb_lsts for the training_feeds and validation feeds. Can do this using pickle for now
-    with open("training_dftblsts.p", "wb") as handle:
-        pickle.dump(training_dftblsts, handle)
-        
-    with open("validation_dftblsts.p", "wb") as handle:
-        pickle.dump(validation_dftblsts, handle)
-        
-    print("molecular and batch information successfully saved, along with reference data")
-    
-    #%% Debugging inflection point analysis
-    g_mods = [mod for mod in all_models.keys() if mod != 'Eref' and mod.oper == 'G' and len(mod.Zs) == 2]
-    num_per_plot = 4
-    num_row = num_col = 2
-    sections = [g_mods[i : i + num_per_plot] for i in range(0, len(g_mods), num_per_plot)]
-    new_dict = dict()
-    rgrid = np.linspace(0, 10, 1000) #dense grid
-    for sect in sections:
-        fig, axs = plt.subplots(num_row, num_col) #sqrt of num_per_plot
-        pos = 0
-        for row in range(num_row):
-            for col in range(num_col):
-                axs[row, col].plot(rgrid, get_dftb_vals(sect[pos], par_dict, rgrid))
-                axs[row, col].set_title(f"{sect[pos].oper}, {sect[pos].Zs}, {sect[pos].orb}")
-                pos += 1
-        fig.tight_layout()
-        #save the figure...
-        plt.show()
-    
-    #%% Recursive type conversion
-    # Not an elegant solution but these two keys need to be ignored since they
-    # should not be tensors!
-    # Charges are ignored because of raggedness coming from bsize organization
-    
-    #If you are using the second version of dipole loss, ignore the dipole_mats too
-    # because they are going to be a list of arrays
-    ignore_keys = ['glabels', 'basis_sizes', 'charges', 'dipole_mat']
-    
-    for feed in training_feeds:
-        recursive_type_conversion(feed, ignore_keys)
-    for feed in validation_feeds:
-        recursive_type_conversion(feed, ignore_keys)
-    times['feeds'] = time.process_time()
-    
-    #%% Training loop
-    '''
-    Two different eig methods are available for the dftblayer now, and they are 
-    denoted by flags 'new' and 'old'.
-        'new': Implemented eigenvalue broadening method to work around vanishing 
-        eigengaps, refer to eig.py for more details. Only using conditional broadening
-        to cut down on gradient errors. Broadening factor is 1E-12.
-        
-        'old': Implementation using torch.symeig, standard approach from before
-    
-    Note: If you are using the old method for symmetric eigenvalue decomp, make sure
-    to uncomment the section that runs the degeneracy rejection! Diagonalization will fail for 
-    degenerate molecules in the old method.
-    '''
-    dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = eig_method)
-    learning_rate = 1.0e-5
-    optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad=True)
-    #TODO: Experiment with alternative learning rate schedulers
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience = 10, threshold = 0.01) 
-    
-    #Instantiate the loss layer here
-    
-    times_per_epoch = list()
-    
-    nepochs = 300
-    for i in range(nepochs):
-        #Initialize epoch timer
-        start = time.time()
-        
-        #Validation routine
-        #Comment out, testing new loss
-        validation_loss = 0
-        for elem in validation_feeds:
-            with torch.no_grad():
-                output = dftblayer(elem, all_models)
-                # loss = loss_layer.get_loss(output, elem)
-                tot_loss = 0
-                for loss in all_losses:
-                    if loss == 'Etot':
-                        if train_ener_per_heavy:
-                            val = losses[loss] * all_losses[loss].get_value(output, elem, True)
-                        else:
-                            val = losses[loss] * all_losses[loss].get_value(output, elem, False)
-                        tot_loss += val
-                        loss_tracker[loss][2] += val.item()
-                    elif loss == 'dipole':
-                        val = losses[loss] * all_losses[loss].get_value(output, elem)
-                        loss_tracker[loss][2] += val.item()
-                        if include_dipole_backprop:
-                            tot_loss += val
-                    else:
-                        val = losses[loss] * all_losses[loss].get_value(output, elem)
-                        tot_loss += val 
-                        loss_tracker[loss][2] += val.item()
-                validation_loss += tot_loss.item()
-        print("Validation loss:",i, (validation_loss/len(validation_feeds)))
-        validation_losses.append((validation_loss/len(validation_feeds)))
-        
-        for loss in all_losses:
-            loss_tracker[loss][0].append(loss_tracker[loss][2] / len(validation_feeds))
-            #Reset the loss tracker after being done with all feeds
-            loss_tracker[loss][2] = 0
-    
-        #Shuffle the validation data
-        # random.shuffle(validation_feeds)
-        temp = list(zip(validation_feeds, validation_dftblsts))
-        random.shuffle(temp)
-        validation_feeds, validation_dftblsts = zip(*temp)
-        validation_feeds, validation_dftblsts = list(validation_feeds), list(validation_dftblsts)
-        
-        #Training routine
-        epoch_loss = 0.0
-        for feed in training_feeds:
-            optimizer.zero_grad()
-            output = dftblayer(feed, all_models)
-            #Comment out, testing new loss
-            # loss = loss_layer.get_loss(output, feed) #Loss still in units of Ha^2 ?
-            tot_loss = 0
-            for loss in all_losses:
-                if loss == 'Etot':
-                    if train_ener_per_heavy:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, True)
-                    else:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, False)
-                    tot_loss += val
-                    loss_tracker[loss][2] += val.item()
-                elif loss == 'dipole':
-                    val = losses[loss] * all_losses[loss].get_value(output, feed)
-                    loss_tracker[loss][2] += val.item()
-                    if include_dipole_backprop:
-                        tot_loss += val
-                else:
-                    val = losses[loss] * all_losses[loss].get_value(output, feed)
-                    tot_loss += val
-                    loss_tracker[loss][2] += val.item()
-    
-            epoch_loss += tot_loss.item()
-            tot_loss.backward()
-            optimizer.step()
-        scheduler.step(epoch_loss) #Step on the epoch loss
-        
-        #Perform shuffling while keeping order b/w dftblsts and feeds consistent
-        temp = list(zip(training_feeds, training_dftblsts))
-        random.shuffle(temp)
-        training_feeds, training_dftblsts = zip(*temp)
-        training_feeds, training_dftblsts = list(training_feeds), list(training_dftblsts)
-        
-        print(i, (epoch_loss/len(training_feeds)))
-        training_losses.append((epoch_loss/len(training_feeds)))
-        
-        for loss in all_losses:
-            loss_tracker[loss][1].append(loss_tracker[loss][2] / len(training_feeds))
-            loss_tracker[loss][2] = 0
-        
-        # Update charges every 10 epochs
-        # Do the charge update for the validation and the training sets
-        if (i % 10 == 0):
-            print("running training set charge update")
-            for j in range(len(training_feeds)):
-                # Charge update for training_feeds
-                feed = training_feeds[j]
-                dftb_list = training_dftblsts[j]
-                op_dict = assemble_ops_for_charges(feed, all_models)
-                try:
-                    update_charges(feed, op_dict, dftb_list)
-                except Exception as e:
-                    print(e)
-                    glabels = feed['glabels']
-                    basis_sizes = feed['basis_sizes']
-                    result_lst = []
-                    for bsize in basis_sizes:
-                        result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
-                    print("Charge update failed for")
-                    print(result_lst)
-            print("training charge update done, doing validation set")
-            for k in range(len(validation_feeds)):
-                # Charge update for validation_feeds
-                feed = validation_feeds[k]
-                dftb_list = validation_dftblsts[k]
-                op_dict = assemble_ops_for_charges(feed, all_models)
-                try:
-                    update_charges(feed, op_dict, dftb_list)
-                except Exception as e:
-                    print(e)
-                    glabels = feed['glabels']
-                    basis_sizes = feed['basis_sizes']
-                    result_lst = []
-                    for bsize in basis_sizes:
-                        result_lst += list(zip(feed['names'][bsize], feed['iconfigs'][bsize]))
-                    print("Charge update failed for")
-                    print(result_lst)
-            print(f"charge updates done for epoch {i}")
-        #Save timing information for diagnostics
-        times_per_epoch.append(time.time() - start)
-    
-    print(f"Finished with {nepochs} epochs")
-    times['train'] = time.process_time()
-    #%% Logging
-    print('dataset with', len(training_feeds), 'batches')
-    time_names  = list(times.keys())
-    time_vals  = list(times.values())
-    for itime in range(1,len(time_names)):
-        if time_names[itime] == 'train':
-            print(time_names[itime], (time_vals[itime] - time_vals[itime-1])/nepochs)
-        else:
-            print(time_names[itime], time_vals[itime] - time_vals[itime-1])
-    
-    #Save the training and validation losses for visualization later
-    with open("losses.p", "wb") as handle:
-        pickle.dump(training_losses, handle)
-        pickle.dump(validation_losses, handle)
-    
-    print(f"total time taken (sum epoch times): {sum(times_per_epoch)}")
-    print(f"average epoch time: {sum(times_per_epoch) / len(times_per_epoch)}")
-    # print(f"total number of molecules per epoch: {total_num_molecs}")
-    # print(f"total number of training molecules: {total_num_train_molecs}")
-    # print(f"total number of validation molecules: {total_num_valid_molecs}")
-    
-    #Plotting the change in each kind of loss per epoch
-    for loss in all_losses:
-        validation_loss = loss_tracker[loss][0]
-        training_loss = loss_tracker[loss][1]
-        # assert(len(validation_loss) == nepochs)
-        # assert(len(training_loss) == nepochs)
-        fig, axs = plt.subplots()
-        axs.plot(training_loss, label = 'Training loss')
-        axs.plot(validation_loss, label = 'Validation loss')
-        axs.set_title(f"{loss} loss")
-        axs.set_xlabel("Epoch")
-        axs.set_ylabel("Average Epoch Loss (unitless)")
-        axs.yaxis.set_minor_locator(AutoMinorLocator())
-        axs.xaxis.set_minor_locator(AutoMinorLocator())
-        axs.legend()
-        plt.show()
-        
-    from loss_methods import plot_multi_splines
-    double_mods = [mod for mod in all_models.keys() if mod != 'Eref' and len(mod.Zs) == 2]
-    plot_multi_splines(double_mods, all_models)
-        
-    # #Writing diagnostic information for later user
-    # with open("timing.txt", "a+") as handle:
-    #     handle.write(f"Current time: {datetime.now()}\n")
-    #     handle.write(f"Allowed Zs: {allowed_Zs}\n")
-    #     handle.write(f"Heavy Atoms: {heavy_atoms}\n")
-    #     handle.write(f"Molecules per batch: {num_per_batch}\n")
-    #     handle.write(f"Total molecules per epoch: {total_num_molecs}\n")
-    #     handle.write(f"Total number of training molecules: {total_num_train_molecs}\n")
-    #     handle.write(f"Total number of validation molecules: {total_num_valid_molecs}\n")
-    #     handle.write(f"Number of epochs: {nepochs}\n")
-    #     handle.write(f"Eigen decomp method: {eig_method}\n")
-    #     handle.write(f"Total training time, sum of epoch times (seconds): {sum(times_per_epoch)}\n")
-    #     handle.write(f"Average time per epoch (seconds): {sum(times_per_epoch) / len(times_per_epoch)}\n")
-    #     handle.write("Infrequent charge updating for dipole loss\n")
-    #     handle.write("Switched over to using non-shifted dataset\n")
-    #     handle.write("Testing with new loss framework\n")
-    #     handle.write("Testing dipole loss against actual dipoles\n")
-    #     handle.write("\n")
-
-
+    pass
 

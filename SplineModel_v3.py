@@ -408,10 +408,11 @@ class JoinedSplineModel(PairwiseLinearModel):
             cutoff_diffs = map(lambda x : abs(x - cutoff), xknots)
             indices = enumerate(cutoff_diffs)
             minimum_index = functools.reduce(lambda x, y : x if x[1] <= y[1] else y, indices)
-            min_ind = minimum_index[0]
+            min_ind = minimum_index[0] #This finds the index of the value closest to the cutoff, not exactly there
             first_segment = xknots[: min_ind + 1]
             second_segment = xknots[min_ind :]
             assert(first_segment[-1] == second_segment[0])
+            assert(len(first_segment) + len(second_segment) == len(xknots) + 1)
             return [first_segment, second_segment]
     
     def r_range(self) -> (float, float):
