@@ -14,7 +14,8 @@ skf files constructed in this module, the simple format is being used
 
 """
 TODO:
-    1) Need to go closer with the ranges for the repulsive models
+    1) Link up arguments to take in the repulsive setting and use the new repulsive
+        model for computing repulsive blocks
 """
 from batch import Model
 import torch
@@ -393,6 +394,26 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
 
+def compute_spline_repulsive_new(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array, float):
+    r"""Computes the repulsive spline coefficients for the repulsive block 
+        using the new repulsive model
+        
+    Arguments, Returns: identical to compute_spline_repulsive
+    
+    Notes: This is based on the new repulsive model, i.e. integration with
+        DFTBrepulsive. The built-in method to the new repulsive model, 
+        obtain_spline_vals(), is used to get the values out using a 
+        given rgrid. 
+    """
+    #obtain the cutoff and range
+    r_low, r_high = all_models['rep'].obtain_range(elems)
+    cutoff = all_models['rep'].obtain_cutoff(elems)
+    rgrid = np.linspace(r_low, cutoff, ngrid)
+    r_vals = all_models['rep'].obtain_spline_vals(rgrid, elems)
+    spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
+    assert(spl.c.shape[1] == ngrid - 1)
+    return spl.c, rgrid, cutoff
+
 def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
     r"""Generates the necessary format for the coefficients for the spline
     
@@ -504,6 +525,7 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         Because we are not fitting S, the S-block of all skf files are pulled from their
         respective reference files
     """
+    compute_spline_repulsive_new(elems, all_models, spline_ngrid)
     #Dealing with the H,S datablock
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here

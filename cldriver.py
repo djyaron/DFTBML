@@ -517,7 +517,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
     charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models)
     if s.rep_setting == 'new':
         if init_repulsive:
-            print("Initializing repulsive model")
+            print("Initializing repulsive model")            
             all_models['rep'] = repulsive_energy_2(s, training_feeds, validation_feeds, all_models, dftblayer, torch.double)
         else:
             print("Updating existing repulsive model")
@@ -603,7 +603,8 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
             tot_loss.backward()
             optimizer.step()
         #Train the repulsive model once per epoch
-        all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
+        #Training the repulsive model once per epoch does not give better results
+        # all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
         scheduler.step(epoch_loss) #Step on the epoch loss
         
         #Print some information
@@ -622,9 +623,9 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         if (i % s.charge_update_epochs == 0):
             charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
             #Move the repulsive training routine outside so it updates every epoch
-            # if s.rep_setting == 'new':
-            #     print("Updating repulsive model")
-            #     all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
+            if s.rep_setting == 'new':
+                print("Updating repulsive model")
+                all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
     
         times_per_epoch.append(time.time() - start)
     
@@ -841,6 +842,7 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             init_repulsive = False #No longer need to initialize repulsive model, just update it
             
             write_output_lossinfo(settings, loss_tracker, times_per_epoch, ind, fold_mapping)
+            
             write_output_skf(settings, all_models) #Write the skf files each time just in case things crash on PSC
             
             if (established_models is not None) and (established_variables is not None):
