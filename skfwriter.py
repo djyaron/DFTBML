@@ -479,7 +479,8 @@ def combine_list_to_str(strlst: List, sep: str = "  ") -> str:
     return sep.join(strlst) + "\n"
 
 def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
-                          atom_masses: Dict, compute_S_block: bool, ref_direc: str, str_sep: str = "  ",
+                          atom_masses: Dict, compute_S_block: bool, ref_direc: str,
+                          rep_mode: str, str_sep: str = "  ",
                           spline_ngrid: int = 50, ext: str = None) -> None:
     r"""Write the skf file for a single atom pair
     
@@ -488,9 +489,10 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         all_models (Dict): Dictionary containing references to all models
         atom_nums (Dict): The dictionary mapping atom numbers to their symbols
         atom_masses (Dict): The dictionary mapping atom numbers to their masses
-        compute_S_block (bool): Whether or not to compute values for the overlap operator
-            S.
+        compute_S_block (bool): Whether or not to compute values for the overlap operator S.
         ref_direc (str): The relative path to the directory containing all skf files
+        rep_mode (str): One of 'new' and 'old', indicates which method should be used
+            to compute the repulsive spline blocks
         str_sep (str): The separator for each line
         spline_ngrid (int): The number of gridpoints ot use for the splines
         ext (str): Additional save path (e.g., to a directory or something). 
@@ -525,7 +527,6 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         Because we are not fitting S, the S-block of all skf files are pulled from their
         respective reference files
     """
-    compute_spline_repulsive_new(elems, all_models, spline_ngrid)
     #Dealing with the H,S datablock
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
@@ -540,7 +541,14 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     HS_header = construct_header(elems, all_models, atom_masses, grid_dist, ngrid, content)
     
     #Dealing with the spline datablock and header
-    spline_coeffs, spline_grid, cutoff = compute_spline_repulsive(elems, all_models, spline_ngrid)
+    if rep_mode == 'old':
+        print("Calling compute_spline_repulsive")
+        spline_coeffs, spline_grid, cutoff = compute_spline_repulsive(elems, all_models, spline_ngrid)
+    elif rep_mode == 'new':
+        print("Calling compute_spline_repulsive_new")
+        spline_coeffs, spline_grid, cutoff = compute_spline_repulsive_new(elems, all_models, spline_ngrid)
+    else:
+        raise ValueError("Unrecognized repulsive setting")
     spline_block = assemble_spline_body_block(spline_coeffs, spline_grid)
     spline_header = assemble_spline_header(spline_grid, content, spline_ngrid, cutoff)
     
@@ -572,7 +580,7 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         handle.close()
 
 def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: bool,
-         ref_direc: str, str_sep: str = "  ", spline_ngrid: int = 50, ext: str = None) -> None:
+         ref_direc: str, rep_mode: str, str_sep: str = "  ", spline_ngrid: int = 50, ext: str = None) -> None:
     r"""Main method for writing out all the skf files for the given set of models
     
     Arguments:
@@ -582,6 +590,8 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
         compute_S (bool): Whether to compute values for overlap operator or
             extract them from reference file
         ref_direc (str): The relative path to the directory containing all skf files
+        rep_mode (str): One of 'new' and 'old', indicates which method should be used
+            to compute the repulsive spline blocks
         str_sep (str): The separator for each line, defaults to two spaces
         spline_ngrid (int): The number of gridpoints ot use for the splines.
             Defaults to 50
@@ -596,7 +606,7 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
     elem_pairs = extract_elem_pairs(all_models)
     for pair in elem_pairs:
         write_single_skf_file(pair, all_models, atom_nums, atom_masses, compute_S_block, 
-                              ref_direc, str_sep, spline_ngrid, ext)
+                              ref_direc, rep_mode, str_sep, spline_ngrid, ext)
 
 
 if __name__ == "__main__":

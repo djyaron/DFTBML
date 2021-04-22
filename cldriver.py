@@ -8,9 +8,7 @@ When running on PSC, the default will be to load data in rather than
 generating the data as usual.
 
 TODO:
-    1) Test and verify that pre-compute and loading data work
-    2) Fill in code for the training loop
-    3) Devise process for saving and loading data for folds
+    1) Safety method for checking that the settings that are read in is valid.
 """
 from __future__ import print_function #__future__ imports must occur at the beginning of the file
 import argparse
@@ -652,10 +650,16 @@ def write_output_skf(s: Settings, all_models: Dict) -> None:
         print("Writing skf files with computed S")
     else:
         print("Writing skf files with copied S")
+    if s.rep_setting == 'new':
+        print("Writing skf files with new repulsive model")
+    elif s.rep_setting == 'old':
+        print("Writing skf files with old repulsive model")
+    else:
+        raise ValueError("Unrecognized repulsive setting")
     target_folder = os.path.join(s.skf_extension, s.run_id)
     if not os.path.isdir(target_folder):
         os.mkdir(target_folder)
-    main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.skf_strsep, 
+    main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.rep_setting, s.skf_strsep, 
          s.skf_ngrid, target_folder)
 
 def write_output_lossinfo(s: Settings, loss_tracker: Dict, times_per_epoch: List[float], split_num: int,
