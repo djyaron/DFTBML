@@ -4,6 +4,8 @@
 Created on Mon Feb  8 18:19:17 2021
 
 @author: yaron
+
+(Frank): Made some changes to add_dftb and load_ani1 (documentation and path fixing)
 """
 import os
 import shutil
@@ -17,6 +19,10 @@ from matplotlib import pyplot as plt
 from dftbplus import write_dftb_infile, read_dftb_out
 from dftb_layer_splines_4 import get_ani1data
 
+from typing import List, Union, Dict
+Array = np.ndarray
+import collections
+
 from time import time
 from auorg_1_1 import ParDict
 from dftb import DFTB
@@ -24,7 +30,21 @@ pardict = ParDict()
 
 
 
-def load_ani1(maxheavy=8, allowed_Zs=[1, 6, 7, 8]):
+def load_ani1(ani_path: str, max_config: int, maxheavy: int = 8, allowed_Zs: List[int] = [1, 6, 7, 8]):
+    r"""Pulls data from the ani h5 datafile
+    
+    Arguments:
+        ani_path (str): The path to the ani dataset as an h5 file
+        max_config (int): The maximum number of conformations to include 
+            for each empirical formula
+        maxheavy (int): The maximum number of heavy atoms that is allowed
+        allowed_Zs (List[int]): The list containing atomic numbers for the
+            allowed elements
+    
+    Returns:
+        dataset (List[Dict]): The return from get_ani1data(), contains an 
+            entry for each molecule as a dictionary
+    """
     target = {'dt': 'dt', 'dr': 'dr', 'pt': 'pt', 'pe': 'pe', 'pr': 'pr',
               'cc': 'cc', 'ht': 'ht',
               'dipole': 'wb97x_dz.dipole',
@@ -32,8 +52,6 @@ def load_ani1(maxheavy=8, allowed_Zs=[1, 6, 7, 8]):
     exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
 
     heavy_atoms = [x for x in range(1, maxheavy + 1)]
-    skf_type = 'mio'
-    skf_dir = os.path.join(skf_type)
 
     dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, exclude=exclude)
     return dataset
@@ -105,10 +123,14 @@ def add_dftb(dataset, skf_dir, do_our_dftb = True, do_dftbplus = True, fermi_tem
     if os.getenv("USER") == "yaron":
         dftb_exec = "/home/yaron/code/dftbplusexe/dftbplus-20.2.1/bin/dftb+"
     else:
-        dftb_exec = "C:\\Users\\Frank\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+        dftb_exec = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
 
     DFTBoptions = {'ShellResolvedSCC': True}
     scratch_dir = "dftbscratch"
+    savefile_dir_path = os.path.join(scratch_dir, "save_files")
+    if not os.path.isdir(savefile_dir_path):
+        os.mkdir(savefile_dir_path)
+        print(f"Created directory at {savefile_dir_path}")
     
     if fermi_temp is not None:
         DFTBoptions['FermiTemp'] = fermi_temp
@@ -160,7 +182,7 @@ def add_dftb(dataset, skf_dir, do_our_dftb = True, do_dftbplus = True, fermi_tem
         if do_dftbplus:
             dftb_infile = os.path.join(scratch_dir,'dftb_in.hsd')
             dftb_outfile = os.path.join(scratch_dir,'dftb.out')
-            write_dftb_infile(Zs, rcart, dftb_infile, skf_dir,DFTBoptions)
+            write_dftb_infile(Zs, rcart, dftb_infile, skf_dir, DFTBoptions)
             start_time = time()
             with open(dftb_outfile,'w') as f:
                 res2 = dict()
@@ -170,12 +192,12 @@ def add_dftb(dataset, skf_dir, do_our_dftb = True, do_dftbplus = True, fermi_tem
                     res2['t'] = dftb_res['Ehartree']
                     res2['conv'] = True
                     if fermi_temp is None:
-                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                        dftb_savefile = os.path.join(savefile_dir_path,
                                                      mol['name']+'_zero.out')
                     else:
                         dftb_savefile = os.path.join(scratch_dir,'auout',
                                                      mol['name']+'_300.out')
-
+                        
                     shutil.copy(os.path.join(scratch_dir,'detailed.out'), 
                                 dftb_savefile)
                 except Exception:
@@ -194,7 +216,6 @@ def add_dftb(dataset, skf_dir, do_our_dftb = True, do_dftbplus = True, fermi_tem
                 res_key = 'pzero'
             else:
                 res_key = 'p300'
-            mol[res_key] = res1
             mol[res_key] = res2
 
         if 'dconv' in mol[res_key] and 'pconv' in mol[res_key]:
@@ -239,6 +260,91 @@ def compare_results(dataset, type1, field1, type2, field2):
     print(f"rms diff  {np.sqrt(np.average(np.square(diff)))} kcal/mol")
     print(f"mae diff  {np.average(np.abs(diff))} kcal/mol")
     print(f"max diff {np.max(np.abs(diff))} kcal/mol")
+    
+def fit_linear_ref_ener(dataset: List[Dict], target: str, allowed_Zs: List[int]) -> Array:
+    r"""Fits a linear reference energy model between the DFTB+ method and some
+        energy target
+        
+    Arguments:
+        dataset (List[Dict]): The list of molecule dictionaries that have had the
+            DFTB+ results added to them.
+        target (str): The energy target that is being aimed for
+        allowed_Zs (List[int]): The allowed atoms in the molecules
+    
+    Returns:
+        coefs (Array): The coefficients of the reference energy
+        XX (Array): 2D matrix in the number of atoms
+        
+    Notes: The reference energy corrects the magnitude between two methods
+        in the following way: 
+            
+        E_2 = E_1 + sum_z N_z * C_z + C_0
+        
+        where N_z is the number of times atom z occurs within the molecule and 
+        C_z is the coefficient for the given molecule. This is accomplished by solving
+        a least squares problem.
+    """
+    nmol = len(dataset)
+    XX = np.zeros([nmol, len(allowed_Zs) + 1])
+    method1_mat = np.zeros([nmol])
+    method2_mat = np.zeros([nmol])
+    iZ = {x : i for i, x in enumerate(allowed_Zs)}
+    
+    for imol, molecule in enumerate(dataset):
+        Zc = collections.Counter(molecule['atomic_numbers'])
+        for Z, count in Zc.items():
+            XX[imol, iZ[Z]] = count
+            XX[imol, len(allowed_Zs)] = 1.0
+        method1_mat[imol] = molecule['targets']['dt'] #Always starting with dt
+        method2_mat[imol] = molecule['targets'][target]
+    
+    yy = method2_mat - method1_mat
+    lsq_res = np.linalg.lstsq(XX, yy, rcond = None)
+    coefs = lsq_res[0]
+    return coefs, XX
+
+def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int]):
+    r"""Computes the results for the new skf files in predicting energies
+    
+    Arguments:
+        dataset (List[Dict]): The list of molecule dictionaries that have had the
+            DFTB+ results added to them.
+        target (str): The energy target that is being aimed for
+        allowed_Zs (List[int]): The allowed atoms in the molecules
+    
+    Returns:
+        
+    Notes: The predicted energy from DFTB+ with the new skf files is stored 
+        in the 'pzero' key.
+    """
+    reference_ener_coefs, ref_ener_mat = fit_linear_ref_ener(dataset, target, allowed_Zs)
+    #The predicted energy is in 'pzero'
+    predicted_dt = np.array([molec['pzero']['t'] for molec in dataset])
+    predicted_target = predicted_dt + np.dot(ref_ener_mat, reference_ener_coefs)
+    true_target = np.array([molec['targets'][target] for molec in dataset])
+    diff = true_target - predicted_target
+    return np.mean(np.square(diff)) #Computes MSE
+    
+    
+    
+#%% ANI Testing (dftbtorch, electronic and organic only)
+
+allowed_Zs = [1,6,7,8]
+target = 'cc'
+data_path = os.path.join(os.getcwd(), "data", "ANI-1ccx_clean_fullentry.h5")
+skf_dir_base = os.path.join(os.getcwd(), "auorg-1-1") #0.0006212656602691023
+skf_dir_mio = os.path.join(os.getcwd(), "mio-0-1") #
+skf_dir_diff = os.path.join(os.getcwd(), "second_run") #1653.8940664244737
+skf_dir_psc = os.path.join(os.getcwd(), "pscskf") #9.591953499658114
+skf_dir_old_rep = os.path.join(os.getcwd(), "old_rep_setting_run") #0.0007158606052278207
+dataset = load_ani1(data_path, 1)
+print(f"The number of molecules in the dataset is {len(dataset)}")
+add_dftb(dataset, skf_dir_old_rep)
+MSE = compute_results_ANI1(dataset, target, allowed_Zs)
+print(f"Mean square error is {MSE} in Ha")
+pass
+
+
 #%%
 # There are 154275 conformations without Au2, of which 104 have diffs
 #  82 configs of s03_19_Au6
