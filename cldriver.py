@@ -8,7 +8,9 @@ When running on PSC, the default will be to load data in rather than
 generating the data as usual.
 
 TODO:
-    1) Safety method for checking that the settings that are read in is valid.
+    1) Update arguments to work with allocating tensors to GPU
+        The arguments to the functions have been changed in dftb_layer_splines_4.py,
+        so make sure that everything is linked up properly.
 """
 from __future__ import print_function #__future__ imports must occur at the beginning of the file
 import argparse
@@ -37,12 +39,6 @@ def print(*args, **kwargs):
     if enable_print:
         return __builtins__.print(*args, **kwargs)
 
-# Construct the parser
-parser = argparse.ArgumentParser()
-parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
-parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
-parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
-
 class Settings:
     def __init__(self, settings_dict: Dict) -> None:
         r"""Generates a Settings object from the given dictionary
@@ -59,6 +55,51 @@ class Settings:
         """
         for key in settings_dict:
             setattr(self, key, settings_dict[key])
+            
+def update_pytorch_arguments(settings: Settings) -> None:
+    r"""Updates the arguments in the settings object to the corresponding 
+        PyTorch types
+        
+    Arguments:
+        settings (Settings): The settings object representing the current set of 
+            hyperparameters
+    
+    Returns:
+        None
+        
+    Notes: First checks if a CUDA-capable GPU is available. If not, it will
+        default to using CPU only.
+        
+        
+    TODO: Need to add tensor_dtype, tensor_device, and device_index as fields in
+        the settings files
+    """
+    if settings.tensor_dtype == 'single':
+        print("Tensor datatype set as single precision (float 32)")
+        settings.tensor_dtype = torch.float
+    elif settings.tensor_dtype == 'double':
+        print("Tensor datatype set as double precision (float 64)")
+        settings.tensor_dtype = torch.double
+    else:
+        raise ValueError("Unrecognized tensor datatype")
+        
+    num_gpus = torch.cuda.device_count()
+    if settings.tensor_device == 'cpu':
+        print("Tensor device set as cpu")
+        settings.tensor_device = 'cpu'
+    elif num_gpus == 0 or (not (torch.cuda.is_available())):
+        print("Tensor device set as cpu because no GPUs are available")
+        settings.tensor_device = 'cpu'
+    else:
+        gpu_index = int(settings.device_index)
+        if gpu_index >= num_gpus:
+            print("Invalid GPU index, defaulting to CPU")
+            settings.tensor_device = 'cpu'
+        else:
+            print("Valid GPU index, setting tensor device to GPU")
+            #I think the generic way is to do "cuda:{device index}", but not sure about this
+            settings.tensor_device = f"cuda:{gpu_index}"
+            print(f"Used GPU name: {torch.cuda.get_device_name(settings.tensor_device)}")
 
 def construct_final_settings_dict(settings_dict: Dict, default_dict: Dict) -> Dict:
     r"""Generates the final settings dictionary based on the input settings file and the
@@ -320,7 +361,7 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
     
     print("Initializing models")
     all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(training_feeds, validation_feeds,
-                                                                                                    s.allowed_Zs, losses, 
+                                                                                                    s.allowed_Zs, losses, s.tensor_device, s.tensor_dtype,
                                                                                                     ref_ener_start = s.reference_energy_starting_point)
     
     if (established_models is not None) and (established_variables is not None):
@@ -337,15 +378,18 @@ def pre_compute_stage(s: Settings, par_dict: Dict, fold = None, fold_num: int = 
         s.cutoff_dictionary = dictionary_tuple_correction(s.cutoff_dictionary)
     
     print("Generating training feeds")
-    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
+    feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg,
+                    s.tensor_device, s.tensor_dtype, s.debug, s.loaded_data, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
     
     print("Generating validation feeds")
-    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, s.loaded_data, 
+    feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg,
+                    s.tensor_device, s.tensor_dtype, s.debug, s.loaded_data, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
     
     print("Performing type conversion to tensors")
-    total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys)
+    total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys,
+                          device = s.tensor_device, dtype = s.tensor_dtype)
     
     
     print("Some information:")
@@ -390,9 +434,9 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
         # Charge update for training_feeds
         feed = training_feeds[j]
         dftb_list = training_dftblsts[j]
-        op_dict = assemble_ops_for_charges(feed, all_models)
+        op_dict = assemble_ops_for_charges(feed, all_models, s.tensor_device, s.tensor_dtype)
         try:
-            update_charges(feed, op_dict, dftb_list, s.opers_to_model)
+            update_charges(feed, op_dict, dftb_list, s.tensor_device, s.tensor_dtype, s.opers_to_model)
         except Exception as e:
             print(e)
             glabels = feed['glabels']
@@ -407,9 +451,9 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
         # Charge update for validation_feeds
         feed = validation_feeds[k]
         dftb_list = validation_dftblsts[k]
-        op_dict = assemble_ops_for_charges(feed, all_models)
+        op_dict = assemble_ops_for_charges(feed, all_models, s.tensor_device, s.tensor_dtype)
         try:
-            update_charges(feed, op_dict, dftb_list, s.opers_to_model)
+            update_charges(feed, op_dict, dftb_list, s.tensor_device, s.tensor_dtype, s.opers_to_model)
         except Exception as e:
             print(e)
             glabels = feed['glabels']
@@ -501,7 +545,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         charge update subroutine.
     """
     #Instantiate the dftblayer, optimizer, and scheduler
-    dftblayer = DFTB_Layer(device = None, dtype = torch.double, eig_method = s.eig_method, repulsive_method = s.rep_setting)
+    dftblayer = DFTB_Layer(device = s.tensor_device, dtype = s.tensor_dtype, eig_method = s.eig_method, repulsive_method = s.rep_setting)
     learning_rate = s.learning_rate
     optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
     #TODO: Experiment with alternative learning rate schedulers
@@ -516,10 +560,10 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
     if s.rep_setting == 'new':
         if init_repulsive:
             print("Initializing repulsive model")            
-            all_models['rep'] = repulsive_energy_2(s, training_feeds, validation_feeds, all_models, dftblayer, torch.double)
+            all_models['rep'] = repulsive_energy_2(s, training_feeds, validation_feeds, all_models, dftblayer, s.tensor_dtype, s.tensor_device)
         else:
             print("Updating existing repulsive model")
-            all_models['rep'].update_model_crossover(s, training_feeds, validation_feeds, all_models, dftblayer, torch.double)
+            all_models['rep'].update_model_crossover(s, training_feeds, validation_feeds, all_models, dftblayer, s.tensor_dtype, s.tensor_device)
     
     nepochs = s.nepochs
     for i in range(nepochs):
@@ -630,7 +674,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
     print(f"Finished with {s.nepochs} epochs")
     
     print("Reference energy parameters:")
-    reference_energy_params = list(model_variables['Eref'].detach().numpy())
+    reference_energy_params = list(model_variables['Eref'].detach().cpu().numpy())
     print(reference_energy_params)
     
     return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
@@ -764,8 +808,6 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
     
         Each of these parts will be its own separate method, and the precompute stage
         part will vary slightly based on whether we are using folds or not
-    
-    TODO: Right now, it is only set to handle non-fold CV as a testing step
     """
     #Read the input files and construct the settings dictionary
     with open(settings_filename, "r") as read_file:
@@ -778,6 +820,9 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
     
     #Convert settings to an object for easier handling
     settings = Settings(final_settings)
+    
+    #Interpret the pytorch arguments contained within the settings object
+    update_pytorch_arguments(settings)
     
     #Information on the run id:
     print(f"run id: {settings.run_id}")
@@ -864,6 +909,13 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
             assert(model_variables is established_variables)
 
 if __name__ == "__main__":
+    # Construct the parser
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
+    parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
+    parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
+    
     args = parser.parse_args()
     enable_print = 1 if args.verbose else 0
     
@@ -994,7 +1046,10 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
+    start = time.time()
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    elapsed = time.time() - start
+    print(f"Run took {elapsed} seconds")
     print(loss_tracker)
         
     

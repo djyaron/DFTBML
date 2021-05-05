@@ -171,7 +171,13 @@ class SymEigB(torch.autograd.Function):
 
         # __Preamble__
         # Retrieve eigenvalues (w) and eigenvectors (v) from ctx
+        # Make sure that the device is the same for both
         w, v = ctx.saved_tensors
+        assert(w.device == v.device)
+        
+        #Pull out the device to use
+        tensor_device = w.device
+        
         if (len(w.shape) < 2) and (len(v.shape) < 3):
             # Unsqueeze all dimensions to have consistent for-loop approach
             w = w.unsqueeze(0)
@@ -185,7 +191,7 @@ class SymEigB(torch.autograd.Function):
         
         for i in range(batching_dim):
             # Retrieve, the broadening factor and convert to a tensor entity
-            bf = torch.tensor(ctx.bf, dtype=ctx.dtype)
+            bf = torch.tensor(ctx.bf, dtype=ctx.dtype, device = tensor_device)
     
             # Retrieve the broadening method
             bm = ctx.bm
@@ -211,7 +217,7 @@ class SymEigB(torch.autograd.Function):
             # Construct F matrix where F_ij = v_bar_j - v_bar_i; construction is
             # done in this manner to avoid 1/0 which can cause intermittent
             # hard-to-diagnose issues.
-            F = torch.zeros(len(w[i]), len(w[i]), dtype=ctx.dtype) 
+            F = torch.zeros(len(w[i]), len(w[i]), dtype=ctx.dtype, device = tensor_device) 
             F[tri_u[0], tri_u[1]] = deltas  # <- Upper triangle
             F[tri_u[1], tri_u[0]] -= F[tri_u[0], tri_u[1]]  # <- lower triangle
     

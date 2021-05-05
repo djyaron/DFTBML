@@ -85,5 +85,9 @@
     "skf_extension" : "",
     "skf_ngrid" : 50,
     "skf_strsep" : "  ",
-    "rep_setting": "old"
+    "rep_setting": "old",
+    
+    "tensor_dtype" : "double",
+    "tensor_device" : "cpu",
+    "device_index" : 0
 }

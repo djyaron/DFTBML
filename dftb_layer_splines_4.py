@@ -12,12 +12,12 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Move repulsive input generation methods from refactored lvl functions 
-        into repulsive_energy_2 as class methods
-    2) Fix cldriver.py once the repulsive calculations have been abstracted
-        away in repulsive_energy_2 (i.e. cldriver only passes feeds and 
-        actual repulsive training happens here in the backend)
-    3) Think more carefully about cldriver abstraction (should only be passing feeds around)
+    1) Double check tensor GPU adaptations
+        Note: symmetric eigenvalue decompositions and expensive matrix operations
+            are more efficient on GPU for large matrices as opposed to small; might 
+            be something to consider...
+    2) Fix the cases where torch.from_numpy was replaced with torch.tensor, see
+        note on line 331
 """
 import pdb, traceback, sys
 
@@ -278,7 +278,7 @@ class Input_layer_DFTB:
 
 class Input_layer_value:
     
-    def __init__(self, model: Model, initial_value: float = 0.0) -> None:
+    def __init__(self, model: Model, device: torch.device, dtype: torch.dtype, initial_value: float = 0.0) -> None:
         r"""Interface for models predicting on-diagonal elements
         
         Arguments:
@@ -287,6 +287,9 @@ class Input_layer_value:
                 (e.g. 'G', 'H', 'R'), 'Zs' is a tuple of the atomic number that is needed
                 (e.g. (1,)), and 'orb' is a string representing the orbitals being considered
                 (e.g. 'ss' for two s-orbital interactions)
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+            dtype (torch.dtype): The torch datatype for the calculations
             initial_value (float): The starting value for the model. Defaults to 0.0
         
         Returns:
@@ -298,10 +301,12 @@ class Input_layer_value:
             has requires_grad set to true so that the variable is trainable by the network later on.
         """
         self.model = model
+        self.dtype = dtype
+        self.device = device
         if not isinstance(initial_value, float):
             raise ValueError('Val_model not initialized to float')
         self.value = np.array([initial_value])
-        self.variables = torch.from_numpy(self.value)
+        self.variables = torch.tensor(self.value, device = self.device, dtype = self.dtype)
         self.variables.requires_grad = True
 
     def initialize_to_dftb(self, pardict: Dict, noise_magnitude: float = 0.0) -> None:
@@ -322,11 +327,15 @@ class Input_layer_value:
         The reason we do not have to re-initialize the torch tensor for the variable is because 
         the torch tensor and the numpy array share the same underlying location in memory, so changing one 
         will change the other.
+        
+        Note: TORCH.TENSOR DOES NOT HAVE THE SAME MEMORY ALIASING BEHAVIOR AS TORCH.FROM_NUMPY!!
         """
         init_value = get_dftb_vals(self.model, pardict)
         if not noise_magnitude == 0.0:
             init_value = init_value + noise_magnitude * np.random.randn(1)
         self.value[0]= init_value
+        self.variables = torch.tensor(self.value, device = self.device, dtype = self.dtype)
+        self.variables.requires_grad = True
 
     def get_variables(self) -> Tensor:
         r"""Returns the trainable variables for this model as a PyTorch tensor.
@@ -381,7 +390,7 @@ class Input_layer_value:
 class Input_layer_pairwise_linear:
 
     def __init__(self, model: Model, pairwise_linear_model: SplineModel, par_dict: Dict,
-                 cutoff: float,
+                 cutoff: float, device: torch.device, dtype: torch.dtype,
                  inflection_point_var: List[float] = [], ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
         r"""Creates a cubic spline model that is allowed to vary over the entire spanned distance
@@ -400,6 +409,9 @@ class Input_layer_pairwise_linear:
                 Carbon-Carbon interaction is accessed using the key 'C-C'
             cutoff (float): The distance in angstroms above which all predicted 
                 values are set to 0.
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+            dtype (torch.dtype): The torch datatype for the calculations
             inflection_point_var (List[float]): The variable value used to compute the 
                 inflection point for the model. Defaults to []
             ngrid: (int): The number of points for initially fitting the model to the DFTB
@@ -424,16 +436,18 @@ class Input_layer_pairwise_linear:
         self.model = model
         self.pairwise_linear_model= pairwise_linear_model
         self.cutoff = cutoff
+        self.dtype = dtype
+        self.device = device
         (rlow,rhigh) = pairwise_linear_model.r_range()
         ngrid = 100
         rgrid = np.linspace(rlow,rhigh,ngrid)
         ygrid = get_dftb_vals(model, par_dict, rgrid)
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
         model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) 
-        self.variables = torch.from_numpy(model_vars)
+        self.variables = torch.tensor(model_vars, dtype = self.dtype, device = self.device)
         self.variables.requires_grad = True
         if len(inflection_point_var) == 1:
-            self.inflection_point_var = torch.tensor(inflection_point_var, dtype = self.variables.dtype)
+            self.inflection_point_var = torch.tensor(inflection_point_var, dtype = self.dtype, device = self.device)
             self.inflection_point_var.requires_grad = True
         else:
             self.inflection_point_var = None
@@ -479,7 +493,7 @@ class Input_layer_pairwise_linear:
             None
         """
         if len(value) == 1:
-            self.inflection_point_var = torch.tensor(value, dtype = self.variables.dtype)
+            self.inflection_point_var = torch.tensor(value, device = self.device, dtype = self.dtype)
             self.inflection_point_var.requires_grad = True
 
     def get_feed(self, mod_raw: List[RawData]) -> Dict:
@@ -535,9 +549,9 @@ class Input_layer_pairwise_linear:
         inonzero = feed['inonzero'].long()
         if len(inonzero) == 0:
             # If all values are zero, just return zeros with double datatype
-            return torch.zeros([nval], dtype = torch.double)
+            return torch.zeros([nval], dtype = self.dtype, device = self.device)
         result_temp = torch.matmul(A, self.variables) + b
-        result = torch.zeros([nval], dtype = result_temp.dtype)
+        result = torch.zeros([nval], dtype = self.dtype, device = self.device)
         result[inonzero] = result_temp
         result[izero] = 0.0
         return result
@@ -545,7 +559,8 @@ class Input_layer_pairwise_linear:
 class Input_layer_pairwise_linear_joined:
 
     def __init__(self, model: Model, pairwise_linear_model: JoinedSplineModel, par_dict: Dict,
-                 cutoff: float, inflection_point_var: List[float] = [], ngrid: int = 100, 
+                 cutoff: float, device: torch.device, dtype: torch.dtype,
+                 inflection_point_var: List[float] = [], ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
         r"""Interface for a joined spline model with flexible and infleixble regions.
         
@@ -561,6 +576,9 @@ class Input_layer_pairwise_linear_joined:
                 between different elements, indexed by a string 'elem1-elem2'. For example, the
                 Carbon-Carbon interaction is accessed using the key 'C-C'
             cutoff (float): The cutoff distance for the joined spline
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+            dtype (torch.dtype): The torch datatype for the calculations
             inflection_point_var (list[float]): The list of length 1 containing the 
                 variable used to compute the inflection point. Defaults to [], in which case
                 there is no inflection point.
@@ -587,6 +605,8 @@ class Input_layer_pairwise_linear_joined:
             This variable is returned separately from the normal coefficients of the model, and is only 
             used internally for the calculation of the convex/monotonic penalties.
         """
+        self.dtype = dtype
+        self.device = device
         self.model = model
         self.pairwise_linear_model = pairwise_linear_model
         (rlow, rhigh) = pairwise_linear_model.r_range()
@@ -600,13 +620,13 @@ class Input_layer_pairwise_linear_joined:
         variable_vars, fixed_vars = pairwise_linear_model.fit_model(rgrid, ygrid)
         #Initialize the optimizable torch tensor for the variable coefficients
         # of the spline and the fixed part that's cat'd on each time
-        self.variables = torch.from_numpy(variable_vars)
+        self.variables = torch.tensor(variable_vars, dtype = self.dtype, device = self.device)
         self.variables.requires_grad = True
-        self.constant_coefs = torch.from_numpy(fixed_vars)
+        self.constant_coefs = torch.tensor(fixed_vars, dtype = self.dtype, device = self.device)
         self.joined = True #A flag used by later functions to identify joined splines
         self.cutoff = cutoff #Used later for outputting skf files
         if len(inflection_point_var) == 1:
-            self.inflection_point_var = torch.tensor(inflection_point_var, dtype = self.variables.dtype)
+            self.inflection_point_var = torch.tensor(inflection_point_var, dtype = self.dtype, device = self.device)
             self.inflection_point_var.requires_grad = True #Requires gradient
         else:
             self.inflection_point_var = None
@@ -679,7 +699,7 @@ class Input_layer_pairwise_linear_joined:
             None
         """
         if len(value) == 1:
-            self.inflection_point_var = torch.tensor(value, dtype = self.variables.dtype)
+            self.inflection_point_var = torch.tensor(value, dtype = self.dtype, device = self.device)
             self.inflection_point_var.requires_grad = True
     
     def get_feed(self, mod_raw: List[RawData]) -> Dict:
@@ -832,13 +852,16 @@ class OffDiagModel:
 
 class OffDiagModel2:
     
-    def __init__(self, model: Model, model_variables: Dict) -> None:
+    def __init__(self, model: Model, model_variables: Dict, device: torch.device, dtype: torch.dtype) -> None:
         r"""Initializes the off-diagonal model
         
         Arguments:
             model (Model): Named tuple describing the interaction to be modeled
             model_variables (Dict): Dictionary referencing all the variables of models
                 being used
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+            dtype (torch.dtype): The torch datatype for the calculations
         
         Returns:
             None
@@ -877,6 +900,8 @@ class OffDiagModel2:
         elem2_var = model_variables[mod2]
         # Keep references to the variables in a list
         self.variables = [elem1_var, elem2_var] 
+        self.device = device
+        self.dtype = dtype
     
     def _Expr(self, r12: Tensor, tau1: Tensor, tau2: Tensor) -> Tensor:
         r"""Computes expression for off-diagonal elements (between atoms)
@@ -938,7 +963,7 @@ class OffDiagModel2:
         nonzero_indices = feed['nonzero_indices'].long()
         r12 = feed['nonzero_distances']
         nelements = len(zero_indices) + len(nonzero_indices)
-        results = torch.zeros([nelements], dtype = r12.dtype)
+        results = torch.zeros([nelements], dtype = self.dtype, device = self.device)
         
         hub1, hub2 = self.variables
         smallHubDiff = abs(hub1-hub2).item() < 0.3125e-5
@@ -976,7 +1001,7 @@ class repulsive_energy_2:
     #   all the calculations internally
     
     def __init__(self, s, training_feeds: List[Dict], validation_feeds: List[Dict],
-                 all_models: Dict, layer, dtype: torch.dtype) -> None:
+                 all_models: Dict, layer, dtype: torch.dtype, device: torch.device) -> None:
         r"""Initializes the repulsive_energy_2 model using the given training
             and validation feeds
         
@@ -989,7 +1014,9 @@ class repulsive_energy_2:
             layer (DFTB_Layer): Instance of the DFTB_Layer object used for passing through
                 the feeds.
             dtype (torch.dtype): The datatype for the generated energies to have.
-                
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+            
         Returns:
             None
         
@@ -1000,6 +1027,8 @@ class repulsive_energy_2:
         """
         repulsive_opts = self.obtain_repulsive_opts(s)
         self.repulsive_opts = repulsive_opts
+        self.dtype = dtype
+        self.device = device
         if len(training_feeds) > 0:
             total_dict_train, config_tracker_train = self.assemble_rep_input_all_feeds(training_feeds, all_models, layer)
             self.conversion_to_nparray(total_dict_train)
@@ -1014,7 +1043,6 @@ class repulsive_energy_2:
             assert(len(self.c_sparse) == len(self.c_sparse_2))
         #Set the spline models
         self.set_spline_models(all_models)
-        self.dtype = dtype
         self.cutoff_dictionary = s.cutoff_dictionary
         self.default_cutoff = s.joined_cutoff
     
@@ -1051,7 +1079,7 @@ class repulsive_energy_2:
                 final_gammas_arr[index, :] = gammas[name]['gammas'][true_conf_num]
             #Single dot to obtain the repulsive energies
             bsize_repulsive_eners = final_gammas_arr.dot(self.c_sparse)
-            repulsive_dict[bsize] = torch.from_numpy(bsize_repulsive_eners).type(self.dtype)
+            repulsive_dict[bsize] = torch.tensor(bsize_repulsive_eners, dtype = self.dtype, device = self.device)
         return repulsive_dict
     
     def assemble_rep_input_single_feed(self, feed: Dict, all_models: Dict, layer) -> Dict:
@@ -1239,7 +1267,7 @@ class repulsive_energy_2:
         self.config_tracker_train = config_tracker
 
     def update_model_crossover(self, s, training_feeds: List[Dict], validation_feeds: List[Dict],
-                 all_models: Dict, layer, dtype: torch.dtype) -> None:
+                 all_models: Dict, layer, dtype: torch.dtype, device: torch.device) -> None:
         r"""Updates the gammas, locs, and config_trackers when doing a split crossover
         
         Arguments:
@@ -1252,7 +1280,7 @@ class repulsive_energy_2:
             does not need to be saved...
         """
         #c_save = self.c_sparse
-        self.__init__(s, training_feeds, validation_feeds, all_models, layer, dtype)
+        self.__init__(s, training_feeds, validation_feeds, all_models, layer, dtype, device)
         #self.c_sparse = c_save
     
     def set_spline_models(self, all_models: Dict)  -> None:
@@ -1354,12 +1382,15 @@ class repulsive_energy_2:
 
 class Reference_energy:
 
-    def __init__(self, allowed_Zs: List[int], 
+    def __init__(self, allowed_Zs: List[int], device: torch.device, dtype: torch.dtype,
                  prev_values: List[float] = None) -> None:
         r"""Initializes the reference energy model.
         
         Arguments:
             allowed_Zs (List[int]): List of the allowed atomic numbers
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+            dtype (torch.dtype): The torch datatype for the calculations
             prev_values (List[float]): Previous values for the reference energy to start from.
                 Defaults to None
         
@@ -1394,6 +1425,7 @@ class Reference_energy:
             dataset, C_z is the coefficient for element z, N_z is the number of that element 
             in the molecule, and C_0 is the additional coefficient.
         """
+        self.dtype, self.device = dtype, device
         self.allowed_Zs = np.sort(np.array(allowed_Zs))
         self.values = np.zeros(self.allowed_Zs.shape)
         self.values = np.append(self.values, np.array([0]))
@@ -1402,7 +1434,7 @@ class Reference_energy:
             #FOR DEBUGGING PURPOSES ONLY
             assert(len(prev_values) == len(self.values))
             self.values = np.array(prev_values)
-        self.variables = torch.from_numpy(self.values)
+        self.variables = torch.tensor(self.values, dtype = self.dtype, device = self.device)
         self.variables.requires_grad = True
 
     def get_variables(self) -> Tensor:
@@ -1578,7 +1610,8 @@ def solve_for_inflect_var(rlow: float, rhigh: float, r_target: float) -> float:
     x_val = math.tan(operand)
     return x_val
 
-def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict, 
+def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_dict: Dict, par_dict: Dict,
+                             device: torch.device, dtype: torch.dtype,
                              num_knots: int = 50, buffer: float = 0.0, 
                              joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
                              spline_mode: str = 'joined', spline_deg: int = 3,
@@ -1595,6 +1628,9 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
         par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
             between different elements, indexed by a string 'elem1-elem2'. For example, the
             Carbon-Carbon interaction is accessed using the key 'C-C'
+        device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+        dtype (torch.dtype): The torch datatype for the calculations
         num_knots (int): The number of knots to use for the spline. Defaults to 50
         buffer (float): The value to shift the starting and ending distance by. The starting distance
             is rlow - buffer, and the ending distance is rhigh + buffer, where rlow, rhigh are the 
@@ -1633,7 +1669,7 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
-        model = Input_layer_value(model_spec)
+        model = Input_layer_value(model_spec, device, dtype)
         model.initialize_to_dftb(par_dict, noise_magnitude)
         return (model, 'vol')
     elif len(model_spec.Zs) == 2:
@@ -1670,7 +1706,7 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                 inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 10) #Approximate guess for initial inflection point var
                 inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
                 if spline_mode == 'joined':
-                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], device, dtype, inflection_point_var = [inflect_point_var] if include_inflect else [])
                     
                     #Inflection point should be in the region of variation, i.e. less than cutoff
                     try:
@@ -1681,19 +1717,23 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                         print(f"Warning: inflection point {inflect_point_target} not less than cutoff {model.cutoff} for {model_spec}")
                         
                 elif spline_mode == 'non-joined':
-                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], device, dtype, inflection_point_var = [inflect_point_var] if include_inflect else [])
             else:
                 if spline_mode == 'joined':
-                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'])
+                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], device, dtype)
                 elif spline_mode == 'non-joined':
-                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'])
-            variables = model.get_variables().detach().numpy()
+                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], device, dtype)
+            #To check for non-zero splines, do this trick to pull the coefficients and check if they are zero. Have to 
+            #   transport to CPU first, but since this is done once at the beginning and the tensors are small, this is acceptable
+            #   overhead.
+            #cpu() after detach() to prevent superfluous copying, https://stackoverflow.com/questions/49768306/pytorch-tensor-to-numpy-array
+            variables = model.get_variables().detach().cpu().numpy() 
             if apx_equal(np.sum(variables), 0):
                 return (model, 'noopt')
             return (model, 'opt')
         else:
             # Case of using OffDiagModel
-            model = OffDiagModel2(model_spec, model_variables)
+            model = OffDiagModel2(model_spec, model_variables, device, dtype)
             return (model, 'opt')
 
 def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
@@ -1725,7 +1765,8 @@ class DFTB_Layer(nn.Module):
         r"""Initializes the DFTB deep learning layer for the network
         
         Arguments:
-            device (torch.device): The device to run the computations on (CPU vs GPU)
+            device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
             dtype (torch.dtype): The torch datatype for the calculations
             eig_method (str): The eigenvalue method for the symmetric eigenvalue decompositions.
                 'old' means the original PyTorch symeig method, and 'new' means the 
@@ -1840,10 +1881,10 @@ class DFTB_Layer(nn.Module):
                 # Eigenvalues in ascending order, eigenvectors are orthogonal, use conditional broadening
                 # Try first with default broadening factor of 1E-12
                 if self.method == 'new':
-                    symeig = SymEigB.apply
+                    symeig = SymEigB.apply #Can this be done on GPU?
                     Svals, Svecs = symeig(S1, 'cond')
                 elif self.method == 'old':
-                    Svals, Svecs = torch.symeig(S1, eigenvectors = True)
+                    Svals, Svecs = torch.symeig(S1, eigenvectors = True) #How does this work on GPU?
                 phiS = torch.matmul(Svecs, torch.diag_embed(torch.pow(Svals, -0.5))) #Changed this to get the diagonalization and multiplication to work
             else:
                 phiS = data_input['phiS'][bsize]
@@ -1879,7 +1920,7 @@ class DFTB_Layer(nn.Module):
             calc['Eelec'][bsize] = ener1 + ener2
             ref_energy_variables = all_models['Eref'].get_variables()
             zcount_vec = data_input['zcounts'][bsize]
-            ones_vec = torch.tensor([1.0])
+            ones_vec = torch.tensor([1.0], device = self.device, dtype = self.dtype)
             ones_vec = ones_vec.repeat(zcount_vec.shape[0]).unsqueeze(1)
             zcount_vec = torch.cat((zcount_vec, ones_vec), dim = 1)
             ref_res = torch.matmul(zcount_vec, ref_energy_variables.unsqueeze(1))
@@ -1910,16 +1951,19 @@ def recursive_type_conversion(data: Dict, ignore_keys: List[str], device: torch.
             if isinstance(data[key], np.ndarray):
                 data[key] = torch.tensor(data[key], dtype = dtype, device = device)            
             elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
-                recursive_type_conversion(data[key], ignore_keys)
+                recursive_type_conversion(data[key], ignore_keys, device = device, dtype = dtype)
 
-def assemble_ops_for_charges(feed: Dict, all_models: Dict) -> Dict:
+def assemble_ops_for_charges(feed: Dict, all_models: Dict, device: torch.device, dtype: torch.dtype) -> Dict:
     r"""Generates the H and G operators for the charge update operation
     
     Arguments:
         feed (Dict): The current feed whose charges need to be udpated
         all_models (Dict): A dictionary referencing all the spline models being used
             to predict operator elements
-    
+        device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+        dtype (torch.dtype): The torch datatype for the calculations
+        
     Returns:
         calc (Dict): A dictionary containing the tensors for the H and G operators, organized
             by basis size. 
@@ -1932,7 +1976,7 @@ def assemble_ops_for_charges(feed: Dict, all_models: Dict) -> Dict:
     net_vals = torch.cat(model_vals)
     calc = OrderedDict() 
     ## SLATER-KOSTER ROTATIONS ##
-    rot_out = torch.tensor([0.0, 1.0])
+    rot_out = torch.tensor([0.0, 1.0], dtype = dtype, device = device)
     for s, gather in feed['gather_for_rot'].items():
         gather = gather.long()
         if feed['rot_tensors'][s] is None:
@@ -1958,13 +2002,17 @@ def assemble_ops_for_charges(feed: Dict, all_models: Dict) -> Dict:
     
     return calc
 
-def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, modeled_opers: List[str] = ["S", "G"]) -> None:
+def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, device: torch.device, dtype: torch.dtype,
+                   modeled_opers: List[str] = ["S", "G"]) -> None:
     r"""Destructively updates the charges in the feed
     
     Arguments:
         feed (Dict): The feed dictionary whose charges need to be updated
         op_dict (Dict): The dictionary containing the H and G operators, separated by bsize
         dftblst (DFTBList): The DFTBList instance for this feed
+        device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+        dtype (torch.dtype): The torch datatype for the calculations
         additional_opers (List[str]): The list of additional operators being modeled that
             need to be passedto get_dQ_from_H. Only "S" and "G" are relevant; "R" is not used in
             charge updates and "H" is mandatory for charge updates
@@ -1975,12 +2023,12 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, modeled_opers: 
     Notes: Both dQ and the occ_rho_mask are udpated for the feed
     """
     for bsize in op_dict['H'].keys():
-        np_Hs = op_dict['H'][bsize].detach().numpy() #Don't care about gradients here
+        np_Hs = op_dict['H'][bsize].detach().cpu().numpy() #Have to shift things back over to CPU, but not sure about this overhead...
         np_Gs, np_Ss = None, None
         if "G" in modeled_opers:
-            np_Gs = op_dict['G'][bsize].detach().numpy()
+            np_Gs = op_dict['G'][bsize].detach().cpu().numpy()
         if "S" in modeled_opers:
-            np_Ss = op_dict['S'][bsize].detach().numpy()
+            np_Ss = op_dict['S'][bsize].detach().cpu().numpy()
         for i in range(len(dftblst.dftbs_by_bsize[bsize])):
             curr_dftb = dftblst.dftbs_by_bsize[bsize][i]
             curr_H = np_Hs[i]
@@ -1991,7 +2039,7 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, modeled_opers: 
             if (curr_S is None):
                 print("S is not included in charge update")
             newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G, newS = curr_S) #Modelling both S and G
-            newQ, occ_rho_mask_upd = torch.tensor(newQ).unsqueeze(1), torch.tensor(occ_rho_mask_upd)
+            newQ, occ_rho_mask_upd = torch.tensor(newQ, dtype = dtype, device = device).unsqueeze(1), torch.tensor(occ_rho_mask_upd, dtype = dtype, device = device)
             feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
             feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
 
@@ -2248,7 +2296,8 @@ def graph_generation(molecules: List[Dict], config: Dict, allowed_Zs: List[int],
     
     return feeds, feed_dftblsts, feed_batches
 
-def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List[Dict], allowed_Zs: List[int], losses: Dict, ref_ener_start: List = None) -> tuple:
+def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List[Dict], allowed_Zs: List[int], losses: Dict, 
+                              device: torch.device, dtype: torch.dtype, ref_ener_start: List = None) -> tuple:
     r"""Initializes the losses and generates the models and model_variables dictionaries
     
     Arguments:
@@ -2256,6 +2305,9 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
         validation_feeds (List[Dict]): The validation feed dictionaries
         allowed_Zs (List[int]): The atomic numbers of allowed elements
         losses (Dict): Dictionary of the targets and their target accuracies
+        device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+        dtype (torch.dtype): The torch datatype for the calculations
         ref_ener_start (List): A list of starting value for the reference energy model.
             Defaults to None
     
@@ -2278,7 +2330,8 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
     all_models = dict()
     model_variables = dict() #This is used for the optimizer later on
     
-    all_models['Eref'] = Reference_energy(allowed_Zs) if (ref_ener_start is None) else Reference_energy(allowed_Zs, prev_values = ref_ener_start)
+    all_models['Eref'] = Reference_energy(allowed_Zs, device, dtype) if (ref_ener_start is None) else \
+        Reference_energy(allowed_Zs, device, dtype, prev_values = ref_ener_start)
     model_variables['Eref'] = all_models['Eref'].get_variables()
     
     #More nuanced construction of config dictionary
@@ -2312,6 +2365,7 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
 def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losses: Dict, 
                     all_models: Dict, model_variables: Dict, model_range_dict: Dict,
                     par_dict: Dict, spline_mode: str, spline_deg: int,
+                    device: torch.device, dtype: torch.dtype,
                     debug: bool = False, loaded_data: bool = False,
                     spline_knots: int = 50, buffer: float = 0.0, 
                     joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
@@ -2333,6 +2387,9 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
             Carbon-Carbon interaction is accessed using the key 'C-C'
         spline_mode (str): The type of spline to use, one of 'joined' or 'non-joined'
         spline_deg (int): The degree of the spline to use.
+        device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+        dtype (torch.dtype): The torch datatype for the calculations
         debug (bool): Whether or not to use debug mode. Defaults to False
         loaded_data (bool): Whether or not using pre-loaded data. Defaults to False
         spline_knots (int): How many knots for the basis splines. Defaults to 50
@@ -2366,6 +2423,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
             if (model_spec not in all_models):
                 print(model_spec)
                 mod_res, tag = get_model_value_spline_2(model_spec, model_variables, model_range_dict, par_dict,
+                                                        device, dtype, 
                                                         spline_knots, buffer,
                                                         joined_cutoff, cutoff_dict,
                                                         spline_mode, spline_deg,
@@ -2441,23 +2499,26 @@ def saving_data(training_feeds: List[Dict], validation_feeds: List[Dict],
     
     print("Molecular and batch information saved successfully, along with reference data")
 
-def total_type_conversion(training_feeds: List[Dict], validation_feeds: List[Dict], ignore_keys: List[str]) -> None:
+def total_type_conversion(training_feeds: List[Dict], validation_feeds: List[Dict], ignore_keys: List[str],
+                          device: torch.device, dtype: torch.dtype) -> None:
     r"""Does a recursive type conversion for each feed in training_feeds and each feed in validation_feeds
     
     Arguments:
         training_feeds (List[Dict]): The training feed dictionaries to do the correction for
         validation_feeds (List[Dict]): The validation feed dictionaries to do the correction for
         ignore_keys (List[str]): The keys to ignore the type conversion for
-    
+        device (torch.device): The device to run the computations on (CPU vs GPU).
+                If running on GPU, must be CUDA enabled GPU.
+        dtype (torch.dtype): The torch datatype for the calculations
     Returns:
         None
     
     Notes: None
     """
     for feed in training_feeds:
-        recursive_type_conversion(feed, ignore_keys)
+        recursive_type_conversion(feed, ignore_keys, device, dtype)
     for feed in validation_feeds:
-        recursive_type_conversion(feed, ignore_keys)
+        recursive_type_conversion(feed, ignore_keys, device, dtype)
 
 def model_range_correction(model_range_dict: Dict, correction_dict: Dict, universal_high: float = None) -> Dict:
     r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict

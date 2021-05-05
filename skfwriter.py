@@ -147,9 +147,9 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     """
     spline_model = all_models[model_spec]
     dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
-    model_variables = spline_model.get_variables().detach().numpy()
+    model_variables = spline_model.get_variables().detach().cpu().numpy()
     if hasattr(spline_model, "joined"):
-        fixed_coefs = spline_model.get_fixed().detach().numpy()
+        fixed_coefs = spline_model.get_fixed().detach().cpu().numpy()
         model_variables = np.concatenate((model_variables, fixed_coefs))
     y_vals = np.dot(dgrids_consts[0], model_variables) + dgrids_consts[1]
     # Instead of 0's, pad the front dummy values with the first non-zero 
