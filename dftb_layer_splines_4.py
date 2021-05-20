@@ -1208,9 +1208,9 @@ class repulsive_energy_2:
         opt['deg'] = s.spline_deg
         opt['rmax'] = 'short' #not sure how this translates (NEEDS TO BE INCLUDED IN SETTINGS FILE)
         opt['bconds'] = 'vanishing' #makes sense for repulsive potentials to go 0
-        opt['shift'] = True #energy shifter, default to True (NEEDS TO BE INCLUDED IN SETTINGS FILE)
-        opt['scale'] = True
-        opt['atom_types'] = 'infer' #Let the program infer it automatically from the data
+        opt['shift'] = False #energy shifter, default to True (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+        opt['scale'] = False
+        opt['atom_types'] = [1, 6, 7, 8] #Let the program infer it automatically from the data
         opt['map_grid'] = 500 #not sure how this maps (NEEDS TO BE INCLUDED IN SETTINGS FILE)
         if 'convex' in s.losses:
             opt['constraint'] = 'convex'
@@ -1705,16 +1705,17 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
             if model_spec.oper == 'S': #Inflection points are only instantiated for the overlap operator
                 inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 10) #Approximate guess for initial inflection point var
                 inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
+                
+                #Inflection point should be in the region of variation, i.e. less than cutoff
+                try:
+                    assert(inflect_point_target < model_cutoff)
+                    print(f"Inflection point less than cutoff for {model_spec}")
+                    print(f"Inflection point: {inflect_point_target}, cutoff: {model_cutoff}")
+                except:
+                    print(f"Warning: inflection point {inflect_point_target} not less than cutoff {model_cutoff} for {model_spec}")
+                    
                 if spline_mode == 'joined':
                     model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], device, dtype, inflection_point_var = [inflect_point_var] if include_inflect else [])
-                    
-                    #Inflection point should be in the region of variation, i.e. less than cutoff
-                    try:
-                        assert(inflect_point_target < model.cutoff)
-                        print(f"Inflection point less than cutoff for {model_spec}")
-                        print(f"Inflection point: {inflect_point_target}, cutoff: {model.cutoff}")
-                    except:
-                        print(f"Warning: inflection point {inflect_point_target} not less than cutoff {model.cutoff} for {model_spec}")
                         
                 elif spline_mode == 'non-joined':
                     model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], device, dtype, inflection_point_var = [inflect_point_var] if include_inflect else [])
@@ -2450,6 +2451,7 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
             try:
                 all_losses[loss].get_feed(feed, [] if loaded_data else feed_batches[ibatch], all_models, par_dict, debug)
             except Exception as e:
+                print("Something went wrong in feed_generation!")
                 print(e)
 
 def saving_data(training_feeds: List[Dict], validation_feeds: List[Dict], 

@@ -1016,8 +1016,9 @@ def single_fold_precompute(s: Settings, molecs: List[Dict], par_dict: Dict) -> (
             raise ValueError("Unsupported loss type")
             
     all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(feeds, [],
-                                                                               s.allowed_Zs, losses, ref_ener_start = s.reference_energy_starting_point)
-    feed_generation(feeds, batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, s.debug, False, 
+                                                                               s.allowed_Zs, losses, s.tensor_device, s.tensor_dtype, ref_ener_start = s.reference_energy_starting_point)
+    feed_generation(feeds, batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, 
+                    s.tensor_device, s.tensor_dtype, s.debug, False, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
     
     print(f"inflect mods: {[mod for mod in model_variables if mod != 'Eref' and mod.oper == 'S' and 'inflect' in mod.orb]}")
@@ -1027,7 +1028,7 @@ def single_fold_precompute(s: Settings, molecs: List[Dict], par_dict: Dict) -> (
     print("losses")
     print(losses)
     
-    return feeds, dftb_lsts
+    return feeds, dftb_lsts, all_models, model_variables, losses, all_losses, loss_tracker
 
 def save_feed_h5(s: Settings, feeds: List[Dict], dftb_lsts: List[DFTBList], 
                  molecs: List[Dict], dest: str, duplicate_data: bool = False) -> None:
@@ -1116,7 +1117,7 @@ def compute_graphs_from_folds(s: Settings, top_level_molec_path: str, copy_molec
             if s.train_ener_per_heavy: #Only perform the energy correction if training per heavy atom
                 for elem in molecs:
                     energy_correction(elem)
-            feeds, dftb_lsts = single_fold_precompute(s, molecs, par_dict)
+            feeds, dftb_lsts, _, _, _, _, _ = single_fold_precompute(s, molecs, par_dict)
             destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
             save_feed_h5(s, feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)
             print(f"Data successfully saved for {name} molecules")

@@ -573,6 +573,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         validation_loss = 0
         for feed in validation_feeds:
             with torch.no_grad():
+                
                 output = dftblayer(feed, all_models)
                 #Add in the repulsive energies if using new repulsive model
                 if s.rep_setting == 'new':
