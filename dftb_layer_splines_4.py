@@ -225,7 +225,8 @@ def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int], pa
 class Input_layer_DFTB:
 
     def __init__(self, model: Model) -> None:
-        r"""Initializes a debugging model that just uses the DFTB values
+        r"""Initializes a debugging model that just uses the DFTB values rather than
+            spline interpolations.
         
         Arguments:
             model (Model): Named tuple describing the interaction being modeled
@@ -273,6 +274,44 @@ class Input_layer_DFTB:
             feed['values'] (Array): Numpy array of the predictions (just the original values)
         
         Notes: None
+        """
+        return feed['values']
+    
+class Input_layer_DFTB_val:
+    
+    def __init__(self, model: Model):
+        r"""DEBUGGING interface for models predicting on-diagonal elements
+        
+        Arguments:
+            model (Model): A named tuple of the form ('oper', 'Zs', 'orb'), where
+                'oper' is the operater the model is modelling represented as a string
+                (e.g. 'G', 'H', 'R'), 'Zs' is a tuple of the atomic number that is needed
+                (e.g. (1,)), and 'orb' is a string representing the orbitals being considered
+                (e.g. 'ss' for two s-orbital interactions)
+        
+        Returns:
+            None
+        
+        Notes: This model just takes the mod_raw value for the single element operator.
+        """
+        self.model = model
+        if len(model.Zs) > 1:
+            raise ValueError("On-diagonals consist of single-element interactions")
+    
+    def get_variables (self) -> List:
+        r"""Dummy method to respect the model interface; there are no
+            variables for this model
+        """
+        return []
+    
+    def get_feed(self, mod_raw: List[RawData]) -> Dict[str, Array]:
+        r"""Generates the elements for this model that need to be included in the
+            feed
+        """
+        return {'values' : np.array([x.dftb for x in mod_raw])}
+    
+    def get_values(self, feed: Dict) -> Array:
+        r"""Extracts the elements from the feed
         """
         return feed['values']
 
@@ -330,9 +369,15 @@ class Input_layer_value:
         
         Note: TORCH.TENSOR DOES NOT HAVE THE SAME MEMORY ALIASING BEHAVIOR AS TORCH.FROM_NUMPY!!
         """
-        init_value = get_dftb_vals(self.model, pardict)
+        if self.model.oper == 'G':
+            init_value, val, hub1, hub2 = get_dftb_vals(self.model, pardict)
+        else:
+            init_value = get_dftb_vals(self.model, pardict)
         if not noise_magnitude == 0.0:
             init_value = init_value + noise_magnitude * np.random.randn(1)
+        if (self.model.oper == 'G') and (not (hub1 == hub2 == val)):
+            print(self.model, hub1, hub2, val)
+            raise ValueError("Hubbard inconsistency detected!")
         self.value[0]= init_value
         self.variables = torch.tensor(self.value, device = self.device, dtype = self.dtype)
         self.variables.requires_grad = True
@@ -439,11 +484,11 @@ class Input_layer_pairwise_linear:
         self.dtype = dtype
         self.device = device
         (rlow,rhigh) = pairwise_linear_model.r_range()
-        ngrid = 100
-        rgrid = np.linspace(rlow,rhigh,ngrid)
+        ngrid = 1000 #Number of grid points used to fit the initial variables
+        rgrid = np.linspace(rlow,rhigh,ngrid) #This is in angstroms
         ygrid = get_dftb_vals(model, par_dict, rgrid)
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
-        model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) 
+        model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) #Model vars fit based on angstrom x-axis
         self.variables = torch.tensor(model_vars, dtype = self.dtype, device = self.device)
         self.variables.requires_grad = True
         if len(inflection_point_var) == 1:
@@ -517,16 +562,17 @@ class Input_layer_pairwise_linear:
         
         TODO: Handle edge case of no non-zero values!
         """
-        xeval = np.array([elem.rdist for elem in mod_raw])
+        xeval = np.array([elem.rdist for elem in mod_raw]) #xeval are in angstroms
         nval = len(xeval)
         izero = np.where(xeval > self.cutoff)[0]
         inonzero = np.where(xeval <= self.cutoff)[0]
         xnonzero = xeval[inonzero] # Predict only on the non-zero x vals
         if len(inonzero) > 0:
-            A,b = self.pairwise_linear_model.linear_model(xnonzero)
+            A,b = self.pairwise_linear_model.linear_model(xnonzero) #Computed based on angstrom values
         elif len(inonzero) == 0:
             A, b = None, None
-        return {'A': A, 'b': b, 'nval' : nval, 'izero' : izero, 'inonzero' : inonzero}
+        return {'A': A, 'b': b, 'nval' : nval, 'izero' : izero, 'inonzero' : inonzero, 
+                'xeval' : xeval}
     
     def get_values(self, feed: Dict) -> Tensor:
         r"""Generates a prediction from the spline
@@ -550,7 +596,7 @@ class Input_layer_pairwise_linear:
         if len(inonzero) == 0:
             # If all values are zero, just return zeros with double datatype
             return torch.zeros([nval], dtype = self.dtype, device = self.device)
-        result_temp = torch.matmul(A, self.variables) + b
+        result_temp = torch.matmul(A, self.variables) + b #Comes from angstrom values
         result = torch.zeros([nval], dtype = self.dtype, device = self.device)
         result[inonzero] = result_temp
         result[izero] = 0.0
@@ -947,7 +993,8 @@ class OffDiagModel2:
         nonzero_distances = xeval[nonzero_indices]
         return {'zero_indices'      : zero_indices,
                 'nonzero_indices'   : nonzero_indices,
-                'nonzero_distances' : nonzero_distances}
+                'nonzero_distances' : nonzero_distances,
+                'xeval' : xeval} #Return the distances too for debugging purposes
     
     def get_values(self, feed: Dict) -> Tensor:
         r"""Obtain the predicted values in a more efficient way
@@ -961,7 +1008,7 @@ class OffDiagModel2:
         """
         zero_indices = feed['zero_indices'].long()
         nonzero_indices = feed['nonzero_indices'].long()
-        r12 = feed['nonzero_distances']
+        r12 = feed['nonzero_distances'] * 1.889725989 #Multiply by ANGSTROM2BOHR to get correct values, need to verify why this is the case?
         nelements = len(zero_indices) + len(nonzero_indices)
         results = torch.zeros([nelements], dtype = self.dtype, device = self.device)
         
@@ -1669,8 +1716,15 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
-        model = Input_layer_value(model_spec, device, dtype)
-        model.initialize_to_dftb(par_dict, noise_magnitude)
+        if spline_mode != 'debugging':
+            model = Input_layer_value(model_spec, device, dtype)
+            model.initialize_to_dftb(par_dict, noise_magnitude)
+            
+            #REMOVE THIS LINE LATER
+            # model = Input_layer_DFTB_val(model_spec)
+        else:
+            print("Using a debugging model for on-diagonal elements")
+            model = Input_layer_DFTB_val(model_spec)
         return (model, 'vol')
     elif len(model_spec.Zs) == 2:
         if model_spec.oper not in off_diag_opers:
@@ -1700,8 +1754,24 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                       'deg' : spline_deg}
             if spline_mode == 'joined':
                 spline = JoinedSplineModel(config)
+                
+                #REMOVE THESE LINES LATER
+                # model = Input_layer_DFTB(model_spec)
+                # return (model, 'opt')
+                
             elif spline_mode == 'non-joined':
                 spline = SplineModel(config)
+                
+                #REMOVE THESE LINES LATER
+                # model = Input_layer_DFTB(model_spec)
+                # return (model, 'opt')
+                
+            elif spline_mode == 'debugging':
+                #Use this model for debugging purposes, just going to return the values computed in mod_raw
+                #return early to prevent any unnecessary work
+                model = Input_layer_DFTB(model_spec)
+                print("Using a debugging spline model")
+                return (model, 'opt')
             if model_spec.oper == 'S': #Inflection points are only instantiated for the overlap operator
                 inflect_point_target = minimum_value + ((maximum_value - minimum_value) / 10) #Approximate guess for initial inflection point var
                 inflect_point_var = solve_for_inflect_var(minimum_value, maximum_value, inflect_point_target)
@@ -1734,7 +1804,14 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
             return (model, 'opt')
         else:
             # Case of using OffDiagModel
-            model = OffDiagModel2(model_spec, model_variables, device, dtype)
+            if spline_mode != 'debugging':
+                model = OffDiagModel2(model_spec, model_variables, device, dtype)
+                
+                #REMOVE THIS LINE LATER
+                #model = Input_layer_DFTB(model_spec)
+            else:
+                print("Using a debugging model for off-diagonal elements")
+                model = Input_layer_DFTB(model_spec)
             return (model, 'opt')
 
 def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 

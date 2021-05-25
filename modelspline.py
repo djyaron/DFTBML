@@ -42,7 +42,8 @@ def get_dftb_vals(mod, par_dict, rs = []):
         hub1 = par_dict[sym[0]+'-'+sym[0]].GetAtomProp('U'+mod.orb[0])
         hub2 = par_dict[sym[-1]+'-'+sym[-1]].GetAtomProp('U'+mod.orb[-1])
         if len(mod.Zs) == 1:
-            return np.array(_Gamma12(0.0, hub1, hub2))
+            value = _Gamma12(0.0, hub1, hub2)
+            return np.array(value), value, hub1, hub2
         else:
             rs_bohr = rs * ANGSTROM2BOHR
             gs = [_Gamma12(r,hub1,hub2) for r in rs_bohr]
