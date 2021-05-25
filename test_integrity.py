@@ -21,11 +21,12 @@ just be the 'dt' energy, i.e. DFTB+ energy
 import torch
 import numpy as np
 from dftb_layer_splines_4 import DFTB_Layer, get_ani1data, model_loss_initialization,\
-    feed_generation, total_type_conversion, repulsive_energy_2
+    feed_generation, total_type_conversion, repulsive_energy_2, OffDiagModel2, apx_equal
 from fold_generator import single_fold_precompute
 import os, os.path
 import pickle, json
 from statistics import mean
+from sccparam import _Gamma12
 
 from run_dftbplus import add_dftb #Method for running the dftb executable
 
@@ -131,6 +132,7 @@ def get_total_energy_from_output(output: Dict, feed: Dict, molec_energies: Dict)
         feed (Dict): The feed dictionary passed through the DFTB_Layer to generate output
         molec_energies (Dict): A dictionary mapping (Name, iconfig) : Etot, where the 
             total energy is the sum of the electronic and repulsive components
+        rep_setting (str): The repulsive setting being used (one of 'old', 'new')
         
     Returns:
         None
@@ -202,11 +204,153 @@ def test_agreement(s: Settings, tolerance: float, skf_dir: str, ani1_path: str, 
     dftb_layer_elec_vs_our_dftb_elec = [abs(molec['dzero']['e'] - molec_energies[(molec['name'], molec['iconfig'])][1]) for molec in dataset]
     dftb_layer_rep_vs_our_dftb_rep = [abs(molec['dzero']['r'] - molec_energies[(molec['name'], molec['iconfig'])][2]) for molec in dataset]
     
+    max_rep_index = 0
+    max_val = 0
+    for index, value in enumerate(dftb_layer_rep_vs_our_dftb_rep):
+        if value > max_val:
+            max_rep_index, max_val = index, value
+    
+    print(f"Maximum repulsive difference is (kcal/mol): {dftb_layer_rep_vs_our_dftb_rep[max_rep_index] * 627}")
+    print(f"The maximum difference occurs with molecule: {dataset[max_rep_index]}")
+    print(f"The layer computed the following repulsive energy (Ha): {molec_energies[ (dataset[max_rep_index]['name'], dataset[max_rep_index]['iconfig'])  ][2] }")
+        
+    
     print(f"Average disagreement between our dftb and dftb+ on total energy (kcal/mol): {mean(our_dftb_vs_dftbplus) * 627.0}")
     print(f"Average disagreement between dftb layer and dftb+ on total energy (kcal/mol): {mean(dftb_layer_vs_dftbplus) * 627}")
     print(f"Average disagreement between dftb layer and our dftb on total energy (kcal/mol): {mean(dftb_layer_vs_our_dftb) * 627}")
     print(f"Average disagreement between dftb layer and our dftb on electronic energy (kcal/mol): {mean(dftb_layer_elec_vs_our_dftb_elec) * 627}")
     print(f"Average disagreement between dftb layer and our dftb on repulsive energy (kcal/mol): {mean(dftb_layer_rep_vs_our_dftb_rep) * 627}")
+    return [our_dftb_vs_dftbplus, dftb_layer_vs_dftbplus, dftb_layer_vs_our_dftb, dftb_layer_elec_vs_our_dftb_elec, dftb_layer_rep_vs_our_dftb_rep]
+
+def test_G_agreement(s: Settings, skf_dir: str, ani1_path: str, par_dict: Dict) -> bool:
+    r"""Method for testing disagreements in the coulomb matrix G b/w the dftb_layer and
+        our pythonic DFTB
+        
+    Arguments:
+        s (Settings): Settings object that contains values for the hyperparameters
+        skf_dir (str): Relative path to the directory containing the skf files used by
+            DFTB+
+        ani1_path (str): Relative path to the h5 ani1 data file
+        par_dict (Dict): Dictionary of operator values from skf files
+        
+    Returns:
+        passed (bool): Indicates if test passed
+        
+    Notes:
+        Compares the outputted Gamma from the dftb_layer to the gamma from dftb.py, 
+        with the dftb.py Gamma converted to a full basis by the function ShellToFullBasis
+    """
+    dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path, s.exclude)
+    layer = DFTB_Layer(s.tensor_device, s.tensor_dtype, s.eig_method, s.rep_setting)
+    feeds, dftb_lsts, all_models, _, _, _, _ = single_fold_precompute(s, dataset, par_dict)
+    total_type_conversion(feeds, [], s.type_conversion_ignore_keys, device = s.tensor_device, dtype = s.tensor_dtype)
+    
+    g_disagreements = []
+    
+    for index, feed in enumerate(feeds):
+        output = layer(feed, all_models)
+        curr_dftbs = dftb_lsts[index].dftbs_by_bsize
+        all_gammas = output['G']
+        for bsize in feed['basis_sizes']:
+            curr_gammas = all_gammas[bsize]
+            curr_gammas_dftb = curr_dftbs[bsize]
+            for i in range(len(curr_gammas_dftb)):
+                curr_gam = curr_gammas[i].detach().cpu().numpy()
+                curr_dftb = curr_gammas_dftb[i]
+                dftb_gam = curr_dftb.ShellToFullBasis(curr_dftb.GetGamma())
+                assert(dftb_gam.shape == curr_gam.shape)
+                g_disagreements.append(np.sum(np.abs(dftb_gam - curr_gam)))
+    
+    mean_disagreement = mean(g_disagreements)
+    print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule: {mean_disagreement}")
+    return mean_disagreement
+
+def test_G_diag_agreement(s: Settings, skf_dir: str, ani1_path: str, par_dict: Dict) -> bool:
+    r"""Method for testing disagreements in the coulomb matrix G b/w the dftb_layer and our pythonic DFTB,
+        but only in terms of the diagonal elements.
+        
+    Arguments:
+        s (Settings): Settings object that contains values for the hyperparameters
+        skf_dir (str): Relative path to the directory containing the skf files used by
+            DFTB+
+        ani1_path (str): Relative path to the h5 ani1 data file
+        par_dict (Dict): Dictionary of operator values from skf files
+        
+    Returns:
+        passed (bool): Indicates if test passed
+        
+    Notes:
+        Compares the outputted Gamma from the dftb_layer to the gamma from dftb.py, 
+        with the dftb.py Gamma converted to a full basis by the function ShellToFullBasis.
+        In theory, the diagonal elements should be fine, but the off-diagonal elements 
+        should disagree.
+    """
+    dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path, s.exclude)
+    layer = DFTB_Layer(s.tensor_device, s.tensor_dtype, s.eig_method, s.rep_setting)
+    feeds, dftb_lsts, all_models, _, _, _, _ = single_fold_precompute(s, dataset, par_dict)
+    total_type_conversion(feeds, [], s.type_conversion_ignore_keys, device = s.tensor_device, dtype = s.tensor_dtype)
+    
+    g_disagreements = []
+    
+    for index, feed in enumerate(feeds):
+        output = layer(feed, all_models)
+        curr_dftbs = dftb_lsts[index].dftbs_by_bsize
+        all_gammas = output['G']
+        for bsize in feed['basis_sizes']:
+            curr_gammas = all_gammas[bsize]
+            curr_gammas_dftb = curr_dftbs[bsize]
+            for i in range(len(curr_gammas_dftb)):
+                curr_gam = curr_gammas[i].detach().cpu().numpy()
+                curr_dftb = curr_gammas_dftb[i]
+                dftb_gam = curr_dftb.ShellToFullBasis(curr_dftb.GetGamma())
+                assert(dftb_gam.shape == curr_gam.shape)
+                disagreement = np.sum(np.abs(np.diag(dftb_gam - curr_gam)))
+                g_disagreements.append(disagreement)
+    
+    mean_disagreement = mean(g_disagreements)
+    print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule ALONG THE DIAGONAL: {mean_disagreement}")
+    return mean_disagreement
+
+def test_G_get_values(s: Settings, skf_dir: str, ani1_path: str, par_dict: Dict) -> bool:
+    r"""Method for testing disagreements in the coulomb matrix G b/w the dftb_layer and our pythonic DFTB,
+        but only in terms of the diagonal elements.
+        
+    Arguments:
+        s (Settings): Settings object that contains values for the hyperparameters
+        skf_dir (str): Relative path to the directory containing the skf files used by
+            DFTB+
+        ani1_path (str): Relative path to the h5 ani1 data file
+        par_dict (Dict): Dictionary of operator values from skf files
+        
+    Returns:
+        passed (bool): Indicates if test passed
+        
+    Notes:
+        This tests the values obtained from the G models used in the dftb layer against
+        the output of the _Gamma12 function. This serves as a test to ensure correct
+        implementation of _Gamma12 operations in dftb_layer_splines_4.py
+    """
+    dataset = get_ani1data(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, ani1_path, s.exclude)
+    feeds, dftb_lsts, all_models, _, _, _, _ = single_fold_precompute(s, dataset, par_dict)
+    total_type_conversion(feeds, [], s.type_conversion_ignore_keys, device = s.tensor_device, dtype = s.tensor_dtype)
+    
+    for feed in feeds:  
+        g_double_mods = [mod for mod in feed if (not isinstance(mod, str)) and (mod.oper == 'G') and (len(mod.Zs) == 2)]
+        for g_mod in g_double_mods:
+            print(f"Evaluating for {g_mod}")
+            curr_g_mod = all_models[g_mod]
+            assert(isinstance(curr_g_mod, OffDiagModel2))
+            curr_vals = curr_g_mod.get_values(feed[g_mod])
+            curr_dists = feed[g_mod]['xeval']
+            vals_dists = list(zip(curr_vals, curr_dists))
+            hub1, hub2 = curr_g_mod.get_variables()
+            hub1, hub2 = hub1.item(), hub2.item()
+            for pair in vals_dists:
+                gamma_result = _Gamma12(pair[1].item(), hub1, hub2)
+                print(pair[0].item(), gamma_result)
+                assert(apx_equal(pair[0].item(), _Gamma12(pair[1].item(), hub1, hub2)))
+    
+    print("OffDiagModel2 computation agrees with _Gamma12 method")
 
 if __name__ == "__main__":
     #File names
@@ -222,7 +366,28 @@ if __name__ == "__main__":
     update_pytorch_arguments(settings_obj)
     par_dict = ParDict()
     
-    test_agreement(settings_obj, 0, skf_path, ani1_path, par_dict)
+    mean_G_total = test_G_agreement(settings_obj, skf_path, ani1_path, par_dict)
+    
+    mean_G_diag = test_G_diag_agreement(settings_obj, skf_path, ani1_path, par_dict)
+    
+    our_dftb_vs_dftbplus, dftb_layer_vs_dftbplus, dftb_layer_vs_our_dftb, dftb_layer_elec_vs_our_dftb_elec, dftb_layer_rep_vs_our_dftb_rep = test_agreement(settings_obj, 0, skf_path, ani1_path, par_dict)
+    
+    print()
+    print()
+    print()
+    
+    print(f"Average disagreement between our dftb and dftb+ on total energy (kcal/mol): {mean(our_dftb_vs_dftbplus) * 627.0}")
+    print(f"Average disagreement between dftb layer and dftb+ on total energy (kcal/mol): {mean(dftb_layer_vs_dftbplus) * 627}")
+    print(f"Average disagreement between dftb layer and our dftb on total energy (kcal/mol): {mean(dftb_layer_vs_our_dftb) * 627}")
+    print(f"Average disagreement between dftb layer and our dftb on electronic energy (kcal/mol): {mean(dftb_layer_elec_vs_our_dftb_elec) * 627}")
+    print(f"Average disagreement between dftb layer and our dftb on repulsive energy (kcal/mol): {mean(dftb_layer_rep_vs_our_dftb_rep) * 627}")
+    
+    print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule: {mean_G_total}")
+    
+    print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule ALONG THE DIAGONAL: {mean_G_diag}")
+    
+    # test_G_get_values(settings_obj, skf_path, ani1_path, par_dict)
+    
     
     # #Load the data and pardict
     # ani_path = os.path.join(os.getcwd(), "data", "ANI-1ccx_clean_fullentry.h5")
