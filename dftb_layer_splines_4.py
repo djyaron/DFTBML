@@ -1814,6 +1814,28 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                 model = Input_layer_DFTB(model_spec)
             return (model, 'opt')
 
+# def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
+#     r"""Function for summing elements together based on index
+    
+#     Arguments:
+#         data (Tensor): The data to sum together
+#         segment_ids (Tensor): The indices used to sum together corresponding elements
+#         device (torch.device): The device to execute the operations on (CPU vs GPU)
+#         dtype (torch.dtype): The datatype for the result
+    
+#     Returns:
+#         res (Tensor): The resulting tensor from executing the segment sum
+    
+#     Notes: This is similar to scatter_add for PyTorch, but this is easier to deal with.
+#         The segment_ids, since they are being treated as indices, must be a tensor
+#         of integers
+#     """
+#     max_id = torch.max(segment_ids)
+#     res = torch.zeros([max_id + 1], device = device, dtype = dtype)
+#     for i, val in enumerate(data):
+#         res[segment_ids[i]] += val
+#     return res
+
 def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
     r"""Function for summing elements together based on index
     
@@ -1832,9 +1854,12 @@ def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, d
     """
     max_id = torch.max(segment_ids)
     res = torch.zeros([max_id + 1], device = device, dtype = dtype)
-    for i, val in enumerate(data):
-        res[segment_ids[i]] += val
+    # for i, val in enumerate(data):
+    #     res[segment_ids[i]] += val
+    res = res.scatter_add(0, segment_ids.long(), data)
     return res
+
+
 
 class DFTB_Layer(nn.Module):
     

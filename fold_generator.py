@@ -26,9 +26,20 @@ The file names are fixed so that everything can be properly read from the fold
 without any additional work in figuring out the file names. Only the top level directory
 containing all the fold subdirectories can be alternately named by the user
 
+The module is separated into blocks based on what the functions within that 
+block are specialized for, but some functions (e.g. save_feed_h5,
+single_fold_precompute, compute_graphs_from_folds) are designed for universal use.
+
+The idea is the generate_folds method generates folds as splits of molecules,
+and methods in later blocks manipulate those splits (as pickle files) to create
+different sets of splits (as pickle files) and thus different datasets.
+
+Naming conventions:
+    Folds as raw molecule dictionaries are saved as pickle files with the 
+        convention Fold{fold_num}_molecs.p
+
 TODO:
-    1) Finish single distribution plotting function
-    2) Start testing stuff out
+    1) Refactoring and cleanup for this module
 """
 
 from dftb_layer_splines_4 import graph_generation, feed_generation, model_loss_initialization,\
@@ -49,6 +60,7 @@ from scipy.spatial.distance import pdist
 from matplotlib.ticker import AutoMinorLocator
 import re
 from scipy.stats import ks_2samp, iqr, mannwhitneyu
+from functools import reduce
 
 #%% General functions and constants
 class Settings:
@@ -1195,6 +1207,56 @@ def load_combined_fold(s: Settings, top_level_fold_path: str, fold_num: int, fol
     
     return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
+#%% Generate alternative datasets from existing data
+
+"""
+Methods for manipulating existing datasets into different configurations for
+testing on PSC
+"""
+def randomize_existing_set(src_dir: str, dest_dir: str) -> None:
+    r"""Takes an existing set of folds in the pickle form
+        and randomizes the molecules contained within.
+    
+    Arguments:
+        src_dir (str): The relative path to the source directory to generate
+            the new dataset off of the existing folds contained in src_dir
+        dest_dir (str): Relative path to destination directory for saving
+        
+    Returns:
+        None
+        
+    Notes:
+        This method takes an existing set of molecules and randomizes the molecules
+        across all the pickle files. It then divides the molecules into folds 
+        of the original sizes and saves them in pickle format. Precomputation to 
+        generate the graphs and feeds will have to be done on PSC since the datasets
+        are too big for laptops.
+    """
+    pattern = r"Fold[0-9]+_molecs.p"
+    #Should contain the names of all valid molecule pickle files (e.g. Fold0_molecs.p)
+    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir(src_dir)))
+    total_molecs = [pickle.load(open(os.path.join(src_dir, filename), 'rb')) for filename in valid_names]
+    fold_sizes = [len(x) for x in total_molecs]
+    total_molecs = list(reduce(lambda x, y : x + y, total_molecs))
+    #Random shuffling of molecules without bias to permutations
+    random.shuffle(total_molecs)
+    splitting_indices = [0] + [fold_sizes[i] + sum(fold_sizes[:i]) if i > 0 else fold_sizes[i] for i in range(len(fold_sizes))]
+    #Split back into the original folds and save the molecules into a pickle
+    #   file based on the original fold sizes
+    for i in range(len(splitting_indices) - 1):
+        curr_molecs = total_molecs[splitting_indices[i] : splitting_indices[i + 1]]
+        save_path = os.path.join(dest_dir, f"Fold{i}_molecs.p")
+        with open(save_path, 'wb') as handle:
+            pickle.dump(curr_molecs, handle)
+    
+    print("New folds generated")
+        
+    
+    
+    
+
+#%% Main block
+
 if __name__ == "__main__":
     
     pass
@@ -1276,56 +1338,53 @@ if __name__ == "__main__":
     #         print("Folds are not similar enough")
     #         i += 1
     
-    ## Testing pre-computes and saves for smaller sets of molecules from nheavy based folds
-    test_fold = 'fold_molecs_test'
-    if not os.path.isdir(test_fold):
-        os.mkdir(test_fold)
+    # ## Testing pre-computes and saves for smaller sets of molecules from nheavy based folds
+    # test_fold = 'fold_molecs_test'
+    # if not os.path.isdir(test_fold):
+    #     os.mkdir(test_fold)
         
-    pattern = r"Fold[0-9]+_molecs.p"
-    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir('fold_molecs')))
+    # pattern = r"Fold[0-9]+_molecs.p"
+    # valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir('fold_molecs')))
     
-    #First copy over a small set of molecules into the test folder
-    for name in valid_names:
-        full_name = os.path.join("fold_molecs", name)
-        molecs = pickle.load(open(full_name, 'rb'))
-        new_molecs = molecs[:200]
-        dest_name = os.path.join(test_fold, name)
-        with open(dest_name, 'wb') as handle:
-            pickle.dump(new_molecs, handle)
+    # #First copy over a small set of molecules into the test folder
+    # for name in valid_names:
+    #     full_name = os.path.join("fold_molecs", name)
+    #     molecs = pickle.load(open(full_name, 'rb'))
+    #     new_molecs = molecs[:200]
+    #     dest_name = os.path.join(test_fold, name)
+    #     with open(dest_name, 'wb') as handle:
+    #         pickle.dump(new_molecs, handle)
             
-    #Now do the precompute using the settings
-    with open("settings_default.json", "r") as handle:
-        settings = json.load(handle)
+    # #Now do the precompute using the settings
+    # with open("settings_default.json", "r") as handle:
+    #     settings = json.load(handle)
     
-    settings_obj = Settings(settings)
-    compute_graphs_from_folds(settings_obj, "fold_molecs_test", copy_molecs = True)
+    # settings_obj = Settings(settings)
+    # compute_graphs_from_folds(settings_obj, "fold_molecs_test", copy_molecs = True)
     
-    ## Testing loading for single folds after saving
-    test_fold = 'fold_molecs_test'
-    assert(os.path.isdir(test_fold))
-    pattern = r"Fold[0-9]+"
-    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir('fold_molecs')))
+    # ## Testing loading for single folds after saving
+    # test_fold = 'fold_molecs_test'
+    # assert(os.path.isdir(test_fold))
+    # pattern = r"Fold[0-9]+"
+    # valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir('fold_molecs')))
     
-    with open("settings_default.json", "r") as handle:
-        settings = json.load(handle)
+    # with open("settings_default.json", "r") as handle:
+    #     settings = json.load(handle)
     
-    settings_obj = Settings(settings)
+    # settings_obj = Settings(settings)
     
-    for i in range(len(valid_names)):
-        _, _ = load_single_fold(settings_obj, top_level_fold_path = test_fold, fold_num = i)
+    # for i in range(len(valid_names)):
+    #     _, _ = load_single_fold(settings_obj, top_level_fold_path = test_fold, fold_num = i)
         
     
-    print("Hello")
+    # print("Hello")
     
+    ## Testing methods for generating alternative datasets
+    src_path = 'C:\\Users\\fhu14\\Documents\\dftbtorch\\datasets_dir\\randomized_set\\src'
+    dest_path = 'C:\\Users\\fhu14\\Documents\\dftbtorch\\datasets_dir\\randomized_set'
+    randomize_existing_set(src_path, dest_path)
     
-    
-    
-    
-    
-    
-    
-    pass
-    
+
     
     
         
