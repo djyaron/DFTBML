@@ -43,7 +43,7 @@ TODO:
 """
 
 from dftb_layer_splines_4 import graph_generation, feed_generation, model_loss_initialization,\
-    get_ani1data
+    get_ani1data, model_range_correction
 from dftbrep_fold import get_folds_cv_limited, extract_data_for_molecs
 from typing import List, Dict
 from batch import DFTBList
@@ -61,24 +61,14 @@ from matplotlib.ticker import AutoMinorLocator
 import re
 from scipy.stats import ks_2samp, iqr, mannwhitneyu
 from functools import reduce
+import pandas
+import time
+
+from util import dictionary_tuple_correction, Settings
+
+DataFrame = pandas.DataFrame
 
 #%% General functions and constants
-class Settings:
-    def __init__(self, settings_dict: Dict) -> None:
-        r"""Generates a Settings object from the given dictionary
-        
-        Arguments:
-            settings_dict (Dict): Dictionary containing key value pairs for the
-                current hyperparmeter settings
-        
-        Returns:
-            None
-        
-        Notes: Using an object rather than a dictionary is easier since you can
-            just do settings.ZZZ rather than doing the bracket notation and the quotes.
-        """
-        for key in settings_dict:
-            setattr(self, key, settings_dict[key])
 
 def energy_correction(molec: Dict) -> None:
     r"""Performs in-place total energy correction for the given molecule by dividing Etot/nheavy
@@ -1029,6 +1019,15 @@ def single_fold_precompute(s: Settings, molecs: List[Dict], par_dict: Dict) -> (
             
     all_models, model_variables, loss_tracker, all_losses, model_range_dict = model_loss_initialization(feeds, [],
                                                                                s.allowed_Zs, losses, s.tensor_device, s.tensor_dtype, ref_ener_start = s.reference_energy_starting_point)
+    
+    print("Performing model range correction")
+    s.low_end_correction_dict = dictionary_tuple_correction(s.low_end_correction_dict)
+    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, universal_high = s.universal_high)
+    
+    #Change the tuples over if a cutoff dictionary is given
+    if s.cutoff_dictionary is not None:
+        s.cutoff_dictionary = dictionary_tuple_correction(s.cutoff_dictionary)
+    
     feed_generation(feeds, batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, 
                     s.tensor_device, s.tensor_dtype, s.debug, False, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
@@ -1207,7 +1206,7 @@ def load_combined_fold(s: Settings, top_level_fold_path: str, fold_num: int, fol
     
     return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
-#%% Generate alternative datasets from existing data
+#%% Generate alternative dataset from existing data
 
 """
 Methods for manipulating existing datasets into different configurations for
@@ -1250,10 +1249,241 @@ def randomize_existing_set(src_dir: str, dest_dir: str) -> None:
             pickle.dump(curr_molecs, handle)
     
     print("New folds generated")
+    
+    
+#%% Generate dataset from molecules used in visualization (aec_df.pkl)
+
+"""
+The data is saved as a dataframe, so that will have to be manipulated into the
+dictionary format we're used to working with
+
+The entries only work if the number of conformations for the molecule across
+both datasets is EQUAL
+
+The generate_df_from_fullentry method works to take all the molecules from 
+ANI-1ccx_clean_fullentry.h5 and format it into a dataframe similar to the form
+included in aec_df.pkl
+"""
+
+def compare_frame_to_ani1(molecs: List[Dict], df: DataFrame,
+                 target: Dict[str, str], alias_mapping: Dict[str, str], tol: float) -> None:
+    r"""Method to compare the entries in the ani1 data h5 file and the entries
+        in the dataframe
+    
+    Arguments:
+        allowed_Z (List[int]): Include only molecules whose elements are in
+            this list
+        heavy_atoms (List[int]): Include only molecules for which the number
+            of heavy atoms is in this list
+        max_config (int): Maximum number of configurations included for each
+            molecule.
+        target (Dict[str,str]): entries specify the targets to extract
+            key: target_name name assigned to the target
+            value: key that the ANI-1 file assigns to this target
+        ani1_path (str): The relative path to the data file. Defaults to
+            'data/ANI-1ccx_clean_fullentry.h5'
+        alias_mapping (Dict[str, str]): Mapping taking the target alias the correct alias for 
+            the dataframe headers. The keys for the alias_mapping dictionary should
+            be the same as those in the target dictionary, so that the alias_mapping
+            is a correction to the target dictionary by taking the same keys and 
+            mapping them to the correct values. If certain targets do not exist
+            (e.g. dataframe does not contain dipole or charges information), then
+            the value for the corresponding key is set to the empty string ""
+        df_name (str): Relative path to the file containing the dataframe. Should be a pickle file!
+        tol (float): Float tolerance for comparison. 
+        exclude (List[str], optional): Exclude these molecule names from the
+            returned molecules
+            Defaults to [].
+    
+    Returns:
+        None
+    """
+    #Make sure the target and alias map have the same keys for easy cross-over correction
+    assert(set(target.keys()) == set(alias_mapping.keys()))
+    
+    good_targets = []
+    for key in target:
+        if alias_mapping[key] != "":
+            good_targets.append(key)
+            
+    print("Good targets")
+    print(good_targets)
+    
+    differences = []
+    
+    for target in good_targets:
+        print(f"Checking {target}")
+        for molec in molecs:
+            molec_val = molec['targets'][target]
+            molec_name, molec_conf = molec['name'], molec['iconfig']
+            df_curr = df.loc[(df['mol'] == molec_name) & (df['conf'] == molec_conf)][alias_mapping[target]]
+            if df_curr.empty:
+                print(f"Molecule ({molec['name']}, {molec['iconfig']}) not contained in dataframe")
+                continue
+            df_val = df_curr.item()
+            try:
+                assert(abs(molec_val - df_val) < tol)
+            except:
+                print("Values differ")
+                print(f"molec_val: {molec_val}, df_val: {df_val}")
+                differences.append(abs(molec_val - df_val))
+                
+    if len(differences) == 0:
+        print("Energy values between ani1 and dataframe are consistent")
+    else:
+        print(f"Energy values between ani1 and dataframe are not consistent, average difference is {sum(differences) / len(differences)} above a tolerance of {tol}")
+
+def determine_valid_empirical_formulas(molecs: List[Dict], df: DataFrame) -> List[str]:
+    r"""Goes through the list of molecule dictionaries and figures out which
+        empirical formulas are able to be cross-referenced with the dataframe.
         
+    Arguments:
+        molecs (list[Dict]): List of molecule dictionaries
+        df (DataFrame): The dataframe for cross-referencing
     
+    Returns:
+        good_formulas (List[str]): The list of empirical formulas that can be
+            cross-referenced b/w the dictionary list and the dataframe.
+            
+    Notes: Because in forming the clean h5 dataset entries were deleted, this
+        breaks the ordering of the conformation numbers. As such, only those 
+        empirical formulas which have the same number of configurations in the
+        h5 file as in the dataframe still have correct ordering for the 
+        confirmation numbers.
+    """
+    name_conf_count = dict()
     
+    for molec in molecs:
+        name = molec['name']
+        if name not in name_conf_count:
+            name_conf_count[name] = 1
+        else:
+            name_conf_count[name] += 1
     
+    good_formulas = [formula for formula in name_conf_count if name_conf_count[formula] == df.loc[df['mol'] == formula].shape[0]]
+    return good_formulas
+
+def generate_df_from_fullentry(molecs: List[Dict], allowed_Zs_syms: Dict, targets: Dict) -> DataFrame:
+    r"""Generates a dataframe from a set of molecule dictionaries
+    
+    Arguments: 
+        molecs (List[Dict]): List of molecule dictionaries.
+        allowed_Zs_syms (Dict): Dictionary mapping the atomic numbers of the allowed
+            elements to their symbol as a string. For example, 1 : 'H'.
+        targets (Dict): The target dictionary used to generate molecs. The values
+            of this dictionary are used as keys in the final dataframe.
+    
+    Returns:
+        df (DataFrame): The dataframe generated from the molecule dictionaries.
+    
+    Notes: Generates a dataframe of dimension len(molecs), len(targets) where all the targets
+        included within the molecules are used. The molecule should only contain 1 dimensional
+        values (just the energy #'s) and no two dimensional values, like charge or dipole vectors.
+        
+        Since the values of the target dictionary are used as keys in the final dataframe,
+        the values should be the true names of the targets. For example, a possible key-value pair in
+        targets could be 'cc' : 'ccsd(t)_cbs.energy'.
+    """    
+    total_df_dict = dict()
+    total_df_dict['mol'] = [molec['name'] for molec in molecs]
+    total_df_dict['conf'] = [molec['iconfig'] for molec in molecs]
+    
+    for key in sorted(list(allowed_Zs_syms.keys())):
+        total_df_dict[f"n{allowed_Zs_syms[key]}"] = []
+    
+    for key in targets:
+        total_df_dict[targets[key]] = []
+    
+    nheavy_counters = [collections.Counter(molec['atomic_numbers']) for molec in molecs]
+    
+    #Add in the atom counts
+    for counter in nheavy_counters:
+        for elem_num in allowed_Zs_syms:
+            total_df_dict[f"n{allowed_Zs_syms[elem_num]}"].append(counter[elem_num])
+            
+    #Add in the energy targets
+    for molec in molecs:
+        for target in targets:
+            total_df_dict[targets[target]].append(molec['targets'][target])
+    
+    df = DataFrame(total_df_dict)
+    return df
+
+# target = {"Etot" : "cc",
+#             "dipole" : "wb97x_dz.dipole",
+#             "charges" : "wb97x_dz.cm5_charges"}
+
+# alias_map = {"Etot" : "ccsd(t)_cbs.energy",
+#               "dipole" : "",
+#               "charges" : ""}
+
+# target_new = {'dt': 'dftb.energy',  # Dftb Total
+#                 'de': 'dftb.elec_energy',  # Dftb Electronic
+#                 'dr': 'dftb.rep_energy',  # Dftb Repulsive
+#                 'pt': 'dftb_plus.energy',  # dftb Plus Total
+#                 'pe': 'dftb_plus.elec_energy',  # dftb Plus Electronic
+#                 'pr': 'dftb_plus.rep_energy',  # dftb Plus Repulsive
+#                 'hd': 'hf_dz.energy',  # Hf Dz
+#                 'ht': 'hf_tz.energy',
+#                 'hq': 'hf_qz.energy',
+#                 'wd': 'wb97x_dz.energy',  # Wb97x Dz
+#                 'wt': 'wb97x_tz.energy',
+#                 'md': 'mp2_dz.energy',  # Mp2 Dz
+#                 'mt': 'mp2_tz.energy',
+#                 'mq': 'mp2_qz.energy',
+#                 'td': 'tpno_ccsd(t)_dz.energy',  # Tpno Dz
+#                 'nd': 'npno_ccsd(t)_dz.energy',  # Npno Dz
+#                 'nt': 'npno_ccsd(t)_tz.energy',
+#                 'cc': 'ccsd(t)_cbs.energy',
+#                 'mdc' : 'mp2_dz.corr_energy',
+#                 'mqc' : 'mp2_qz.corr_energy',
+#                 'mtc' : 'mp2_tz.corr_energy',
+#                 'ndc' : 'npno_ccsd(t)_dz.corr_energy',
+#                 'ntc' : 'npno_ccsd(t)_tz.corr_energy',
+#                 'tdc' : 'tpno_ccsd(t)_dz.corr_energy'}
+
+# allowed_Z = [1,6,7,8] #H, C, N, O
+# ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
+# tol = 1E-12
+# df_name = "aec_df.pkl"
+# exclude = ["O3", "N2O1", "H1N1O3", "H2"]
+
+# #Set these parameters to very large #'s to get the pull dataset
+# heavy_atoms = [i for i in range(10000)]
+# max_config = 1_000_000
+
+# full_ani1_molecs = get_ani1data(allowed_Z, heavy_atoms, max_config, target_new, ani1_path, exclude)
+# df = pickle.load(open(df_name, 'rb'))
+
+# ## Checking which conformations are valid to use
+
+# # result = determine_valid_empirical_formulas(full_ani1_molecs, df)
+# # print(result)
+
+# # good_names = ['C10H10N4', 'C10H14', 'C10H15N1O3', 'C10H9N1O3', 'C11H14O4', 'C12H10O1', 'C12H15N1O2', 
+# #               'C12H16O1', 'C13H13N1O1', 'C1H5N7O1', 'C3H12N6', 'C4H2O5', 'C5H1N1O3', 'C7H10N4O2', 'C7H11N3O3', 
+# #               'C7H15N1O5', 'C7H16O1', 'C7H7N7', 'C8H17N1O4', 'C8H19N1O1', 'C9H10N4O1', 'C9H13N5', 'C9H6O1']
+
+# # assert(result == good_names)
+
+# # good_molecs = [molec for molec in full_ani1_molecs if molec['name'] in good_names]
+# # compare_frame_to_ani1(good_molecs, df, target, alias_map, tol)
+
+# ## Generating a new dataframe for visualization efforts
+
+# num_sym_dict = {1 : "H", 6 : "C", 7 : "N", 8 : "O"}
+
+# df_new = generate_df_from_fullentry(full_ani1_molecs, num_sym_dict, target_new)
+
+# with open("cfe_df.pkl", "wb") as handle:
+#     pickle.dump(df_new, handle)
+
+# start = time.time()
+# compare_frame_to_ani1(random.sample(full_ani1_molecs, 1000), df_new, target_new, target_new, tol)
+# elapsed = time.time() - start
+# print(elapsed)
+
+
 
 #%% Main block
 

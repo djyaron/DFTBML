@@ -38,9 +38,9 @@ from util import Settings, update_pytorch_arguments, construct_final_settings_di
 #Trick for toggling print statements globally, code was found here:
 # https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
 # Apparently need to comment out this print when debugging in console??
-# def print(*args, **kwargs):
-#     if enable_print:
-#         return __builtins__.print(*args, **kwargs)
+def print(*args, **kwargs):
+    if enable_print:
+        return __builtins__.print(*args, **kwargs)
 
 def get_graph_data_noCV(s: Settings, par_dict: Dict):
     r"""Handles the molecule grabbing and graph generating stages of pre-compute.
@@ -710,13 +710,13 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
 if __name__ == "__main__":
     # Construct the parser
     
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
-    # parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
-    # parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
+    parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
+    parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
     
-    # args = parser.parse_args()
-    enable_print = 1 # if args.verbose else 0
+    args = parser.parse_args()
+    enable_print = 1 if args.verbose else 0
     
     # Testing code
     # This testing code assumes the following command line is used:
@@ -846,7 +846,7 @@ if __name__ == "__main__":
     
     ## Testing for the CV case
     start = time.time()
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method("settings_default.json", "defaults.json")
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
     elapsed = time.time() - start
     print(f"Run took {elapsed} seconds")
     print(loss_tracker)

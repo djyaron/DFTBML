@@ -66,7 +66,7 @@ def compute_mod_vals_derivs(all_models: Dict, par_dict: Dict, ngrid: int = 200,
     model_spline_dict = dict()
     for model in all_models:
         try:
-            #Only two-body H, G, R
+            #Only two-body H, R, S
             # THE TRY AND EXCEPT IS EXCLUDING THE G MODELS
             if (model.oper not in op_ignore) and (len(model.Zs) == 2):
                 pairwise_lin = all_models[model]
@@ -116,6 +116,7 @@ def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
         elif concavity_deriv1 == concavity_deriv0:
             #Should not happen
             print(f"Concavity mismatch for {model_spec}")
+            # print(concavity_deriv1, concavity_deriv0)
         # xs = [i for i in range(len(y_vals_deriv0))]
         # fig, axs = plt.subplots()
         # axs.scatter(xs, y_vals_deriv0)

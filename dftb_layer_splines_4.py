@@ -54,6 +54,8 @@ from loss_models import TotalEnergyLoss, FormPenaltyLoss, ChargeLoss, DipoleLoss
 from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
 from functools import partial
 
+from util import apx_equal
+
 # Fix the system path to append some new stuff
 # Courtesy of https://stackoverflow.com/questions/4383571/importing-files-from-different-folder
 # NOTE: THIS IS NOT A PERMANENT SOLUTION! Files will have to be merged properly eventually
@@ -66,24 +68,6 @@ import driver #Should be the driver coming from DFTBRepulsive
 
 #Fix the ani1_path for now
 ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
-
-def apx_equal(x: Union[float, int], y: Union[float, int], tol: float = 1e-12) -> bool:
-    r"""Compares two floating point numbers for equality with a given threshold
-    
-    Arguments:
-        x (float): The first number to be compared
-        y (float): The second number to be compared
-        
-    Returns:
-        equality (bool): Whether the two given numbers x and y are equal
-            within the specified threshold by comparing the absolute value
-            of their difference.
-            
-    Notes: This method works with both integers and floats, which are the two 
-        numeric types. Chosen workaround for determining float equality
-
-    """
-    return abs(x - y) < tol
 
 def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int, 
                  target: Dict[str, str], ani1_path: str = ani1_path, exclude: List[str] = []) -> List[Dict]:

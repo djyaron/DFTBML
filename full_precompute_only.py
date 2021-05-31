@@ -10,8 +10,9 @@ The only purpose of this file is to run on a psc environment and
 perform the precompute stage using all the molecules
 """
 import json
-from fold_generator import compute_graphs_from_folds, Settings
+from fold_generator import compute_graphs_from_folds
 import argparse
+from util import update_pytorch_arguments, Settings
 
 parser = argparse.ArgumentParser()
 parser.add_argument("settings", help = "Name of settings file to use in prcomputation stage")
@@ -27,5 +28,6 @@ if __name__ == "__main__":
         settings = json.load(handle)
     
     settings_obj = Settings(settings)
+    update_pytorch_arguments(settings_obj)
     compute_graphs_from_folds(settings_obj, fold_directory_name, copy_molecs = True)
     pass

@@ -28,8 +28,6 @@ from auorg_1_1 import ParDict
 from dftb import DFTB
 pardict = ParDict()
 
-
-
 def load_ani1(ani_path: str, max_config: int, maxheavy: int = 8, allowed_Zs: List[int] = [1, 6, 7, 8]):
     r"""Pulls data from the ani h5 datafile
     
@@ -323,7 +321,7 @@ def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int]
     predicted_target = predicted_dt + np.dot(ref_ener_mat, reference_ener_coefs)
     true_target = np.array([molec['targets'][target] for molec in dataset])
     diff = true_target - predicted_target
-    return np.mean(np.square(diff)) #Computes MSE
+    return np.sqrt(np.mean(np.square(diff))) 
     
 #%% ANI Testing (dftbtorch, electronic and organic only)
 if __name__ == "__main__":
@@ -334,14 +332,14 @@ if __name__ == "__main__":
     skf_dir_base = os.path.join(os.getcwd(), "auorg-1-1") #0.0006212656602691023
     skf_dir_mio = os.path.join(os.getcwd(), "mio-0-1") #
     skf_dir_diff = os.path.join(os.getcwd(), "second_run") #1653.8940664244737
-    skf_dir_psc = os.path.join(os.getcwd(), "pscskf") #9.591953499658114
+    skf_dir_psc = os.path.join(os.getcwd(), "pscskf", "run14") #9.591953499658114
     skf_dir_old_rep = os.path.join(os.getcwd(), "old_rep_setting_run") #0.0007158606052278207
-    dataset = load_ani1(data_path, 5)
+    dataset = load_ani1(data_path, 1)
     print(f"The number of molecules in the dataset is {len(dataset)}")
-    add_dftb(dataset, skf_dir_psc)
-    MSE = compute_results_ANI1(dataset, target, allowed_Zs)
-    print(f"Mean square error is {MSE} in Ha")
-    print(f"Mean square error is {MSE * 627} in kcal/mol")
+    add_dftb(dataset, skf_dir_base)
+    RMS = compute_results_ANI1(dataset, target, allowed_Zs)
+    print(f"Mean square error is {RMS} in Ha")
+    print(f"Mean square error is {RMS * 627} in kcal/mol")
     pass
     
     

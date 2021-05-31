@@ -35,67 +35,7 @@ Tensor = torch.Tensor
 Array = np.ndarray
 from auorg_1_1 import ParDict
 
-class Settings:
-    def __init__(self, settings_dict: Dict) -> None:
-        r"""Generates a Settings object from the given dictionary
-        
-        Arguments:
-            settings_dict (Dict): Dictionary containing key value pairs for the
-                current hyperparmeter settings
-        
-        Returns:
-            None
-        
-        Notes: Using an object rather than a dictionary is easier since you can
-            just do settings.ZZZ rather than doing the bracket notation and the quotes.
-        """
-        for key in settings_dict:
-            setattr(self, key, settings_dict[key])
-            
-def update_pytorch_arguments(settings: Settings) -> None:
-    r"""Updates the arguments in the settings object to the corresponding 
-        PyTorch types
-        
-    Arguments:
-        settings (Settings): The settings object representing the current set of 
-            hyperparameters
-    
-    Returns:
-        None
-        
-    Notes: First checks if a CUDA-capable GPU is available. If not, it will
-        default to using CPU only.
-        
-        
-    TODO: Need to add tensor_dtype, tensor_device, and device_index as fields in
-        the settings files
-    """
-    if settings.tensor_dtype == 'single':
-        print("Tensor datatype set as single precision (float 32)")
-        settings.tensor_dtype = torch.float
-    elif settings.tensor_dtype == 'double':
-        print("Tensor datatype set as double precision (float 64)")
-        settings.tensor_dtype = torch.double
-    else:
-        raise ValueError("Unrecognized tensor datatype")
-        
-    num_gpus = torch.cuda.device_count()
-    if settings.tensor_device == 'cpu':
-        print("Tensor device set as cpu")
-        settings.tensor_device = 'cpu'
-    elif num_gpus == 0 or (not (torch.cuda.is_available())):
-        print("Tensor device set as cpu because no GPUs are available")
-        settings.tensor_device = 'cpu'
-    else:
-        gpu_index = int(settings.device_index)
-        if gpu_index >= num_gpus:
-            print("Invalid GPU index, defaulting to CPU")
-            settings.tensor_device = 'cpu'
-        else:
-            print("Valid GPU index, setting tensor device to GPU")
-            #I think the generic way is to do "cuda:{device index}", but not sure about this
-            settings.tensor_device = f"cuda:{gpu_index}"
-            print(f"Used GPU name: {torch.cuda.get_device_name(settings.tensor_device)}")
+from util import Settings, update_pytorch_arguments
 
 def load_ani1(ani_path: str, max_config: int, maxheavy: int = 8, allowed_Zs: List[int] = [1, 6, 7, 8]):
     r"""Pulls data from the ani h5 datafile
