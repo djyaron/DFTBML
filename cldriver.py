@@ -32,157 +32,15 @@ from skfwriter import main, atom_nums, atom_masses
 from fold_generator import loading_fold, load_combined_fold
 import pickle
 
+from util import Settings, update_pytorch_arguments, construct_final_settings_dict,\
+    dictionary_tuple_correction, paired_shuffle, convert_key_to_num, create_split_mapping
+
 #Trick for toggling print statements globally, code was found here:
 # https://stackoverflow.com/questions/32487941/efficient-way-of-toggling-on-off-print-statements-in-python/32488016
 # Apparently need to comment out this print when debugging in console??
-def print(*args, **kwargs):
-    if enable_print:
-        return __builtins__.print(*args, **kwargs)
-
-class Settings:
-    def __init__(self, settings_dict: Dict) -> None:
-        r"""Generates a Settings object from the given dictionary
-        
-        Arguments:
-            settings_dict (Dict): Dictionary containing key value pairs for the
-                current hyperparmeter settings
-        
-        Returns:
-            None
-        
-        Notes: Using an object rather than a dictionary is easier since you can
-            just do settings.ZZZ rather than doing the bracket notation and the quotes.
-        """
-        for key in settings_dict:
-            setattr(self, key, settings_dict[key])
-            
-def update_pytorch_arguments(settings: Settings) -> None:
-    r"""Updates the arguments in the settings object to the corresponding 
-        PyTorch types
-        
-    Arguments:
-        settings (Settings): The settings object representing the current set of 
-            hyperparameters
-    
-    Returns:
-        None
-        
-    Notes: First checks if a CUDA-capable GPU is available. If not, it will
-        default to using CPU only.
-        
-        
-    TODO: Need to add tensor_dtype, tensor_device, and device_index as fields in
-        the settings files
-    """
-    if settings.tensor_dtype == 'single':
-        print("Tensor datatype set as single precision (float 32)")
-        settings.tensor_dtype = torch.float
-    elif settings.tensor_dtype == 'double':
-        print("Tensor datatype set as double precision (float 64)")
-        settings.tensor_dtype = torch.double
-    else:
-        raise ValueError("Unrecognized tensor datatype")
-        
-    num_gpus = torch.cuda.device_count()
-    if settings.tensor_device == 'cpu':
-        print("Tensor device set as cpu")
-        settings.tensor_device = 'cpu'
-    elif num_gpus == 0 or (not (torch.cuda.is_available())):
-        print("Tensor device set as cpu because no GPUs are available")
-        settings.tensor_device = 'cpu'
-    else:
-        gpu_index = int(settings.device_index)
-        if gpu_index >= num_gpus:
-            print("Invalid GPU index, defaulting to CPU")
-            settings.tensor_device = 'cpu'
-        else:
-            print("Valid GPU index, setting tensor device to GPU")
-            #I think the generic way is to do "cuda:{device index}", but not sure about this
-            settings.tensor_device = f"cuda:{gpu_index}"
-            print(f"Used GPU name: {torch.cuda.get_device_name(settings.tensor_device)}")
-
-def construct_final_settings_dict(settings_dict: Dict, default_dict: Dict) -> Dict:
-    r"""Generates the final settings dictionary based on the input settings file and the
-        defaults file
-    
-    Arguments:
-        settings_dict (Dict): Dictionary of the user-defined hyperparameter settings. 
-            Read from the settings json file
-        default_dict (Dict): Dictionary of default hyperparameter settings. 
-            Read from the defaults json file
-    
-    Returns:
-        final_settings_dict (Dict): The final dictionary containing the settings
-            to be used for the given run over all hyperparameters
-    
-    Notes: If something is not specified in the settings file, then the
-        default value is pulled from the default_dict to fill in. For this reason,
-        the default_dict contains the important keys and the settings file
-        can contain a subset of these important keys. The settings file will include
-        some information that is not found in the default dictionary, such as the 
-        name given to the current run and the directory for saving the skf files at the end
-        
-        The settings_dict must contain the run_name key
-    """
-    final_dict = dict()
-    for key in default_dict:
-        if key not in settings_dict:
-            final_dict[key] = default_dict[key]
-        else:
-            final_dict[key] = settings_dict[key]
-    try:
-        final_dict['run_id'] = settings_dict['run_id']
-    except:
-        raise KeyError("Settings file must include the 'run_id' field!")
-    
-    return final_dict
-
-def dictionary_tuple_correction(input_dict: Dict) -> Dict:
-    r"""Performs a correction on the input_dict to convert from string to tuple
-    
-    Arguments:
-        input_dict (Dict): The dictionary that needs correction
-    
-    Returns:
-        new_dict (Dict): Dictionary with the necessary corrections
-            applied
-    
-    Notes: The two dictionaries that need correction are the cutoff dictionary and the
-        range correction dictionary for model_range_dict. For the dictionary used to 
-        correct model ranges, the keys are of the form "elem1,elem2" where elem1 and elem2 
-        are the atomic numbers of the first and second element, respectively. These
-        need to be converted to a tuple of the form (elem1, elem2).
-        
-        For the dictionary used to specify cutoffs (if one is provided), the format 
-        of the keys is "oper,elem1,elem2" where oper is the operator of interest and
-        elem1 and elem2 are again the atomic numbers of the elements of interest. This
-        will be converted to a tuple of the form (oper, (elem1, elem2)). A check is 
-        performed between these cases depending on the number of commas.
-        
-        The reason for this workaround is because JSON does not support tuples. 
-        An alternative would have been to use a string representation of the tuple
-        with the eval() method. 
-    """
-    num_commas = list(input_dict.keys())[0].count(",")
-    if num_commas == 0:
-        print("Dictionary does not need correction")
-        print(input_dict)
-        return input_dict #No correction needed
-    new_dict = dict()
-    #Assert key consistency in the dictionary
-    for key in input_dict:
-        assert(key.count(",") == num_commas)
-        key_splt = key.split(",")
-        if len(key_splt) == 2:
-            elem1, elem2 = int(key_splt[0]), int(key_splt[1])
-            new_dict[(elem1, elem2)] = input_dict[key]
-        elif len(key_splt) == 3:
-            oper, elem1, elem2 = key_splt[0], int(key_splt[1]), int(key_splt[2])
-            new_dict[(oper, (elem1, elem2))] = input_dict[key]
-        else:
-            raise ValueError("Given dictionary does not need tuple correction!")
-    return new_dict
-
+# def print(*args, **kwargs):
+#     if enable_print:
+#         return __builtins__.print(*args, **kwargs)
 
 def get_graph_data_noCV(s: Settings, par_dict: Dict):
     r"""Handles the molecule grabbing and graph generating stages of pre-compute.
@@ -468,23 +326,6 @@ def charge_update_subroutine(s: Settings, training_feeds: List[Dict],
     else:
         print("Charge updates done")
 
-def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
-    r"""Shuffles two lists while maintaining element-wise corresponding ordering
-    
-    Arguments:
-        lst_1 (List): The first list to shuffle
-        lst_2 (List): The second list to shuffle
-    
-    Returns:
-        lst_1 (List): THe first list shuffled
-        lst_2 (List): The second list shuffled
-    """
-    temp = list(zip(lst_1, lst_2))
-    random.shuffle(temp)
-    lst_1, lst_2 = zip(*temp)
-    lst_1, lst_2 = list(lst_1), list(lst_2)
-    return lst_1, lst_2
-
 def exclude_R_backprop(model_variables: Dict) -> None:
     r"""Removes the R-spline mods from the backpropagation of the network
     
@@ -748,49 +589,6 @@ def write_output_lossinfo(s: Settings, loss_tracker: Dict, times_per_epoch: List
         handle.close()
     
     print("All loss information saved")
-    
-def create_split_mapping(s: Settings) -> Dict:
-    r"""Creates a fold mapping for the case where individual folds are
-        combined to create total training/validation data
-    
-    Arguments:
-        s (Settings): The Settings object with hyperparameter values
-    
-    Returns:
-        mapping (Dict): The dictionary mapping current fold number to the 
-            numbers of individual folds for train and validate. This only applies
-            when you are combining individual folds. Each entry in the dictionary
-            contains a list of two lists, the first inner list is the fold numbers 
-            for training and the second inner list is the fold numbers for validation.
-    
-    Notes: Suppose we are training on five different folds / blocks of data numbered
-        1 -> N. In the first training iteration in a CV driver mode, if the cv_mode is 
-        'normal', we will train on the combined data of N - 1 folds together and test 
-        on the remaining Nth fold. If the cv_mode is 'reverse', we will validate 
-        on N - 1 folds while training on the remaining Nth fold. In previous iterations,
-        each fold really contained a training set of validation set of feed dictionaries;
-        now each fold means just one set of feed dictionaries, and we have to use all folds
-        for every iteration of CV. 
-    """
-    num_directories = len(list(filter(lambda x : '.' not in x, os.listdir(s.top_level_fold_path))))
-    num_folds = s.num_folds
-    #num_folds should equal num_directories
-    assert(num_folds == num_directories)
-    cv_mode = s.cv_mode
-    full_fold_nums = [i for i in range(num_folds)]
-    mapping = dict()
-    for i in range(num_folds):
-        mapping[i] = [[],[]]
-        if cv_mode == 'normal':
-            mapping[i][1].append(i)
-            mapping[i][0] = full_fold_nums[0 : i] + full_fold_nums[i + 1:]
-        elif cv_mode == 'reverse':
-            mapping[i][0].append(i)
-            mapping[i][1] = full_fold_nums[0 : i] + full_fold_nums[i + 1:]
-    return mapping
-
-def convert_key_to_num(elem: Dict) -> Dict:
-    return {int(k) : v for (k, v) in elem.items()}
 
 def run_method(settings_filename: str, defaults_filename: str) -> None:
     r"""The main method for running the cldriver
@@ -912,13 +710,13 @@ def run_method(settings_filename: str, defaults_filename: str) -> None:
 if __name__ == "__main__":
     # Construct the parser
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
-    parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
-    parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
+    # parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
+    # parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
     
-    args = parser.parse_args()
-    enable_print = 1 if args.verbose else 0
+    # args = parser.parse_args()
+    enable_print = 1 # if args.verbose else 0
     
     # Testing code
     # This testing code assumes the following command line is used:
@@ -1048,7 +846,7 @@ if __name__ == "__main__":
     
     ## Testing for the CV case
     start = time.time()
-    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
+    reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method("settings_default.json", "defaults.json")
     elapsed = time.time() - start
     print(f"Run took {elapsed} seconds")
     print(loss_tracker)
