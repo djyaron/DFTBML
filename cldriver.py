@@ -415,7 +415,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         for feed in validation_feeds:
             with torch.no_grad():
                 
-                output = dftblayer(feed, all_models)
+                output = dftblayer.forward(feed, all_models)
                 #Add in the repulsive energies if using new repulsive model
                 if s.rep_setting == 'new':
                     output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'valid')
@@ -461,7 +461,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
         
         for feed in training_feeds:
             optimizer.zero_grad()
-            output = dftblayer(feed, all_models)
+            output = dftblayer.forward(feed, all_models)
             if s.rep_setting == 'new':
                 output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
             tot_loss = 0
@@ -855,24 +855,4 @@ if __name__ == "__main__":
     elapsed = time.process_time() - start
     print(f"Run took {elapsed} seconds")
     print(loss_tracker)
-        
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-        
-        
-    
 

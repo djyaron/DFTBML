@@ -106,7 +106,7 @@ def test_agreement(s: Settings, tolerance: float, skf_dir: str, ani1_path: str, 
     
     molec_energies = dict()
     for feed in feeds:
-        output = layer(feed, all_models)
+        output = layer.forward(feed, all_models)
         if s.rep_setting == 'new':
             output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
         get_total_energy_from_output(output, feed, molec_energies)
@@ -170,7 +170,7 @@ def test_G_agreement(s: Settings, tolerance: float, skf_dir: str, ani1_path: str
     g_disagreements = []
     
     for index, feed in enumerate(feeds):
-        output = layer(feed, all_models)
+        output = layer.forward(feed, all_models)
         curr_dftbs = dftb_lsts[index].dftbs_by_bsize
         all_gammas = output['G']
         for bsize in feed['basis_sizes']:
@@ -223,7 +223,7 @@ def test_G_diag_agreement(s: Settings, tolerance: float, skf_dir: str, ani1_path
     g_disagreements = []
     
     for index, feed in enumerate(feeds):
-        output = layer(feed, all_models)
+        output = layer.forward(feed, all_models)
         curr_dftbs = dftb_lsts[index].dftbs_by_bsize
         all_gammas = output['G']
         for bsize in feed['basis_sizes']:
@@ -294,6 +294,10 @@ if __name__ == "__main__":
     settings_file_name = 'settings_default.json'
     ani1_path = os.path.join(os.getcwd(), "data", "ANI-1ccx_clean_fullentry.h5")
     skf_path = os.path.join(os.getcwd(), "auorg-1-1")
+    #These tolerances are only achievable (val < tol) if the spline mode
+    #   is set to debugging, i.e. the values computed from the dftb.py
+    #   backend are used in the layer. Useful for checking the correctness
+    #   of the dftb layer.
     tol_G = 1E-8
     tol_Val = 1E-5
     

@@ -12,12 +12,7 @@ Created on Tue Sep  8 23:03:05 2020
 """
 """
 TODO:
-    1) Double check tensor GPU adaptations
-        Note: symmetric eigenvalue decompositions and expensive matrix operations
-            are more efficient on GPU for large matrices as opposed to small; might 
-            be something to consider...
-    2) Fix the cases where torch.from_numpy was replaced with torch.tensor, see
-        note on line 331
+    1) Smarter initialization for the inflection point value?
 """
 import pdb, traceback, sys
 
@@ -1798,7 +1793,7 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                 model = Input_layer_DFTB(model_spec)
             return (model, 'opt')
         
-class DFTB_Layer(nn.Module):
+class DFTB_Layer:
     
     def __init__(self, device: torch.device, dtype: torch.dtype, eig_method: str = 'new',
                  repulsive_method: str = 'old') -> None:
@@ -1831,7 +1826,6 @@ class DFTB_Layer(nn.Module):
             [1] Li, H.; Collins, C.; Tanha, M.; Gordon, G. J.; Yaron, D. J. A Density
             Functional Tight Binding Layer for Deep Learning of Chemical Hamiltonians. 2018,
         """
-        super(DFTB_Layer, self).__init__()
         self.device = device
         self.dtype = dtype
         self.method = eig_method
