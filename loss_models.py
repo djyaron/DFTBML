@@ -216,7 +216,8 @@ class ModelPenalty:
         """
         rlow, rhigh = self.input_pairwise_lin.pairwise_linear_model.r_range()
         first_term = (rhigh - rlow) / 2
-        const = torch.tensor([math.pi / 2])
+        const = torch.tensor([math.pi / 2], dtype = self.inflect_x_val.dtype,
+                             device = self.inflect_x_val.device)
         second_term = (torch.atan(self.inflect_x_val) / const) + 1
         return rlow + (first_term * second_term)
     
@@ -243,7 +244,7 @@ class ModelPenalty:
             The 10 is an arbitrary scaling constant.
         """
         r_inflect = self.compute_inflection_point()
-        torch_xgrid = torch.from_numpy(self.xgrid)
+        torch_xgrid = torch.tensor(self.xgrid, dtype = r_inflect.dtype, device = r_inflect.device)
         corrected_xgrid = torch_xgrid - r_inflect
         penalty_grid = torch.atan(10 * corrected_xgrid)
         return penalty_grid
@@ -317,7 +318,7 @@ class ModelPenalty:
             other_coefs = self.input_pairwise_lin.get_fixed()
             c = torch.cat([c, other_coefs])
         deriv, consts = self.dgrid[0], self.dgrid[1]
-        deriv, consts = torch.tensor(deriv), torch.tensor(consts)
+        deriv, consts = torch.tensor(deriv, dtype = c.dtype, device = c.device), torch.tensor(consts, dtype = c.dtype, device = c.device)
         #p_convex = torch.einsum('j,ij->i', c, deriv) + consts
         p_convex = torch.matmul(deriv, c) + consts
         if (self.inflect_x_val is not None): #Compute the penalty grid if an inflection point is present
@@ -1151,9 +1152,11 @@ class DipoleLoss2(LossModel):
             curr_charges = self.compute_charges(curr_dQ, curr_ids)
             assert(len(curr_charges) == len(curr_dipmats) == len(real_dipoles[bsize]))
             for i in range(len(curr_charges)):
-                cart_mat = torch.from_numpy(curr_dipmats[i])
+                #Make sure the cartesian matrix has the same device and datatype
+                #   as the charges.
+                cart_mat = torch.tensor(curr_dipmats[i], dtype = curr_charges[i].dtype,
+                                        device = curr_charges[i].device)
                 #dipoles computed as coords @ charges
-                cart_mat = cart_mat.type(curr_charges[i].dtype)
                 comp_res = torch.matmul(cart_mat, curr_charges[i])
                 computed_dips.append(comp_res)
                 real_dips.append(real_dipoles[bsize][i])
@@ -1278,8 +1281,8 @@ class ChargeLoss(LossModel):
             assert(len(computed_charges) == len(real_charges)) #Both are lists now since raggedness
             for i in range(len(computed_charges)):
                 total_computed.append(computed_charges[i])
-                tensor_reals = torch.from_numpy(real_charges[i])
-                tensor_reals = tensor_reals.type(computed_charges[i].dtype)
+                tensor_reals = torch.tensor(real_charges[i], dtype = computed_charges[i].dtype,
+                                            device = computed_charges[i].device)
                 total_targets.append(tensor_reals)
                 assert (total_computed[-1].shape == total_targets[-1].shape)
         computed_tensor = torch.cat(total_computed)
