@@ -1251,7 +1251,7 @@ def randomize_existing_set(src_dir: str, dest_dir: str) -> None:
     print("New folds generated")
     
     
-#%% Generate dataset from molecules used in visualization (aec_df.pkl)
+#%% Generate dataset from molecules used in visualization (aec_df.pkl and cfe_df.pkl)
 
 """
 The data is saved as a dataframe, so that will have to be manipulated into the
@@ -1475,8 +1475,8 @@ def generate_df_from_fullentry(molecs: List[Dict], allowed_Zs_syms: Dict, target
 
 # df_new = generate_df_from_fullentry(full_ani1_molecs, num_sym_dict, target_new)
 
-# with open("cfe_df.pkl", "wb") as handle:
-#     pickle.dump(df_new, handle)
+# # with open("cfe_df.pkl", "wb") as handle:
+# #     pickle.dump(df_new, handle)
 
 # start = time.time()
 # compare_frame_to_ani1(random.sample(full_ani1_molecs, 1000), df_new, target_new, target_new, tol)

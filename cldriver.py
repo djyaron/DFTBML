@@ -408,7 +408,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
     
     nepochs = s.nepochs
     for i in range(nepochs):
-        start = time.time()
+        start = time.process_time()
         
         #Validation routine
         validation_loss = 0
@@ -511,7 +511,7 @@ def training_loop(s: Settings, all_models: Dict, model_variables: Dict,
                 print("Updating repulsive model")
                 all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
     
-        times_per_epoch.append(time.time() - start)
+        times_per_epoch.append(time.process_time() - start)
     
     print(f"Finished with {s.nepochs} epochs")
     
@@ -716,6 +716,11 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
     
     args = parser.parse_args()
+    
+    #This environment variable ensures that CUDA errors are thrown where they are
+    #   initially occur in the code.
+    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+    
     enable_print = 1 if args.verbose else 0
     
     # Testing code
@@ -845,9 +850,9 @@ if __name__ == "__main__":
     #     print(f"Final {loss} valid: {loss_tracker[loss][0][-1]}")
     
     ## Testing for the CV case
-    start = time.time()
+    start = time.process_time()
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_method(args.settings, args.defaults)
-    elapsed = time.time() - start
+    elapsed = time.process_time() - start
     print(f"Run took {elapsed} seconds")
     print(loss_tracker)
         

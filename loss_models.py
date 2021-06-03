@@ -146,7 +146,7 @@ TODO: Figure out system for classifying if model should concave up or concave do
 class ModelPenalty:
 
     def __init__ (self, input_pairwise_linear, penalty: str, dgrid: (Array, Array), inflect_point_val: Tensor = None,
-                  n_grid: int = 500, neg_integral: bool = False) -> None:
+                  n_grid: int = 500, neg_integral: bool = False, pre_comp_xgrid: Array = None) -> None:
         r"""Initializes the ModelPenalty object for computing the spline functional form penalty
         
         Arguments:
@@ -159,6 +159,7 @@ class ModelPenalty:
                 inflection point. Defaults to None
             n_grid (int): Number of grid points to use. Defaults to 500
             neg_integral (bool): Whether the spline is concave down. Defaults to False (concave up)
+            pre_comp_xgrid (Array): The precomputed xgrid. Defaults to None.
         
         Returns:
             None
@@ -174,8 +175,11 @@ class ModelPenalty:
         self.n_grid = n_grid
         
         #Compute the x-grid
-        r_low, r_high = self.input_pairwise_lin.pairwise_linear_model.r_range()
-        self.xgrid = np.linspace(r_low, r_high, n_grid)
+        if (pre_comp_xgrid is None):
+            r_low, r_high = self.input_pairwise_lin.pairwise_linear_model.r_range()
+            self.xgrid = np.linspace(r_low, r_high, n_grid)
+        else:
+            self.xgrid = pre_comp_xgrid
         
         #Compute the derivative_grid for the necessary derivative given the penalty
         self.dgrid = None
@@ -272,7 +276,8 @@ class ModelPenalty:
             c = torch.cat([c, other_coefs])
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv), torch.tensor(consts)
-        p_monotonic = torch.einsum('j,ij->i', c, deriv) + consts
+        #p_monotonic = torch.einsum('j,ij->i', c, deriv) + consts
+        p_monotonic = torch.matmul(deriv, c) + consts
         #For a monotonically increasing potential (i.e. concave down integral), the
         # First derivative should be positive, so penalize the negative terms. Otherwise,
         # penalize the positive terms for concave up
@@ -283,7 +288,7 @@ class ModelPenalty:
         else:
             # p_monotonic [p_monotonic < 0] = 0 
             p_monotonic = m(p_monotonic)
-        monotonic_penalty = torch.einsum('i,i->', p_monotonic, p_monotonic) / len(p_monotonic)
+        monotonic_penalty = torch.matmul(p_monotonic, p_monotonic) / len(p_monotonic)
         return monotonic_penalty
         
     def get_convex_penalty(self) -> float:
@@ -311,10 +316,12 @@ class ModelPenalty:
             c = torch.cat([c, other_coefs])
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv), torch.tensor(consts)
-        p_convex = torch.einsum('j,ij->i', c, deriv) + consts
+        #p_convex = torch.einsum('j,ij->i', c, deriv) + consts
+        p_convex = torch.matmul(deriv, c) + consts
         if (self.inflect_x_val is not None): #Compute the penalty grid if an inflection point is present
             penalty_grid = self.compute_penalty_vec()
-            p_convex = torch.einsum('i,i->i', p_convex, penalty_grid) #Multiply the p_convex by the penalty_grid
+            #p_convex = torch.einsum('i,i->i', p_convex, penalty_grid) #Multiply the p_convex by the penalty_grid
+            p_convex = p_convex * penalty_grid
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
             p_convex = m(p_convex)
@@ -322,7 +329,8 @@ class ModelPenalty:
             p_convex = -1 * p_convex
             p_convex = m(p_convex)
         # Equivalent of RMS penalty
-        convex_penalty = torch.einsum('i,i->', p_convex, p_convex) / len(p_convex)
+        #convex_penalty = torch.einsum('i,i->', p_convex, p_convex) / len(p_convex)
+        convex_penalty = torch.matmul(p_convex, p_convex) / len(p_convex)
         return convex_penalty
     
     def get_smooth_penalty(self) -> float:
@@ -633,12 +641,13 @@ class FormPenaltyLoss(LossModel):
                 concavity_dict.update(temp_concav_dict)
                 FormPenaltyLoss.seen_concavity_dict.update(temp_concav_dict)
             
-            #Optimization (push onto pre-compute), save the dgrid for the model as well
+            #Optimization (push onto pre-compute), save the dgrid and xgrid for the model as well
             final_dict = dict()
             for model_spec in concavity_dict:
                 current_model = all_models[model_spec]
                 if model_spec in FormPenaltyLoss.seen_dgrid_dict:
-                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], FormPenaltyLoss.seen_dgrid_dict[model_spec])
+                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], FormPenaltyLoss.seen_dgrid_dict[model_spec][0],
+                                              FormPenaltyLoss.seen_dgrid_dict[model_spec][1])
                 else:
                     rlow, rhigh = current_model.pairwise_linear_model.r_range()
                     xgrid = np.linspace(rlow, rhigh, self.density)
@@ -646,8 +655,8 @@ class FormPenaltyLoss(LossModel):
                     #Including the constants, especially important for the joined splines!
                     dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1),
                               current_model.pairwise_linear_model.linear_model(xgrid, 2)] 
-                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids)
-                    FormPenaltyLoss.seen_dgrid_dict[model_spec] = dgrids
+                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids, xgrid)
+                    FormPenaltyLoss.seen_dgrid_dict[model_spec] = (dgrids, xgrid)
             feed['form_penalty'] = final_dict
     
     def get_value(self, output: Dict, feed: Dict, rep_method: str) -> Tensor:
@@ -672,14 +681,16 @@ class FormPenaltyLoss(LossModel):
             # if model_spec.oper != 'G':
             if (rep_method == 'new') and (model_spec.oper == 'R'):
                 continue #Skip built-in repulsive models if using DFTBrepulsive implementation
-            pairwise_lin_mod, concavity, dgrids = form_penalty_dict[model_spec]
+            pairwise_lin_mod, concavity, dgrids, xgrid = form_penalty_dict[model_spec]
             inflection_point_val = pairwise_lin_mod.get_inflection_pt()
             # print(model_spec, inflection_point_val)
             penalty_model = None
             if self.type == "convex" or self.type == "smooth":
-                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity)
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity,
+                                             pre_comp_xgrid = xgrid)
             elif self.type == "monotonic":
-                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity)
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity,
+                                             pre_comp_xgrid = xgrid)
             total_loss += penalty_model.get_loss()
             # DEBUGGING CODE
             # if (model_spec == FormPenaltyLoss.tst_mod) and (self.type == FormPenaltyLoss.tst_penalty):
@@ -805,7 +816,8 @@ class DipoleLoss2(LossModel):
             #Scale down by the minimum index
             scaling_val = curr_ids[0].item()
             curr_ids -= scaling_val
-            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype)
+            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype,
+                               device = curr_charges.device)
             temp = temp.scatter_add(0, curr_ids.long(), curr_charges)
             charge_tensors.append(temp)
         return charge_tensors
@@ -938,7 +950,7 @@ class ChargeLoss(LossModel):
         if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
             charges = torch.from_numpy(charges)
             ids = torch.from_numpy(ids)
-        assert(charges.shape[0] == ids.shape[0])
+        assert(charges.shape == ids.shape)
         charge_tensors = []
         for i in range(charges.shape[0]):
             curr_ids = ids[i].squeeze(-1)
@@ -946,7 +958,8 @@ class ChargeLoss(LossModel):
             #Scale down by the minimum index
             scaling_val = curr_ids[0].item()
             curr_ids -= scaling_val
-            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype)
+            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype, 
+                               device = curr_charges.device)
             temp = temp.scatter_add(0, curr_ids.long(), curr_charges)
             charge_tensors.append(temp)
         return charge_tensors

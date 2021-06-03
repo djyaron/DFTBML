@@ -54,7 +54,7 @@ from loss_models import TotalEnergyLoss, FormPenaltyLoss, ChargeLoss, DipoleLoss
 from sccparam_torch import _Gamma12 #Gamma func for computing off-diagonal elements
 from functools import partial
 
-from util import apx_equal
+from util import apx_equal, torch_segment_sum, recursive_type_conversion
 
 # Fix the system path to append some new stuff
 # Courtesy of https://stackoverflow.com/questions/4383571/importing-files-from-different-folder
@@ -1797,54 +1797,7 @@ def get_model_value_spline_2(model_spec: Model, model_variables: Dict, spline_di
                 print("Using a debugging model for off-diagonal elements")
                 model = Input_layer_DFTB(model_spec)
             return (model, 'opt')
-
-# def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
-#     r"""Function for summing elements together based on index
-    
-#     Arguments:
-#         data (Tensor): The data to sum together
-#         segment_ids (Tensor): The indices used to sum together corresponding elements
-#         device (torch.device): The device to execute the operations on (CPU vs GPU)
-#         dtype (torch.dtype): The datatype for the result
-    
-#     Returns:
-#         res (Tensor): The resulting tensor from executing the segment sum
-    
-#     Notes: This is similar to scatter_add for PyTorch, but this is easier to deal with.
-#         The segment_ids, since they are being treated as indices, must be a tensor
-#         of integers
-#     """
-#     max_id = torch.max(segment_ids)
-#     res = torch.zeros([max_id + 1], device = device, dtype = dtype)
-#     for i, val in enumerate(data):
-#         res[segment_ids[i]] += val
-#     return res
-
-def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
-    r"""Function for summing elements together based on index
-    
-    Arguments:
-        data (Tensor): The data to sum together
-        segment_ids (Tensor): The indices used to sum together corresponding elements
-        device (torch.device): The device to execute the operations on (CPU vs GPU)
-        dtype (torch.dtype): The datatype for the result
-    
-    Returns:
-        res (Tensor): The resulting tensor from executing the segment sum
-    
-    Notes: This is similar to scatter_add for PyTorch, but this is easier to deal with.
-        The segment_ids, since they are being treated as indices, must be a tensor
-        of integers
-    """
-    max_id = torch.max(segment_ids)
-    res = torch.zeros([max_id + 1], device = device, dtype = dtype)
-    # for i, val in enumerate(data):
-    #     res[segment_ids[i]] += val
-    res = res.scatter_add(0, segment_ids.long(), data)
-    return res
-
-
-
+        
 class DFTB_Layer(nn.Module):
     
     def __init__(self, device: torch.device, dtype: torch.dtype, eig_method: str = 'new',
@@ -2013,32 +1966,6 @@ class DFTB_Layer(nn.Module):
             ref_res = torch.matmul(zcount_vec, ref_energy_variables.unsqueeze(1))
             calc['Eref'][bsize] = ref_res.squeeze(1)
         return calc
-
-def recursive_type_conversion(data: Dict, ignore_keys: List[str], device: torch.device = None, 
-                              dtype: torch.dtype = torch.double, grad_requires: bool = False) -> None:
-    r"""Performs destructive conversion of elements in data from np arrays to Tensors
-    
-    Arguments:
-        data (Dict): The dictionary to perform the recursive type conversion on
-        ignore_keys (List[str]): The list of keys to ignore when doing
-            the recursive type conversion
-        device (torch.device): Which device to put the tensors on (CPU vs GPU).
-            Defaults to None.
-        dtype (torch.dtype): The datatype for all created tensors. Defaults to torch.double
-        grad_requires (bool): Whether or not created tensors should have their 
-            gradients enabled. Defaults to False
-    
-    Returns:
-        None
-    
-    Notes: None
-    """
-    for key in data:
-        if key not in ignore_keys:
-            if isinstance(data[key], np.ndarray):
-                data[key] = torch.tensor(data[key], dtype = dtype, device = device)            
-            elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
-                recursive_type_conversion(data[key], ignore_keys, device = device, dtype = dtype)
 
 def assemble_ops_for_charges(feed: Dict, all_models: Dict, device: torch.device, dtype: torch.dtype) -> Dict:
     r"""Generates the H and G operators for the charge update operation

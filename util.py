@@ -22,6 +22,7 @@ from collections import Counter
 
 from typing import Union, List, Dict
 import torch
+Tensor = torch.Tensor
 import random
 
 import matplotlib.pyplot as plt
@@ -877,5 +878,75 @@ def find_min_max_heavy(feeds: List[Dict]) -> (int, int):
     heavies = heavies = list(reduce(lambda x, y : x + y, heavies))
     heavies = np.concatenate(heavies)
     return min(heavies), max(heavies)
+
+def remove_outliers(molecs: List[Dict], outliers: List) -> List[Dict]:
+    r"""Removes outliers from a list of molecule dictionaries, with outliers
+        specified by a list of tuples.
     
-        
+    Arguments:
+        molecs (List[Dict]): The molecules to remove the outliers from
+        outliers (List): A list of tuples, where each tuple is a pair of 
+            a formula and a configuration number. For example, ('C1H4'. 16). 
+            The molecule dictionary corresponding to that empirical formula and
+            configuration number will be removed.
+    
+    Returns:
+        clean_molecs (List[Dict]): The cleaned molecules with outliers removed.
+    
+    Notes: outliers are known beforehand through work done in visualization
+        and outlier rejection.
+    """
+    #Convert to set for easy lookup
+    outlier_set = set(outliers)
+    bad_indices = {i for i, molec in enumerate(molecs) if ( molec['name'], molec['iconfig'] ) in outlier_set}
+    cleaned_molecs = [molec for i, molec in enumerate(molecs) if (i not in bad_indices)]
+    return cleaned_molecs
+
+def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, dtype: torch.dtype) -> Tensor: 
+    r"""Function for summing elements together based on index
+    
+    Arguments:
+        data (Tensor): The data to sum together
+        segment_ids (Tensor): The indices used to sum together corresponding elements
+        device (torch.device): The device to execute the operations on (CPU vs GPU)
+        dtype (torch.dtype): The datatype for the result
+    
+    Returns:
+        res (Tensor): The resulting tensor from executing the segment sum
+    
+    Notes: This is similar to scatter_add for PyTorch, but this is easier to deal with.
+        The segment_ids, since they are being treated as indices, must be a tensor
+        of integers
+    """
+    max_id = torch.max(segment_ids)
+    res = torch.zeros([max_id + 1], device = device, dtype = dtype)
+    # for i, val in enumerate(data):
+    #     res[segment_ids[i]] += val
+    res = res.scatter_add(0, segment_ids.long(), data)
+    return res
+
+def recursive_type_conversion(data: Dict, ignore_keys: List[str], device: torch.device = None, 
+                              dtype: torch.dtype = torch.double, grad_requires: bool = False) -> None:
+    r"""Performs destructive conversion of elements in data from np arrays to Tensors
+    
+    Arguments:
+        data (Dict): The dictionary to perform the recursive type conversion on
+        ignore_keys (List[str]): The list of keys to ignore when doing
+            the recursive type conversion
+        device (torch.device): Which device to put the tensors on (CPU vs GPU).
+            Defaults to None.
+        dtype (torch.dtype): The datatype for all created tensors. Defaults to torch.double
+        grad_requires (bool): Whether or not created tensors should have their 
+            gradients enabled. Defaults to False
+    
+    Returns:
+        None
+    
+    Notes: None
+    """
+    for key in data:
+        if key not in ignore_keys:
+            if isinstance(data[key], np.ndarray):
+                data[key] = torch.tensor(data[key], dtype = dtype, device = device)            
+            elif isinstance(data[key], collections.OrderedDict) or isinstance(data[key], dict):
+                recursive_type_conversion(data[key], ignore_keys, device = device, dtype = dtype)
