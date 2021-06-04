@@ -1,14 +1,14 @@
 {
     "allowed_Zs" : [1,6,7,8],
     "heavy_atoms" : [1,2,3,4,5],
-    "max_config" : 10,
+    "max_config" : 1,
     "target" : {"Etot" : "cc",
            "dipole" : "wb97x_dz.dipole",
            "charges" : "wb97x_dz.cm5_charges"},
     "exclude" : ["O3", "N2O1", "H1N1O3", "H2"],
     "num_knots" : 50,
     "buffer" : 0.0,
-    "num_per_batch" : 10,
+    "num_per_batch" : 1,
     "eig_method" : "new",
     "prop_train" : 0.8,
     "reference_energy_starting_point" : [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
@@ -23,7 +23,7 @@
     "target_accuracy_convex" : 1000,
     "target_accuracy_monotonic" : 1000,
     
-    "losses" : ["Etot"],
+    "losses" : ["Etot", "dipole", "charges", "convex"],
     "par_dict_name" : "auorg_1_1",
     "loaded_data" : true,
     "molec_file_names" : ["final_molec_test.h5", "final_valid_molec_test.h5"],
@@ -51,7 +51,7 @@
     "cv_mode" : "normal",
     "num_folds" : 6,
     "fold_load_form" : "combine_individual_folds",
-    "split_mapping" : {"0" : [[1,2,4,5], [0, 3]]
+    "split_mapping" : {"0" : [[1,2,4,5], [0,3]]
     },
     
     "charge_update_epochs" : 10,
@@ -100,7 +100,7 @@
     "rep_setting": "old",
     
     "tensor_dtype" : "double",
-    "tensor_device" : "gpu",
+    "tensor_device" : "cpu",
     "device_index" : 0,
     
     "run_id" : "old_rep_setting_run"
