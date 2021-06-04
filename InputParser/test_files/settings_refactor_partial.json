@@ -1,0 +1,94 @@
+{
+
+"batch_data_fields" : {
+
+    "allowed_Zs" : [1,6,7,8],
+    "heavy_atoms" : [1,2,3,4,5],
+    "max_config" : 1,
+    "target" : {"Etot" : "cc",
+           "dipole" : "wb97x_dz.dipole",
+           "charges" : "wb97x_dz.cm5_charges"},
+    "exclude" : ["O3", "N2O1", "H1N1O3", "H2"],
+    "num_per_batch" : 1,
+    "prop_train" : 0.8,
+    "data_path" : "data/ANI-1ccx_clean_fullentry.h5",
+    "shuffle" : [1,1]
+
+},
+
+
+"training_settings" : {
+
+    "eig_method" : "new",
+    "reference_energy_starting_point" : [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
+  1.27026973e-03],
+    "opers_to_model" : ["H", "R", "S", "G"],
+    
+    "target_accuracy_energy" : 6270,
+    "target_accuracy_dipole" : 100,
+    "target_accuracy_charges" : 100,
+    "target_accuracy_convex" : 1000,
+    "target_accuracy_monotonic" : 1000,
+    
+    "losses" : ["Etot", "dipole", "charges", "convex"],
+    "par_dict_name" : "auorg_1_1",
+    
+    "ragged_dipole" : true,
+    
+    "transfer_training" : false,
+    "transfer_train_params" : {
+        "test_set" : "pure",
+        "impure_ratio" : 0.2,
+        "lower_limit" : 4},
+    
+    "train_ener_per_heavy" : true,
+    "debug" : false,
+    "include_dipole_backprop" : true,
+    
+    "ref_direct" : "auorg-1-1",
+    
+    "driver_mode" : "CV",
+    "cv_mode" : "normal",
+    "num_folds" : 6,
+    "fold_load_form" : "combine_individual_folds",
+    "split_mapping" : {"0" : [[1,2,4,5], [0,3]]
+    },
+    
+    "charge_update_epochs" : 10,
+    "nepochs" : 5
+
+},
+
+"optim_sched_settings" : {
+
+    "learning_rate" : 1e-5,
+    "ams_grad_enabled" : true,
+    "scheduler_patience" : 10,
+    "scheduler_factor" : 0.9,
+    "scheduler_threshold" : 1e-4
+
+},
+
+"tensor_settings" : {
+
+    "tensor_dtype" : "double",
+    "tensor_device" : "cpu",
+    "device_index" : 0
+
+},
+
+"skf_settings" : {
+
+    "skf_extension" : "",
+    "skf_ngrid" : 50,
+    "skf_strsep" : "  "
+
+},
+
+"repulsive_settings" : {
+
+    "rep_setting": "old"
+},
+    
+"run_id" : "old_rep_setting_run"
+}
