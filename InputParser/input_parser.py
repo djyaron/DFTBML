@@ -10,7 +10,10 @@ correction of dictionary keys and values for the torch tensor data type and
 device settings. This module will be a collection of global functions
 rather than a class, and is the base module that contains the settings object.
 
-The final settings object will be one where the top-level keys (e.g. )
+The final settings object will be one where the top-level keys (e.g. batch_data_fields,
+loaded_data_fields) map to groups of settings for different purposes. So 
+loaded_data_fields would correspond to values relevant for loading in data for 
+training the network. 
 """
 
 #%% Imports
