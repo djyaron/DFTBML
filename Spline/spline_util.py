@@ -15,7 +15,7 @@ first.
 #%% Imports, definitions
 from Elements import ELEMENTS
 import numpy as np
-ANGSTROM2BOHR = 1.889725989
+from constants import ANGSTROM2BOHR
 
 #%% Code behind
 

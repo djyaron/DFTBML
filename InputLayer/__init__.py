@@ -8,6 +8,10 @@ init file for the module package containing all the models used by the
 network.
 """
 
-from .input_layers import Input_layer_DFTB, Input_layer_DFTB_val, Input_layer_value,\
-    Input_layer_pairwise_linear, Input_layer_pairwise_linear_joined, Input_layer_hubbard,\
-        Reference_energy
+from .input_layer_DFTB import Input_layer_DFTB
+from .input_layer_DFTB_val import Input_layer_DFTB_val
+from .input_layer_hubbard import Input_layer_hubbard
+from .input_layer_pairwise_linear_joined import Input_layer_pairwise_linear_joined
+from .input_layer_pairwise_linear import Input_layer_pairwise_linear
+from .input_layer_value import Input_layer_value
+from .reference_energy import Reference_energy

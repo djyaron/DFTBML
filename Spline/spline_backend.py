@@ -50,8 +50,7 @@ try:
     import matplotlib.pyplot as plt
 except:
     pass
-from collections import namedtuple
-Bcond = namedtuple('Bcond',['ix','der','val'])
+from constants import Bcond
 
 #%% Code behind
 
