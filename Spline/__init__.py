@@ -8,3 +8,4 @@ In the future, can expose more models for use
 """
 from .spline_model_backend import fit_linear_model, SplineModel, JoinedSplineModel
 from .spline_util import get_dftb_vals
+from .spline_test import test_join

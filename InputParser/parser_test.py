@@ -9,8 +9,7 @@ from input_parser import construct_final_settings_dict,\
     parse_input_dictionaries
 import json
 
-if __name__ == "__main__":
-    
+def test_exception_handling():
     #Test exception handling with missing 'run_id' key in settings
     with open("test_files/settings_empty.json", "r") as handle:
         settings = json.load(handle)
@@ -28,7 +27,8 @@ if __name__ == "__main__":
     except KeyError:
         
         print("KeyError test passed, exception was thrown")
-    
+        
+def test_total_reconstruction():
     #Test total reconstruction
     with open("test_files/refactor_default_tst.json", "r") as handle:
         defaults = json.load(handle)
@@ -46,6 +46,7 @@ if __name__ == "__main__":
     
     print("Total reconstruction test passed")
     
+def test_partial_reconstruction():
     #Test partial reconstruction
     test_keys = ["loaded_data_fields", "model_settings"]
     
@@ -64,6 +65,7 @@ if __name__ == "__main__":
     
     print("Partial reconstruction test passed")
     
+def test_inner_translation():
     #Testing proper translation of inner values
     '''
     The test keys here will be as follows, where every value that should
@@ -124,8 +126,8 @@ if __name__ == "__main__":
     
     print("Inner value translation test passed")
     
+def test_object_conversion():
     #Using these same settings and default dictionaries, test the resulting settings object
-    #Remember to command out the par_dict parsing portion before running this next test!
     final_settings_obj = parse_input_dictionaries("test_files/settings_refactor_differ.json",
                                                   "test_files/refactor_default_tst.json")
     
@@ -152,6 +154,15 @@ if __name__ == "__main__":
     
     print("Object conversion test passed")
     
+def run_tests():
+    test_exception_handling()
+    test_total_reconstruction()
+    test_partial_reconstruction()
+    test_inner_translation()
+    test_object_conversion()
+
+if __name__ == "__main__":
+    run_tests()
     
     
     
