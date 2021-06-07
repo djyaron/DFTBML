@@ -12,10 +12,6 @@ all_models
 Because most tensors should be on either GPU or CPU, the loss layer should 
 be agnostic to the memory location of the tensor and should be able to perform
 the operations regardless. However, this needs to be verified, so:
-    
-TODO:
-    1) Verify tensor ops work on the same device as the input tensors for 
-        loss calculations
 '''
 import torch
 import torch.nn as nn
