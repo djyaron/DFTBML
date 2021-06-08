@@ -13,11 +13,12 @@ import numpy as np
 Array = np.ndarray
 from typing import List, Dict
 import matplotlib.pyplot as plt
-from .spline_backend import Bcond, spline_linear_model, spline_new_xvals,\
+from spline_backend import spline_linear_model, spline_new_xvals,\
     merge_splines, merge_splines_new_xvals, construct_joined_splines
 from functools import reduce
 import scipy.sparse
 import scipy.special
+from constants import Bcond
 from Elements import ELEMENTS
 
 #%% Code behind
@@ -551,7 +552,7 @@ class MIOFunction(PairwiseLinearModel):
         skinfo = self.par_dict[sym[0] + '-' + sym[-1]]
         return np.array([skinfo.GetRep(x * MIOFunction.ANGSTROM2BOHR) for x in rs])
     
-class PiecewiseFunction(PairwiseLinearModel):
+class PiecewiseFunction(PairwiseLinearModel): #NOT FULLY TESTED!
     def __init__(self, function1, function2, rmatch, derivs_match):
         """
         Parameters

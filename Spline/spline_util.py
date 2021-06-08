@@ -8,14 +8,12 @@ This file will contain misc functions like get_dftb_vals and plotting
 utilities for the splines. 
 
 Functions here should be exposable at the top level
-
-TODO: The _Gamma12 functions and others from sccparam need to be packaged
-first.
 """
 #%% Imports, definitions
 from Elements import ELEMENTS
 import numpy as np
 from constants import ANGSTROM2BOHR
+from DFTB import _Gamma12
 
 #%% Code behind
 
