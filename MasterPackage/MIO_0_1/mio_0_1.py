@@ -7,9 +7,10 @@
 #   par.GetRep(dist=1.5)
 
 # SKF parameter interface:
-from skfinfo import SkfInfo
+import os
+from SKFinfo import SkfInfo
 
-PARAMPATH = "./mio-0-1"
+PARAMPATH = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
 
 
 def ParDict(paramPath=PARAMPATH):

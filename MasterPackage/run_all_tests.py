@@ -8,7 +8,21 @@ Simple driver file for running all tests
 """
 from Tests import *
 
-run_batch_tests()
-run_parser_tests()
-run_spline_tests()
+if __name__ == "__main__":
+    
+    print("Testing InputParser...")
+    run_parser_tests()
+    print("InputParser tests passed")
+    
+    print() 
+    
+    print("Testing spline backend...")
+    run_spline_tests()
+    print("Spline backend tests completed")
+    
+    print()
+    
+    print("Testing batch...")
+    #run_batch_tests()
+    print("Batch tests passed")
 

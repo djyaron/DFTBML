@@ -7,9 +7,10 @@
 #   par.GetRep(dist=1.5)
 
 # SKF parameter interface:
-from skfinfo import SkfInfo
+import os
+from SKFinfo import SkfInfo
 
-PARAMPATH = './auorg-1-1'
+PARAMPATH = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
 
 def ParDict():
     elements = ['H', 'C', 'N', 'O', 'S', 'Au']

@@ -7,5 +7,4 @@ Created on Mon Jun  7 20:02:46 2021
 
 from .batch import Batch, DFTBList, get_model_str, RawData, Model, RotData,\
     create_batch, create_dataset
-from .batch_tests import test_all
 from .util import np_segment_sum, maxabs

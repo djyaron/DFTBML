@@ -15,8 +15,10 @@ from Geometry import random_triatomics, to_cart
 from DFTBpy import determine_fermi_level, fermi, DFTB
 
 import math, pickle
-from DFTBLayer import DFTBList, create_batch, create_dataset, ParDict,\
+from DFTBLayer import DFTBList, create_batch, create_dataset,\
     np_segment_sum, maxabs
+
+from Auorg_1_1 import ParDict
 
 #%% Code behind
 

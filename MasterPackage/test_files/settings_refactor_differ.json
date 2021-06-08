@@ -75,7 +75,7 @@
     "target_accuracy_convex" : 1000,
     
     "losses" : ["Etot", "dipole", "charges", "convex"],
-    "par_dict_name" : "Auorg_1_1.aurog_1_1",
+    "par_dict_name" : "Auorg_1_1.auorg_1_1",
     
     "ragged_dipole" : false,
     
