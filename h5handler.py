@@ -25,7 +25,7 @@ import numpy as np
 import h5py
 from batch import Model, RawData
 import collections
-from Geometry import Geometry
+from geometry import Geometry
 import pickle
 from typing import Union, List, Optional, Dict, Any, Literal
 import sys
