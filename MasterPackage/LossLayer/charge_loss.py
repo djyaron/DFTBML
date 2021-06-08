@@ -5,8 +5,8 @@ Created on Mon Jun  7 19:47:44 2021
 @author: fhu14
 """
 #%% Imports, definitions
-from base_classes import LossModel
-from external_funcs import compute_charges
+from .base_classes import LossModel
+from .external_funcs import compute_charges
 from typing import Union
 from typing import List, Dict
 import numpy as np

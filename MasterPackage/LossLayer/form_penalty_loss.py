@@ -5,8 +5,8 @@ Created on Mon Jun  7 19:12:34 2021
 @author: fhu14
 """
 #%% Imports, definitions
-from base_classes import LossModel, ModelPenalty
-from external_funcs import compute_mod_vals_derivs, generate_concavity_dict
+from .base_classes import LossModel, ModelPenalty
+from .external_funcs import compute_mod_vals_derivs, generate_concavity_dict
 from typing import List, Dict
 import numpy as np
 import re

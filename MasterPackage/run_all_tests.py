@@ -25,4 +25,12 @@ if __name__ == "__main__":
     print("Testing batch...")
     #run_batch_tests()
     print("Batch tests passed")
+    
+    print()
+    
+    print("Testing h5handler...")
+    run_h5handler_tests()
+    print("h5handler tests passed")
+
+
 

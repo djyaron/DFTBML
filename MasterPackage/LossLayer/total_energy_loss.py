@@ -5,7 +5,7 @@ Created on Mon Jun  7 19:10:10 2021
 @author: fhu14
 """
 #%% Imports, definitions
-from base_classes import LossModel
+from .base_classes import LossModel
 from typing import List, Dict
 import numpy as np
 import re
