@@ -39,6 +39,15 @@ class Settings:
         """
         for key in settings_dict:
             setattr(self, key, settings_dict[key])
+    
+    def __add__(self, other_settings_obj):
+        r"""Operator override for addition of two settings objects, creates a 
+            new object that contains the attributes of the constituting objects.
+        """
+        assert(isinstance(other_settings_obj, Settings))
+        for key in other_settings_obj.__dict__:
+            setattr(self, key, other_settings_obj.__dict__[key])
+        return self
 
 def update_pytorch_arguments(settings: Settings) -> None:
     r"""Updates the arguments in the settings object to the corresponding 
@@ -216,6 +225,26 @@ def parse_input_dictionaries(settings_filename: str, default_filename: str) -> S
     final_settings = Settings(final_dictionary)
     
     return final_settings
+
+def collapse_to_master_settings(final_settings: Settings) -> Settings:
+    r"""Combines the individual settings objects into a master settings object
+        with all keys exposed at top level.
+    
+    Arguments:
+        final_settings (Settings): The settings object generated from
+            parse_input_dictionaries
+    
+    Returns:
+        collapsed_settings (Settings): The combined settings object.
+    """
+    collapsed_settings = None
+    for sub_field in final_settings.__dict__:
+        if sub_field != 'run_id':
+            if collapsed_settings == None:
+                collapsed_settings = final_settings.__dict__[sub_field]
+            else:
+                collapsed_settings += final_settings.__dict__[sub_field]
+    return collapsed_settings
 
 #%% Main block
 if __name__ == "__main__":

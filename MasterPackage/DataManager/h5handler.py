@@ -23,7 +23,7 @@ torch tensors. h5 works best with numpy arrays and should be treated as such
 '''
 import numpy as np
 import h5py
-from .constants import Model
+from .constants import Model, RawData
 from Geometry import Geometry
 import pickle
 from typing import List, Dict

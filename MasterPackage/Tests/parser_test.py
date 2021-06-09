@@ -153,6 +153,32 @@ def test_object_conversion():
     assert(final_settings_obj.training_settings.debug == False)
     
     print("Object conversion test passed")
+
+def test_object_addition():
+    #Checking that operator overload is functioning correctly.
+    final_settings_obj = parse_input_dictionaries("test_files/settings_refactor_differ.json",
+                                                  "test_files/refactor_default_tst.json")
+    
+    print("Testing the addition operator overload for settings objects...")
+    
+    starting_obj = final_settings_obj.batch_data_fields
+    starting_obj += final_settings_obj.loaded_data_fields
+    
+    assert(starting_obj.allowed_Zs == [1, 6])
+    assert(starting_obj.num_per_batch == 1)
+    assert(starting_obj.prop_train == 2.5)
+    assert(starting_obj.shuffle == [1,1])
+    
+    assert(starting_obj.loaded_data)
+    assert(starting_obj.run_check)
+    
+    starting_obj_keys = set(starting_obj.__dict__.keys())
+    batch_data_field_keys = set(final_settings_obj.batch_data_fields.__dict__.keys())
+    loaded_data_keys = set(final_settings_obj.loaded_data_fields.__dict__.keys())
+    total_keys = batch_data_field_keys.union(loaded_data_keys)
+    assert(starting_obj_keys.difference(total_keys) == set() and total_keys.difference(starting_obj_keys) == set())
+    
+    print("Operator overload test passed.")
     
 def run_parser_tests():
     test_exception_handling()
@@ -160,9 +186,10 @@ def run_parser_tests():
     test_partial_reconstruction()
     test_inner_translation()
     test_object_conversion()
+    test_object_addition()
 
 if __name__ == "__main__":
-    run_tests()
+    run_parser_tests()
     
     
     

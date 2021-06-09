@@ -9,3 +9,4 @@ from .parser_test import run_parser_tests
 from .spline_test import run_spline_tests
 from .batch_test import run_batch_tests
 from .h5handler_test import run_h5handler_tests
+from .precompute_test import run_fold_precomp_tests

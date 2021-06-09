@@ -319,56 +319,56 @@ def run_batch_tests():
                      'gather_for_rep', 'segsum_for_rep',
                      'dftb_elements', 'dftb_r', 'Eelec', 'Erep','Etot',
                      'unique_gtypes', 'gtype_indices']
-    mol_type = 'custom' #'HAu2' # 'organic'
     sigma = 0.003 #10.0
-    if mol_type == 'organic':
-        ngeom = 10
-        charges = [0] * 3* ngeom
-        gtypes = []
-        geoms1 = random_triatomics(ngeom, [1,6,7],[0.7,1.1],[0.7,1.1],
-                           [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0])
-        gtypes.extend(['HCN'] * ngeom)
-        geoms1.extend(random_triatomics(ngeom, [7,6,1],[0.7,1.1],[0.7,1.1],
-                           [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]))
-        gtypes.extend(['NCH'] * ngeom)
-        geoms1.extend(random_triatomics(ngeom, [1,8,1],[0.7,1.1],[0.7,1.1],
-                           [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]))
-        gtypes.extend(['H2O'] * ngeom)
-    elif mol_type == 'HAu2':
-        gtypes = []
-        ngeom = 1
-        Zs = [1,79,79]
-        charges = [1] * ngeom # To keep it a singlet
-        length_range1 = [1.0,1.3]
-        length_range2 = [2.0,2.5]
-        angle_range = [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]
-        geoms1 = random_triatomics(ngeom, Zs, length_range1, length_range2,
-                           angle_range)
-        gtypes.extend(['HAu2'] * ngeom)
-    elif mol_type == 'HCN':
-        gtypes = []
-        ngeom = 1
-        Zs = [1,6,7]
-        charge = [0] * ngeom # To keep it a singlet
-        length_range1 = [0.7,1.1]
-        length_range2 = [1.2,1.6]
-        angle_range = [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]
-        geoms1 = random_triatomics(ngeom, Zs, length_range1, length_range2,
-                           angle_range)
-        gtypes.extend(['HCN'] * ngeom)
-    elif mol_type == 'custom':
-        target = 'data/small_test.pkl'
-        db = np.array(pickle.load(open(target, 'rb'))).T
-
-        ngeom = 8
-        geoms1 = [i['geom'] for i in db[0]][:ngeom]
-        Zs = geoms1[0].z
-        charges = [0] * ngeom
-        gtypes = ['x'] * ngeom
-    else:
-        print('unknown molecule type + ' + mol_type)
-        exit()
-
+    for mol_type in ['HAu2', 'organic', 'HCN']:
+        if mol_type == 'organic':
+            ngeom = 10
+            charges = [0] * 3* ngeom
+            gtypes = []
+            geoms1 = random_triatomics(ngeom, [1,6,7],[0.7,1.1],[0.7,1.1],
+                               [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0])
+            gtypes.extend(['HCN'] * ngeom)
+            geoms1.extend(random_triatomics(ngeom, [7,6,1],[0.7,1.1],[0.7,1.1],
+                               [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]))
+            gtypes.extend(['NCH'] * ngeom)
+            geoms1.extend(random_triatomics(ngeom, [1,8,1],[0.7,1.1],[0.7,1.1],
+                               [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]))
+            gtypes.extend(['H2O'] * ngeom)
+        elif mol_type == 'HAu2':
+            gtypes = []
+            ngeom = 1
+            Zs = [1,79,79]
+            charges = [1] * ngeom # To keep it a singlet
+            length_range1 = [1.0,1.3]
+            length_range2 = [2.0,2.5]
+            angle_range = [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]
+            geoms1 = random_triatomics(ngeom, Zs, length_range1, length_range2,
+                               angle_range)
+            gtypes.extend(['HAu2'] * ngeom)
+        elif mol_type == 'HCN':
+            gtypes = []
+            ngeom = 1
+            Zs = [1,6,7]
+            charge = [0] * ngeom # To keep it a singlet
+            length_range1 = [0.7,1.1]
+            length_range2 = [1.2,1.6]
+            angle_range = [(104.7+20.0)*math.pi/180.0,(104.-20.0)*math.pi/180.0]
+            geoms1 = random_triatomics(ngeom, Zs, length_range1, length_range2,
+                               angle_range)
+            gtypes.extend(['HCN'] * ngeom)
+        elif mol_type == 'custom':
+            target = 'data/small_test.pkl'
+            db = np.array(pickle.load(open(target, 'rb'))).T
+    
+            ngeom = 8
+            geoms1 = [i['geom'] for i in db[0]][:ngeom]
+            Zs = geoms1[0].z
+            charges = [0] * ngeom
+            gtypes = ['x'] * ngeom
+        else:
+            print('unknown molecule type + ' + mol_type)
+            exit()
+    
     print('mol type: ' + mol_type + ' sigma ' + str(sigma))
     if sigma is not None:
         smearing = {'scheme': 'fermi',
