@@ -3,6 +3,8 @@
 Created on Wed Jun  9 13:08:28 2021
 
 @author: fhu14
+
+TODO: Fix the precompute stage for the actual driver
 """
 #%% Imports, definitions
 from typing import List, Dict
@@ -58,12 +60,7 @@ def single_fold_precompute(s, molecs: List[Dict], par_dict: Dict) -> (List[Dict]
                                                                                s.allowed_Zs, losses, s.tensor_device, s.tensor_dtype, ref_ener_start = s.reference_energy_starting_point)
     
     print("Performing model range correction")
-    s.low_end_correction_dict = dictionary_tuple_correction(s.low_end_correction_dict)
     model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, universal_high = s.universal_high)
-    
-    #Change the tuples over if a cutoff dictionary is given
-    if s.cutoff_dictionary is not None:
-        s.cutoff_dictionary = dictionary_tuple_correction(s.cutoff_dictionary)
     
     feed_generation(feeds, batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, 
                     s.tensor_device, s.tensor_dtype, s.debug, False, 
@@ -119,3 +116,4 @@ def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -
             print(f"Data successfully saved for {name} molecules")
             
     print(f"All data successfully saved for molecules in {top_level_molec_path}")
+

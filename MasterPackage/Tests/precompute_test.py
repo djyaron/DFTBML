@@ -11,7 +11,7 @@ NOTE: This test does NOT guarantee correctness, only that the code can run throu
 """
 #%% Imports, definittions 
 import os
-from DataPrecompute import generate_folds, save_folds, compute_graphs_from_folds
+from FoldManager import generate_folds, save_folds, compute_graphs_from_folds
 from InputParser import parse_input_dictionaries, collapse_to_master_settings
 
 #%% Code behind
