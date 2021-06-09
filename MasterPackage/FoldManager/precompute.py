@@ -4,14 +4,14 @@ Created on Wed Jun  9 13:08:28 2021
 
 @author: fhu14
 
-TODO: Fix the precompute stage for the actual driver
+TODO: Add in functionality for saving the batches from the precomputes
 """
 #%% Imports, definitions
 from typing import List, Dict
 from DFTBLayer import DFTBList, graph_generation, model_loss_initialization,\
     model_range_correction, feed_generation
 from DataManager import save_feed_h5
-from .util import dictionary_tuple_correction, energy_correction
+from .util import energy_correction
 import os
 import re
 import pickle

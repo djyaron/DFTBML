@@ -15,3 +15,4 @@ from .input_layer_pairwise_linear_joined import Input_layer_pairwise_linear_join
 from .input_layer_pairwise_linear import Input_layer_pairwise_linear
 from .input_layer_value import Input_layer_value
 from .reference_energy import Reference_energy
+from .repulsive_new import repulsive_energy
