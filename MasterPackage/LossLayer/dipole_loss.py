@@ -9,7 +9,6 @@ from .base_classes import LossModel
 from .external_funcs import compute_charges
 from typing import List, Dict
 import numpy as np
-import re
 import torch
 Tensor = torch.Tensor
 import torch.nn as nn

@@ -8,7 +8,7 @@
 
 # SKF parameter interface:
 import os
-from SKFinfo import SkfInfo
+from SKF import SkfInfo
 
 PARAMPATH = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
 

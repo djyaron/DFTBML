@@ -7,11 +7,9 @@ Created on Mon Jun  7 19:47:44 2021
 #%% Imports, definitions
 from .base_classes import LossModel
 from .external_funcs import compute_charges
-from typing import Union
 from typing import List, Dict
 import numpy as np
 Array = np.ndarray
-import re
 import torch
 Tensor = torch.Tensor
 import torch.nn as nn
@@ -22,41 +20,6 @@ class ChargeLoss(LossModel):
 
     def __init__(self):
         pass
-    
-    def compute_charges(self, dQs: Union[Array, Tensor], ids: Union[Array, Tensor]) -> List[Tensor]:
-        r"""Computes the charges with a segment sum over dQs
-        
-        Arguments:
-            dQs (Union[Array, Tensor]): The current orbital-resolved charge fluctuations
-                predicted from the DFTB layer
-            ids (Union[Array, Tensor]): The atom_ids for summing the dQs together
-        
-        Returns:
-            charge_tensors (List[Tensor]): List of charge tensors computed from the 
-                dQ summation
-        
-        Notes: To get the charges, we first flatten the dQs and ids into 1-dimensional tensors.
-            We then perform a scatter_add (same as tf.segsum) using the ids as a map for 
-            summing the dQs together into on-atom charges.
-        """
-        charges = dQs
-        #Should have the same dimensions (ngeom, nshells, 1)
-        if isinstance(charges, np.ndarray) and isinstance(ids, np.ndarray):
-            charges = torch.from_numpy(charges)
-            ids = torch.from_numpy(ids)
-        assert(charges.shape == ids.shape)
-        charge_tensors = []
-        for i in range(charges.shape[0]):
-            curr_ids = ids[i].squeeze(-1)
-            curr_charges = charges[i].squeeze(-1)
-            #Scale down by the minimum index
-            scaling_val = curr_ids[0].item()
-            curr_ids -= scaling_val
-            temp = torch.zeros(int(curr_ids[-1].item()) + 1, dtype = curr_charges.dtype, 
-                               device = curr_charges.device)
-            temp = temp.scatter_add(0, curr_ids.long(), curr_charges)
-            charge_tensors.append(temp)
-        return charge_tensors
             
     def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:
         r"""Adds the information needed for the charge loss to the feed
@@ -87,7 +50,7 @@ class ChargeLoss(LossModel):
                     curr_dQ = feed['dQ'][bsize]
                     curr_ids = feed['atom_ids'][bsize]
                     #Now get true charges
-                    true_charges = self.compute_charges(curr_dQ, curr_ids)
+                    true_charges = compute_charges(curr_dQ, curr_ids)
                     for i in range(len(true_charges)):
                         #Convert to numpy arrays for consistency
                         true_charges[i] = true_charges[i].numpy()

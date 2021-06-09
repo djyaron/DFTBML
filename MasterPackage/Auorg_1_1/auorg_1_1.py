@@ -8,7 +8,7 @@
 
 # SKF parameter interface:
 import os
-from SKFinfo import SkfInfo
+from SKF import SkfInfo
 
 PARAMPATH = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
 

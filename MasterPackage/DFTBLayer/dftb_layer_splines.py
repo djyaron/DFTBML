@@ -30,106 +30,22 @@ import time
 
 from Geometry import Geometry
 from .eig import SymEigB
-from .batch import create_batch, create_dataset, DFTBList, Model, RawData
+from .batch import create_batch, create_dataset, DFTBList, Model
 
-from Spline import get_dftb_vals, SplineModel, fit_linear_model, JoinedSplineModel
+from Spline import SplineModel, JoinedSplineModel
 
 from typing import List, Dict
 Tensor = torch.Tensor
 Array = np.ndarray
 
-from DataManager import get_targets_from_h5file, per_molec_h5handler, per_batch_h5handler,\
+from DataManager import per_molec_h5handler, per_batch_h5handler,\
     total_feed_combinator, compare_feeds, data_loader
 from LossLayer import TotalEnergyLoss, FormPenaltyLoss, ChargeLoss, DipoleLoss
 from InputLayer import Input_layer_DFTB, Input_layer_DFTB_val, Input_layer_hubbard,\
     Input_layer_pairwise_linear_joined, Input_layer_pairwise_linear, Input_layer_value,\
         Reference_energy
 
-from DFTBpy import _Gamma12 
-from functools import partial
-
 from .util import apx_equal, torch_segment_sum, recursive_type_conversion
-
-#Fix the ani1_path for now
-ani1_path = 'data/ANI-1ccx_clean_fullentry.h5'
-
-def get_ani1data(allowed_Z: List[int], heavy_atoms: List[int], max_config: int, 
-                 target: Dict[str, str], ani1_path: str = ani1_path, exclude: List[str] = []) -> List[Dict]:
-    r"""Extracts data from the ANI-1 data files
-    
-    Arguments:
-        allowed_Z (List[int]): Include only molecules whose elements are in
-            this list
-        heavy_atoms (List[int]): Include only molecules for which the number
-            of heavy atoms is in this list
-        max_config (int): Maximum number of configurations included for each
-            molecule.
-        target (Dict[str,str]): entries specify the targets to extract
-            key: target_name name assigned to the target
-            value: key that the ANI-1 file assigns to this target
-        ani1_path (str): The relative path to the data file. Defaults to
-            'data/ANI-1ccx_clean_fullentry.h5'
-        exclude (List[str], optional): Exclude these molecule names from the
-            returned molecules
-            Defaults to [].
-            
-    Returns:
-        molecules (List[Dict]): Each Dict contains the data for a single
-            molecular structure:
-                {
-                    'name': str with name ANI1 assigns to this molecule type
-                    'iconfig': int with number ANI1 assignes to this structure
-                    'atomic_numbers': List of Zs
-                    'coordinates': numpy array (:,3) with cartesian coordinates
-                    'targets': Dict whose keys are the target_names in the
-                        target argument and whose values are numpy arrays
-                        with the ANI-1 data
-                        
-    Notes: The ANI-1 data h5 files are indexed by a molecule name. For each
-        molecule, the data is stored in arrays whose first dimension is the
-        configuration number, e.g. coordinates(iconfig,atom_num,3). This
-        function treats each configuration as its own molecular structure. The
-        returned dictionaries include the ANI1-name and configuration number
-        in the dictionary, along with the data for that individual molecular
-        structure.
-    """
-    print(f"data file path is {ani1_path}")
-    target_alias, h5keys = zip(*target.items())
-    target_alias, h5keys = list(target_alias), list(h5keys)
-    all_zs = get_targets_from_h5file('atomic_numbers', ani1_path)
-    all_coords =  get_targets_from_h5file('coordinates', ani1_path)
-    all_targets = get_targets_from_h5file(h5keys, ani1_path)
-    if exclude is None:
-        exclude = []
-    batches = list()
-    for name in all_zs.keys():
-        if name in exclude:
-            continue
-        zs = all_zs[name][0] #Extract np array of the atomic numbers
-        zcount = collections.Counter(zs)
-        ztypes = list(zcount.keys())
-        zheavy = [x for x in ztypes if x > 1]
-        nheavy = sum([zcount[x] for x in zheavy])
-        ztypes.sort()
-        zkeep = deepcopy(allowed_Z)
-        zkeep.sort()
-        if any([zz not in allowed_Z for zz in ztypes]):
-            continue
-        if nheavy not in heavy_atoms:
-            continue
-        nconfig = all_coords[name][0].shape[0] #Extract the np array of the atomic coordinates
-        for iconfig in range(min(nconfig, max_config)):
-            batch = dict()
-            batch['name'] = name
-            batch['iconfig'] = iconfig
-            batch['atomic_numbers'] = zs
-            batch['coordinates'] = all_coords[name][0][iconfig,:,:]
-            batch['targets'] = dict()
-            for i in range(len(target_alias)):
-                targ_key = target_alias[i]
-                batch['targets'][targ_key] = all_targets[name][i][iconfig]
-            batches.append(batch)
-    return batches
 
 def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int], par_dict: Dict) -> (Dict, DFTBList):
     r"""Takes in a list of geomtries and creates the graph and feed dictionaries for the batch

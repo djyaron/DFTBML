@@ -10,7 +10,6 @@ from typing import List, Dict, Union
 from Spline import get_dftb_vals, spline_linear_model
 import numpy as np
 from .constants import Model, Bcond
-import numpy as np
 Array = np.ndarray
 import torch
 Tensor = torch.Tensor

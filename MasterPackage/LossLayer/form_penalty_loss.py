@@ -9,10 +9,8 @@ from .base_classes import LossModel, ModelPenalty
 from .external_funcs import compute_mod_vals_derivs, generate_concavity_dict
 from typing import List, Dict
 import numpy as np
-import re
 import torch
 Tensor = torch.Tensor
-import torch.nn as nn
 
 #%% Code behind
 
