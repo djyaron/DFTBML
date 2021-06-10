@@ -12,7 +12,7 @@ Tensor = torch.Tensor
 from typing import List, Dict
 import numpy as np
 Array = np.ndarray
-from .batch import Model
+from .constants import Model
 from Spline import SplineModel
 
 #%% Code behind

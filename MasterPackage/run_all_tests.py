@@ -28,15 +28,15 @@ if __name__ == "__main__":
     
     print()
     
-    print("Testing h5handler...")
-    run_h5handler_tests()
-    print("h5handler tests passed")
+    print("Testing fold generation, saving, precomputation, and saving...")
+    run_fold_precomp_tests()
+    print("fold generation, saving, precomputation tests complete.")
     
     print()
     
-    print("Testing fold generation, saving, precomputation, and saving...")
-    # run_fold_precomp_tests()
-    print("fold generation, saving, precomputation tests complete.")
+    print("Testing h5handler...")
+    run_h5handler_tests()
+    print("h5handler tests passed")
 
 
 

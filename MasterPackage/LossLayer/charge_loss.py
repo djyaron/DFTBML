@@ -94,7 +94,7 @@ class ChargeLoss(LossModel):
             real_charges = feed['charges'][bsize]
             curr_dQ_out = output['dQ'][bsize]
             curr_ids = feed['atom_ids'][bsize]
-            computed_charges = self.compute_charges(curr_dQ_out, curr_ids)
+            computed_charges = compute_charges(curr_dQ_out, curr_ids)
             assert(len(computed_charges) == len(real_charges)) #Both are lists now since raggedness
             for i in range(len(computed_charges)):
                 total_computed.append(computed_charges[i])

@@ -48,6 +48,9 @@ class Settings:
         for key in other_settings_obj.__dict__:
             setattr(self, key, other_settings_obj.__dict__[key])
         return self
+    
+def convert_key_to_num(elem: Dict) -> Dict:
+    return {int(k) : v for (k, v) in elem.items()}
 
 def update_pytorch_arguments(settings: Settings) -> None:
     r"""Updates the arguments in the settings object to the corresponding 
@@ -212,6 +215,10 @@ def parse_input_dictionaries(settings_filename: str, default_filename: str) -> S
     if final_dictionary['model_settings']['low_end_correction_dict'] is not None:
         final_dictionary['model_settings']['low_end_correction_dict'] = \
             dictionary_tuple_correction(final_dictionary['model_settings']['low_end_correction_dict'])
+    if final_dictionary["training_settings"]["split_mapping"] is not None:
+        final_dictionary["training_settings"]["split_mapping"] = \
+            convert_key_to_num(final_dictionary["training_settings"]["split_mapping"])
+    
     
     #Convert to a settings object
     for key in final_dictionary:
@@ -244,6 +251,7 @@ def collapse_to_master_settings(final_settings: Settings) -> Settings:
                 collapsed_settings = final_settings.__dict__[sub_field]
             else:
                 collapsed_settings += final_settings.__dict__[sub_field]
+    collapsed_settings.run_id = final_settings.__dict__['run_id']
     return collapsed_settings
 
 #%% Main block

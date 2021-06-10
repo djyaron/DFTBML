@@ -6,7 +6,7 @@ Created on Fri Jun  4 16:35:35 2021
 """
 
 from InputParser import construct_final_settings_dict,\
-    parse_input_dictionaries
+    parse_input_dictionaries, collapse_to_master_settings
 import json
 
 def test_exception_handling():
@@ -180,6 +180,19 @@ def test_object_addition():
     
     print("Operator overload test passed.")
     
+def test_collapse_master():
+    #Checking that operator overload is functioning correctly.
+    print("Testing the addition operator overload and run_id...")
+    final_settings_obj = parse_input_dictionaries("test_files/settings_refactor_differ.json",
+                                                  "test_files/refactor_default_tst.json")
+    
+    final_settings_obj = collapse_to_master_settings(final_settings_obj)
+    assert('run_id' in final_settings_obj.__dict__)
+    print(final_settings_obj.__dict__.keys())
+    print(final_settings_obj.__dict__['run_id'])
+    print("run_id presence test passed.")
+    
+    
 def run_parser_tests():
     test_exception_handling()
     test_total_reconstruction()
@@ -187,6 +200,7 @@ def run_parser_tests():
     test_inner_translation()
     test_object_conversion()
     test_object_addition()
+    test_collapse_master()
 
 if __name__ == "__main__":
     run_parser_tests()
