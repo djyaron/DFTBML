@@ -5,7 +5,7 @@ Created on Mon Jun  7 19:02:00 2021
 @author: fhu14
 """
 #%% Imports, definitions
-from .constants import Model, RawData
+from MasterConstants import Model, RawData
 from typing import List, Dict
 import numpy as np
 Array = np.ndarray

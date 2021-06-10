@@ -6,7 +6,7 @@ Created on Tue Jun  8 13:03:29 2021
 """
 #%% Imports, definitions
 import numpy as np
-from rotations import rotation_matrix_bond
+from Rotations import rotation_matrix_bond
 
 #%% Code behind
 
@@ -51,7 +51,9 @@ def testRotateOper(verbose = True, eps = 1e-12):
         return True
     else:
         return False
-    
+
+def run_rotation_test():
+    testRotateOper()
 #%% Main block
 if __name__ == "__main__":
-    testRotateOper()
+    run_rotation_test()

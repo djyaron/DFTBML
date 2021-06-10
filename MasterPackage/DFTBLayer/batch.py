@@ -97,17 +97,16 @@ Notes:
 import numpy as np
 import scipy.linalg
 
-import math
-import pickle as pickle
-
-from collections import namedtuple, OrderedDict, Counter
+from collections import OrderedDict, Counter
 from itertools import chain
 from functools import partial
 
-from Geometry import random_triatomics, to_cart
-from DFTBpy import DFTB, ANGSTROM2BOHR, determine_fermi_level, fermi
+from Geometry import to_cart
+from DFTBpy import DFTB
 from Auorg_1_1 import ParDict 
-from .util import np_segment_sum, maxabs, list_contains
+from .util import list_contains
+
+from MasterConstants import RawData, RotData, Model, ANGSTROM2BOHR
 
 try:
     import matplotlib.pylab as plt
@@ -118,10 +117,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-RawData = namedtuple('RawData',['index','glabel','Zs','atoms','oper','orb','dftb','rdist'])
-RotData = namedtuple('RotData',['raw_indices','rot_indices','rot'] )
-
-Model = namedtuple('Model',['oper', 'Zs', 'orb'])
 
 #def get_offdiag_models_for_Zs(oper,Zs):
 #    '''

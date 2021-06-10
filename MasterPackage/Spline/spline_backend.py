@@ -50,7 +50,7 @@ try:
     import matplotlib.pyplot as plt
 except:
     pass
-from .constants import Bcond
+from MasterConstants import Bcond
 
 #%% Code behind
 

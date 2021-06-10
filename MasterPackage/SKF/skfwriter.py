@@ -23,7 +23,7 @@ from typing import List, Dict
 import os, os.path
 from functools import partial
 from scipy.interpolate import CubicSpline
-from .constants import ANGSTROM2BOHR, Model
+from MasterConstants import ANGSTROM2BOHR, Model
 
 #%% Header, H, and S block
 def load_file_content(elems: tuple, ref_direc: str, atom_nums: Dict) -> List[List[str]]:

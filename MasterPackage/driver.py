@@ -34,7 +34,7 @@ def run_training(settings_filename: str, defaults_filename: str):
     for i in range(num_splits):
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
-        
+
         #Exclude the R models if new rep setting
         if s_obj.rep_setting == 'new':
             exclude_R_backprop(model_variables)
@@ -45,7 +45,7 @@ def run_training(settings_filename: str, defaults_filename: str):
         init_repulsive = False #no longer need to initialize repulsive model
         
         write_output_lossinfo(s_obj, loss_tracker, times_per_epoch, i, s_obj.split_mapping)
-        
+
         write_output_skf(s_obj, all_models)
         
         if (model_save is not None) and (variable_save is not None):
@@ -75,3 +75,6 @@ if __name__ == "__main__":
     start = time.process_time()
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_training(args.settings, args.defaults)
     end = time.process_time()
+    
+    print(f"Run took {end - start} seconds")
+    print(loss_tracker)

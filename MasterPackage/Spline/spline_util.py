@@ -12,7 +12,7 @@ Functions here should be exposable at the top level
 #%% Imports, definitions
 from Elements import ELEMENTS
 import numpy as np
-from .constants import ANGSTROM2BOHR
+from MasterConstants import ANGSTROM2BOHR
 from DFTBpy import _Gamma12
 
 #%% Code behind

@@ -30,7 +30,9 @@ import time
 
 from Geometry import Geometry
 from .eig import SymEigB
-from .batch import create_batch, create_dataset, DFTBList, Model
+from .batch import create_batch, create_dataset, DFTBList
+
+from MasterConstants import Model
 
 from Spline import SplineModel, JoinedSplineModel
 

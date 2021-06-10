@@ -15,7 +15,7 @@ from .sccparam import Gamma, Doublju
 from .cdiis import CDIIS
 from .fermilevel import determine_fermi_level, get_entropy_term,\
                        get_occupancies
-
+from MasterConstants import ANGSTROM2BOHR
 
 
 from .Exceptions import ConvergenceFailure
@@ -47,9 +47,6 @@ BYPASS_UHF_SAFETY_CHECK = True
 #           'This will cause fractional numbers to be assigned to ‘_numElecAB’. To disable\n'
 #           'this, set ‘BYPASS_UHF_SAFETY_CHECK’ to false in the dftb.py file.')
 #     print('#'*80);print('#'*80)
-
-
-ANGSTROM2BOHR = 1.889725989
 
 class DFTB:
 

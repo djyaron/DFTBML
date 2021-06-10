@@ -19,7 +19,7 @@ from InputParser import parse_input_dictionaries, collapse_to_master_settings
 def run_fold_gen_test():
     allowed_Zs = [1,6,7,8]
     heavy_atoms = [1,2,3,4,5,6,7,8]
-    max_config = 10
+    max_config = 5
     target = {'Etot' : 'cc',
             'dipole' : 'wb97x_dz.dipole',
             'charges' : 'wb97x_dz.cm5_charges'}
@@ -28,7 +28,7 @@ def run_fold_gen_test():
     lower_limit = 5
     num_folds = 6
     num_folds_lower = 3
-    local_fold_molecs = "fold_molecs"
+    local_fold_molecs = "fold_molecs_internal"
 
     print("Testing fold generation")
     folds = generate_folds(allowed_Zs, heavy_atoms, max_config, target, data_path, exclude, 
@@ -41,7 +41,7 @@ def run_precompute_test():
     defaults_filename = "test_files/refactor_default_tst.json"
     resulting_settings_obj = parse_input_dictionaries(settings_filename, defaults_filename)
     final_settings = collapse_to_master_settings(resulting_settings_obj)
-    compute_graphs_from_folds(final_settings, "fold_molecs", True)
+    compute_graphs_from_folds(final_settings, "fold_molecs_internal", True)
     print("Precompute executed successfully.")
     pass
 

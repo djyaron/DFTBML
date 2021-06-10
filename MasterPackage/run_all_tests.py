@@ -8,23 +8,27 @@ Simple driver file for running all tests
 """
 from Tests import *
 
-if __name__ == "__main__":
+def run_all_tests():
+    
+    print("Conducting unit tests")
+    
+    print()
     
     print("Testing InputParser...")
     run_parser_tests()
-    print("InputParser tests passed")
+    print("InputParser tests passed.")
     
     print() 
     
     print("Testing spline backend...")
     run_spline_tests()
-    print("Spline backend tests completed")
+    print("Spline backend tests completed.")
     
     print()
     
     print("Testing batch...")
     run_batch_tests()
-    print("Batch tests passed")
+    print("Batch tests passed.")
     
     print()
     
@@ -36,7 +40,19 @@ if __name__ == "__main__":
     
     print("Testing h5handler...")
     run_h5handler_tests()
-    print("h5handler tests passed")
+    print("h5handler tests passed.")
+    
+    print()
+    
+    print("Testing rotation operator...")
+    run_rotation_test()
+    print("Rotation test passed.")
+    
+    print()
+    
+    print("All unit tests passed successfully")
 
+if __name__ == "__main__":
+    run_all_tests()
 
 

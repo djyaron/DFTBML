@@ -9,7 +9,7 @@
            "dipole" : "wb97x_dz.dipole",
            "charges" : "wb97x_dz.cm5_charges"},
     "exclude" : ["O3", "N2O1", "H1N1O3", "H2"],
-    "num_per_batch" : 1,
+    "num_per_batch" : 10,
     "prop_train" : 0.8,
     "data_path" : "data/ANI-1ccx_clean_fullentry.h5",
     "shuffle" : [1,1]

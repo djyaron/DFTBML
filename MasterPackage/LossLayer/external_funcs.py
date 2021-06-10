@@ -9,7 +9,7 @@ Created on Mon Jun  7 18:33:29 2021
 from typing import List, Dict, Union
 from Spline import get_dftb_vals, spline_linear_model
 import numpy as np
-from .constants import Model, Bcond
+from MasterConstants import Model, Bcond
 Array = np.ndarray
 import torch
 Tensor = torch.Tensor

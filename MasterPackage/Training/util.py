@@ -9,7 +9,8 @@ from typing import List, Dict
 import random
 from DFTBLayer import DFTBList, assemble_ops_for_charges, update_charges
 import os, pickle
-from SKF import main, atom_nums, atom_masses
+from SKF import main
+from MasterConstants import atom_nums, atom_masses
 
 #%% Code behind
 

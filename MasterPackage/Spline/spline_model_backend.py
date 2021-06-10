@@ -18,7 +18,7 @@ from .spline_backend import spline_linear_model, spline_new_xvals,\
 from functools import reduce
 import scipy.sparse
 import scipy.special
-from .constants import Bcond
+from MasterConstants import Bcond
 from Elements import ELEMENTS
 
 #%% Code behind
