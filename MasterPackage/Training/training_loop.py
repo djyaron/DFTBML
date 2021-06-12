@@ -83,6 +83,7 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             print("Updating existing repulsive model")
             all_models['rep'].update_model_crossover(s, training_feeds, validation_feeds, all_models, dftblayer, s.tensor_dtype, s.tensor_device)
     
+    
     nepochs = s.nepochs
     for i in range(nepochs):
         start = time.process_time()
@@ -100,20 +101,32 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
                 for loss in all_losses:
                     if loss == 'Etot':
                         if s.train_ener_per_heavy:
-                            val = losses[loss] * all_losses[loss].get_value(output, feed, True, s.rep_setting)
+                            res = all_losses[loss].get_value(output, feed, True, s.rep_setting)
                         else:
-                            val = losses[loss] * all_losses[loss].get_value(output, feed, False, s.rep_setting)
+                            res = all_losses[loss].get_value(output, feed, False, s.rep_setting)
+                        val = losses[loss] * res[0]
                         tot_loss += val
                         loss_tracker[loss][2] += val.item()
+                        #Add in the prediction
+                        feed['predicted_Etot'] = res[1]
                     elif loss == 'dipole':
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
+                        res = all_losses[loss].get_value(output, feed, s.rep_setting)
+                        val = losses[loss] * res[0]
                         loss_tracker[loss][2] += val.item()
                         if s.include_dipole_backprop:
                             tot_loss += val
+                        #Add in the prediction 
+                        feed['predicted_dipole'] = res[1]
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
+                        res = all_losses[loss].get_value(output, feed, s.rep_setting)
+                        if isinstance(res, tuple):
+                            val = losses[loss] * res[0]
+                            feed[f"predicted_{loss}"] = res[1]
+                        else:
+                            val = losses[loss] * res
                         tot_loss += val 
                         loss_tracker[loss][2] += val.item()
+                        
                 validation_loss += tot_loss.item()
         
         
@@ -145,19 +158,30 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             for loss in all_losses:
                 if loss == 'Etot':
                     if s.train_ener_per_heavy:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, True, s.rep_setting)
+                        res = all_losses[loss].get_value(output, feed, True, s.rep_setting)
                     else:
-                        val = losses[loss] * all_losses[loss].get_value(output, feed, False, s.rep_setting)
+                        res = all_losses[loss].get_value(output, feed, False, s.rep_setting)
+                    val = losses[loss] * res[0]
                     tot_loss += val
                     loss_tracker[loss][2] += val.item()
+                    #Add in the prediction
+                    feed['predicted_Etot'] = res[1]
                 elif loss == 'dipole':
-                    val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
+                    res = all_losses[loss].get_value(output, feed, s.rep_setting)
+                    val = losses[loss] * res[0]
                     loss_tracker[loss][2] += val.item()
                     if s.include_dipole_backprop:
                         tot_loss += val
+                    #Add in the prediction 
+                    feed['predicted_dipole'] = res[1]
                 else:
-                    val = losses[loss] * all_losses[loss].get_value(output, feed, s.rep_setting)
-                    tot_loss += val
+                    res = all_losses[loss].get_value(output, feed, s.rep_setting)
+                    if isinstance(res, tuple):
+                        val = losses[loss] * res[0]
+                        feed[f"predicted_{loss}"] = res[1]
+                    else:
+                        val = losses[loss] * res
+                    tot_loss += val 
                     loss_tracker[loss][2] += val.item()
     
             epoch_loss += tot_loss.item()
