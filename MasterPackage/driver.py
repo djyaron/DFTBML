@@ -33,7 +33,7 @@ def run_training(settings_filename: str, defaults_filename: str):
     num_splits = len(s_obj.split_mapping.keys())
     for i in range(num_splits):
         #Do the precompute stage
-        all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
+        all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
 
         #Exclude the R models if new rep setting
         if s_obj.rep_setting == 'new':
@@ -41,7 +41,7 @@ def run_training(settings_filename: str, defaults_filename: str):
             
         #Run the training loop
         reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(s_obj, all_models, model_variables, training_feeds, validation_feeds,
-                                                                                                        training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, init_repulsive)
+                                                                                                        training_dftblsts, validation_dftblsts, training_batches, validation_batches, losses, all_losses, loss_tracker, init_repulsive)
         init_repulsive = False #no longer need to initialize repulsive model
         
         write_output_lossinfo(s_obj, loss_tracker, times_per_epoch, i, s_obj.split_mapping)

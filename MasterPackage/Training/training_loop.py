@@ -18,6 +18,7 @@ import torch
 def training_loop(s, all_models: Dict, model_variables: Dict, 
                   training_feeds: List[Dict], validation_feeds: List[Dict], 
                   training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
+                  training_batches: List[List[Dict]], validation_batches: List[List[Dict]],
                   losses: Dict, all_losses: Dict, loss_tracker: Dict,
                   init_repulsive: bool = False):
     r"""Training loop portion of the calculation
@@ -37,6 +38,10 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             charge updates on the training feeds
         validation_dftblsts (List[DFTBList]): List of DFTBList objects for the
             charge updates on the validation feeds
+        training_batches (List[List[Dict]]): The original molecule dictionaries for 
+            each training feed
+        validation_batches (List[List[Dict]]): The original molecule dictionaries
+            for each validation feed
         losses (Dict): Dictionary of target losses and their weights
         all_losses (Dict): Dictionary of target losses and their loss classes
         loss_tracker (Dict): Dictionary for keeping track of loss data during

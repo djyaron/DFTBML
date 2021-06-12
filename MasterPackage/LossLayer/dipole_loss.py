@@ -94,6 +94,8 @@ class DipoleLoss(LossModel):
         Returns:
             loss (Tensor): The value for the dipole loss with gradients 
                 attached for backpropagation
+            prediction_dict (Dict): Dictionary of predicted total energies organized
+                by basis size
         
         Notes: Dipoles are computed from the predicted values for dQ as 
             mu = R @ q where q is the dQs summed into on-atom charges and 
@@ -105,11 +107,18 @@ class DipoleLoss(LossModel):
         loss_criterion = nn.MSELoss()
         computed_dips = list()
         real_dips = list()
+        
+        #Return a dictionary to keep track of the values predicted.
+        prediction_dict = dict()
+        
         for bsize in feed['basis_sizes']:
             curr_dQ = output['dQ'][bsize]
             curr_ids = feed['atom_ids'][bsize]
             curr_dipmats = dipole_mats[bsize]
             curr_charges = compute_charges(curr_dQ, curr_ids)
+            
+            prediction_dict[bsize] = []
+            
             assert(len(curr_charges) == len(curr_dipmats) == len(real_dipoles[bsize]))
             for i in range(len(curr_charges)):
                 #Make sure the cartesian matrix has the same device and datatype
@@ -118,8 +127,11 @@ class DipoleLoss(LossModel):
                                         device = curr_charges[i].device)
                 #dipoles computed as coords @ charges
                 comp_res = torch.matmul(cart_mat, curr_charges[i])
+                
+                prediction_dict[bsize].append(comp_res.detach().cpu().numpy())
+                
                 computed_dips.append(comp_res)
                 real_dips.append(real_dipoles[bsize][i])
         total_comp_dips = torch.cat(computed_dips)
         total_real_dips = torch.cat(real_dips)
-        return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips))        
+        return torch.sqrt(loss_criterion(total_comp_dips, total_real_dips)), prediction_dict

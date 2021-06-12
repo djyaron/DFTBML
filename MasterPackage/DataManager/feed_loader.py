@@ -25,6 +25,8 @@ def load_single_fold(s, top_level_fold_path: str, fold_num: int):
     Returns:
         feeds (List[Dict]): The input feeds for the DFTB layer
         dftb_lsts (List[DFTBList]): The DFTBList objects to use for the training
+        batches (List[List[Dict]]): The molecules originally used to generate the 
+            feeds; the ith batch matches the ith feed.
     """
     total_fold_path = os.path.join(top_level_fold_path, f"Fold{fold_num}")
     print(f"Loading from {total_fold_path}")
@@ -32,15 +34,17 @@ def load_single_fold(s, top_level_fold_path: str, fold_num: int):
     molec_info_name = os.path.join(total_fold_path, 'molecs.h5')
     dftb_lst_name = os.path.join(total_fold_path, 'dftblsts.p')
     reference_data_name = os.path.join(total_fold_path, 'reference_data.p')
+    batch_original_name = os.path.join(total_fold_path, 'batch_original.p')
     
     feeds = total_feed_combinator.create_all_feeds(batch_info_name, molec_info_name, s.ragged_dipole)
     dftb_lsts = pickle.load(open(dftb_lst_name, 'rb'))
+    batches = pickle.load(open(batch_original_name, 'rb'))
     
     if s.run_check:
         print("Running safety check")
         compare_feeds(reference_data_name, feeds)
     
-    return feeds, dftb_lsts
+    return feeds, dftb_lsts, batches
 
 def load_combined_fold(s, top_level_fold_path: str, split_num: int, fold_mapping: Dict):
     r"""Generates the training and validation feeds through combining individual folds
@@ -60,6 +64,8 @@ def load_combined_fold(s, top_level_fold_path: str, split_num: int, fold_mapping
         validation_feeds (List[Dict]): List of validation feed dictionaries
         training_dftblsts (List[DFTBList]): List of DFTBList objects for training
         validation_dftblsts (List[DFTBList]): List of DFTBList objects for validation
+        training_batches (list[List[Dict]]): The batches for the training feeds
+        validation_batches (list[List[Dict]]): The batches for the validation feeds
     
     Notes: Here, the fold_num just indicates which split we're doing. The fold_mapping
         maps the split number to the numbers of the individual segments of data that
@@ -68,22 +74,25 @@ def load_combined_fold(s, top_level_fold_path: str, split_num: int, fold_mapping
     """
     current_train_folds, current_valid_folds = fold_mapping[split_num]
     #Now we need to load the data for each fold number. Load the training folds first
-    training_feeds, training_dftblsts = list(), list()
-    validation_feeds, validation_dftblsts = list(), list()
+    training_feeds, training_dftblsts, training_batches = list(), list(), list()
+    validation_feeds, validation_dftblsts, validation_batches = list(), list(), list()
     
     #Get the training information
     for num in current_train_folds:
-        feeds, dftblsts = load_single_fold(s, top_level_fold_path, num)
+        feeds, dftblsts, batches = load_single_fold(s, top_level_fold_path, num)
         training_feeds.extend(feeds)
         training_dftblsts.extend(dftblsts)
+        training_batches.extend(batches)
     
     #Get the validation information
     for num in current_valid_folds:
-        feeds, dftblsts = load_single_fold(s, top_level_fold_path, num)
+        feeds, dftblsts, batches = load_single_fold(s, top_level_fold_path, num)
         validation_feeds.extend(feeds)
         validation_dftblsts.extend(dftblsts)
+        validation_batches.extend(batches)
     
-    return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
+    return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts,\
+        training_batches, validation_batches
 
 def loading_fold(s, top_fold_path: str, fold_num: int):
     r"""Loads the data from a given fold

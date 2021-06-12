@@ -42,12 +42,13 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
         losses (Dict): Dictionary of loss targets and their associated weights
         all_losses (Dict): Dictionary of the loss objects, mapped by their aliases (e.g. 'Etot' : TotalEnergyLoss())
         loss_tracker (Dict): A dictionary that will be populated with loss information
+        training_batches (List[List[Dict]]): The individual batches for all the training feeds
+        validation_batches (list[List[Dict]]): The individual batches for all the validation feeds
     """
     #Load the information in for the current split
     print(f"Loading data for split {split_num}")
     top_fold_path = s.top_level_fold_path
-    training_feeds, validation_feeds, training_dftblsts, validation_dftblsts = load_combined_fold(s, top_fold_path, split_num, fold_mapping_dict)
-    training_batches, validation_batches = [], []
+    training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, training_batches, validation_batches = load_combined_fold(s, top_fold_path, split_num, fold_mapping_dict)
     
     #Create the loss dictionary
     print("Creating loss dictionary")
@@ -105,4 +106,4 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
     print(losses)
     print(all_losses)
     
-    return all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker
+    return all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches

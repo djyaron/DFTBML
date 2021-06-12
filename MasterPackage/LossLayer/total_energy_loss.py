@@ -108,6 +108,8 @@ class TotalEnergyLoss(LossModel):
         Returns:
             loss (Tensor): The value for the total energy loss with gradients
                 attached that allow backpropagation
+            prediction_dict (Dict): Dictionary of predicted total energies organized
+                by basis size
         
         Notes: If total energy is computed per heavy atom, torch.div is used
             to perform element-wise division with gradients. This is slightly
@@ -117,6 +119,10 @@ class TotalEnergyLoss(LossModel):
         all_bsizes = list(output['Eelec'].keys())
         loss_criterion = nn.MSELoss() #Compute MSE loss by the pytorch specification
         target_tensors, computed_tensors = list(), list()
+        
+        #Return a dictionary to keep track of the values predicted.
+        prediction_dict = dict()
+        
         for bsize in all_bsizes:
             n_heavy = feed['nheavy'][bsize].long()
             computed_result = None
@@ -126,6 +132,10 @@ class TotalEnergyLoss(LossModel):
                 computed_result = output['Eelec'][bsize] + output['Erep'][bsize]
             if per_atom_flag:
                 computed_result = torch.div(computed_result, n_heavy)
+            
+            #Store the predictions by bsize as numpy arrays.
+            prediction_dict[bsize] = computed_result.detach().cpu().numpy()
+            
             target_result = feed['Etot'][bsize]
             if len(computed_result.shape) == 0:
                 computed_result = computed_result.unsqueeze(0)
@@ -136,4 +146,4 @@ class TotalEnergyLoss(LossModel):
         total_targets = torch.cat(target_tensors)
         total_computed = torch.cat(computed_tensors)
         # RMS loss for total energy
-        return torch.sqrt(loss_criterion(total_computed, total_targets))
+        return torch.sqrt(loss_criterion(total_computed, total_targets)), prediction_dict

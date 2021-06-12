@@ -83,6 +83,8 @@ class ChargeLoss(LossModel):
         Returns:
             loss (Tensor): The value for the dipole loss with gradients 
                 attached for backpropagation
+            prediction_dict (Dict): Dictionary of predicted total energies organized
+                by basis size
         
         Notes: Charges are compouted by summing the orbital-resolved charge fluctuations
             into on-atom charges using the compute_charges function and a segment sum.
@@ -90,11 +92,18 @@ class ChargeLoss(LossModel):
         all_bsizes = feed['basis_sizes']
         loss_criterion = nn.MSELoss()
         total_computed, total_targets = list(), list()
+        
+        #Return a dictionary to keep track of the values predicted.
+        prediction_dict = dict()
+        
         for bsize in all_bsizes:
             real_charges = feed['charges'][bsize]
             curr_dQ_out = output['dQ'][bsize]
             curr_ids = feed['atom_ids'][bsize]
             computed_charges = compute_charges(curr_dQ_out, curr_ids)
+            
+            prediction_dict[bsize] = [elem.detach().cpu().numpy() for elem in computed_charges]
+            
             assert(len(computed_charges) == len(real_charges)) #Both are lists now since raggedness
             for i in range(len(computed_charges)):
                 total_computed.append(computed_charges[i])
@@ -104,4 +113,4 @@ class ChargeLoss(LossModel):
                 assert (total_computed[-1].shape == total_targets[-1].shape)
         computed_tensor = torch.cat(total_computed)
         target_tensor = torch.cat(total_targets)
-        return torch.sqrt(loss_criterion(computed_tensor, target_tensor))
+        return torch.sqrt(loss_criterion(computed_tensor, target_tensor)), prediction_dict

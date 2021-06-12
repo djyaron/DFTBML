@@ -31,8 +31,17 @@ def single_fold_precompute(s, molecs: List[Dict], par_dict: Dict) -> (List[Dict]
     
     Returns:
         feeds (List[Dict]): The list of feed dictionaries
-        feed_dftblsts (list[DFTBList]): The list of DFTBList objects
-    
+        dftblsts (list[DFTBList]): The list of DFTBList objects
+        all_models (Dict): Dictionary mapping model specs to 
+        model_variables (Dict): Dictionary of the variables that will be optimized
+            by the training process
+        losses (Dict): Dictionary keeping track of the weights for each target.
+        all_losses (Dict): Dictionary mapping to the different loss objects.
+        loss_tracker (Dict): Dictionary used to keep track of loss information
+        batches (List[List[Dict]]): List of lists of molecule dictionaries; each inner
+            list corresponds to each of the feeds in a 1-to-1 correspondence, 
+            and the length of feeds and batches should be equal.
+        
     Notes: Different from before, a fold now consists only of a single set of molecules.
         The "train" and "validate" folds are then chosen from among the general set 
         of folds.
@@ -73,7 +82,7 @@ def single_fold_precompute(s, molecs: List[Dict], par_dict: Dict) -> (List[Dict]
     print("losses")
     print(losses)
     
-    return feeds, dftb_lsts, all_models, model_variables, losses, all_losses, loss_tracker
+    return feeds, dftb_lsts, all_models, model_variables, losses, all_losses, loss_tracker, batches
 
 def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -> None:
     r"""Computes and saves the feed dictionaries for all the molecules in each fold
@@ -110,9 +119,9 @@ def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -
             if s.train_ener_per_heavy: #Only perform the energy correction if training per heavy atom
                 for elem in molecs:
                     energy_correction(elem)
-            feeds, dftb_lsts, _, _, _, _, _ = single_fold_precompute(s, molecs, par_dict)
+            feeds, dftb_lsts, _, _, _, _, _, batches = single_fold_precompute(s, molecs, par_dict)
             destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
-            save_feed_h5(feeds, dftb_lsts, molecs, dest = destination, duplicate_data = copy_molecs)
+            save_feed_h5(feeds, dftb_lsts, molecs, destination, batches, duplicate_data = copy_molecs)
             print(f"Data successfully saved for {name} molecules")
             
     print(f"All data successfully saved for molecules in {top_level_molec_path}")
