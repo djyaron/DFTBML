@@ -150,7 +150,7 @@ def write_output_skf(s, all_models: Dict) -> None:
          s.skf_ngrid, target_folder)
 
 def write_output_lossinfo(s, loss_tracker: Dict, times_per_epoch: List[float], split_num: int,
-                          split_mapping: Dict) -> None:
+                          split_mapping: Dict, all_models: Dict) -> None:
     r"""Function for outputting any loss information
     
     Arguments:
@@ -163,6 +163,8 @@ def write_output_lossinfo(s, loss_tracker: Dict, times_per_epoch: List[float], s
         split_mapping (Dict): The dictionary indicating how to combine individual folds for training and
             validation. The first element of the entry is the training fold numbers and the
             second element of the entry is the validation fold numbers. Defaults to None
+        all_models (Dict): Dictionary of the trained models to be saved at the
+            end of training
             
     Returns:
         None
@@ -188,5 +190,7 @@ def write_output_lossinfo(s, loss_tracker: Dict, times_per_epoch: List[float], s
         handle.write(f"Training fold numbers = {train}\n")
         handle.write(f"Validation fold numbers = {valid}\n")
         handle.close()
+    with open(os.path.join(target_dir, "saved_models.p"), "wb") as handle:
+        pickle.dump(all_models, handle)
     
     print("All loss information saved")

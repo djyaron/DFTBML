@@ -19,7 +19,7 @@
 "loaded_data_fields" : {
 
     "loaded_data" : true,
-    "top_level_fold_path" : "fold_molecs_test",
+    "top_level_fold_path" : "fold_molecs_test_8020",
     "run_check" : false,
     "type_conversion_ignore_keys" : ["glabels", "basis_sizes", "charges", "dipole_mat", "iconfigs"],
     "molec_file_names" : ["final_molec_test.h5", "final_valid_molec_test.h5"],
@@ -101,11 +101,11 @@
     "cv_mode" : "normal",
     "num_folds" : 6,
     "fold_load_form" : "combine_individual_folds",
-    "split_mapping" : {"0" : [[1,2,4,5], [0,3]]
+    "split_mapping" : {"0" : [[0], [1]]
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 5
+    "nepochs" : 150
 
 },
 

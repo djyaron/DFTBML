@@ -12,7 +12,7 @@ import argparse
 from Precompute import precompute_stage
 from Training import training_loop, exclude_R_backprop, write_output_skf, \
     write_output_lossinfo
-import time
+import time, pickle
 
 #%% Code behind
 def run_training(settings_filename: str, defaults_filename: str):
@@ -34,7 +34,10 @@ def run_training(settings_filename: str, defaults_filename: str):
     for i in range(num_splits):
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
-
+        
+        print(f"Number of training feeds: {len(training_feeds)}")
+        print(f"Number of validation feeds: {len(validation_feeds)}")
+        
         #Exclude the R models if new rep setting
         if s_obj.rep_setting == 'new':
             exclude_R_backprop(model_variables)
@@ -44,7 +47,7 @@ def run_training(settings_filename: str, defaults_filename: str):
                                                                                                         training_dftblsts, validation_dftblsts, training_batches, validation_batches, losses, all_losses, loss_tracker, init_repulsive)
         init_repulsive = False #no longer need to initialize repulsive model
         
-        write_output_lossinfo(s_obj, loss_tracker, times_per_epoch, i, s_obj.split_mapping)
+        write_output_lossinfo(s_obj, loss_tracker, times_per_epoch, i, s_obj.split_mapping, all_models)
 
         write_output_skf(s_obj, all_models)
         
