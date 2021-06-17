@@ -372,6 +372,7 @@ if __name__ == "__main__":
     
     import pickle
     from functools import reduce
+    import random
     
     training_predictions = "MasterPackage/predicted_train.p"
     validation_predictions = "MasterPackage/predicted_validation.p"
@@ -385,10 +386,13 @@ if __name__ == "__main__":
     valid_molecs = list(reduce(lambda x, y : x + y, valid))
     
     dataset = train_molecs + valid_molecs
+    dataset = random.sample(dataset, 500) #Randomly choose 500 molecules
     skf_dir = os.path.join(os.getcwd(), "MasterPackage", "old_rep_setting_run")
     
     add_dftb(dataset, skf_dir)
-    error = compute_results_ANI1(dataset, target, allowed_Zs, "MAE", True)
+    diff = np.array([molec['pzero']['t'] - molec['predictions']['Etot'] for molec in dataset])
+    print(f"Error in MAE is {np.mean(np.abs(diff))}")
+    # error = compute_results_ANI1(dataset, target, allowed_Zs, "MAE", True)
     
     
     

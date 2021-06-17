@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from MasterConstants import Model
+from InputLayer import Input_layer_pairwise_linear_joined, Input_layer_pairwise_linear
 import pickle
 
 #%% Code behind
@@ -94,6 +95,7 @@ def plot_all_splines(model_file: str, dest_dir: str, max_ider: int = 0, ngrid: i
         os.mkdir(dest_dir)
     
     for model_spec in all_models:
-        if isinstance(model_spec, Model) and len(model_spec.Zs) == 2:
+        if (isinstance(model_spec, Model)) and (len(model_spec.Zs) == 2)\
+            and (isinstance(all_models[model_spec], Input_layer_pairwise_linear_joined) or isinstance(all_models[model_spec], Input_layer_pairwise_linear)):
             plot_spline(all_models[model_spec], dest_dir, max_ider, ngrid,
                         same_plot, mode)
