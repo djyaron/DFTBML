@@ -301,7 +301,8 @@ def fit_linear_ref_ener(dataset: List[Dict], target: str, allowed_Zs: List[int])
     coefs = lsq_res[0]
     return coefs, XX
 
-def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int]):
+def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int],
+                         error_metric: str = "RMS", compare_model_skf: bool = False):
     r"""Computes the results for the new skf files in predicting energies
     
     Arguments:
@@ -309,6 +310,11 @@ def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int]
             DFTB+ results added to them.
         target (str): The energy target that is being aimed for
         allowed_Zs (List[int]): The allowed atoms in the molecules
+        error_metric (str): The error metric used for computing the 
+            deviations
+        compare_model_skf (bool): Whether comparing ani1 target against 
+            DFTB+ prediction (False) or comparing DFTBLayer prediction
+            against DFTB+ prediction, i.e. saved models vs skf (True)
     
     Returns:
         
@@ -319,9 +325,15 @@ def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int]
     #The predicted energy is in 'pzero'
     predicted_dt = np.array([molec['pzero']['t'] for molec in dataset])
     predicted_target = predicted_dt + np.dot(ref_ener_mat, reference_ener_coefs)
-    true_target = np.array([molec['targets'][target] for molec in dataset])
+    if (not compare_model_skf):
+        true_target = np.array([molec['targets'][target] for molec in dataset])
+    else:
+        true_target = np.array([molec['predictions'][target] for molec in dataset])
     diff = true_target - predicted_target
-    return np.sqrt(np.mean(np.square(diff))) 
+    if error_metric == "RMS":
+        return np.sqrt(np.mean(np.square(diff))) 
+    elif error_metric == "MAE":
+        return np.mean(np.abs(diff))
     
 #%% ANI Testing (dftbtorch, electronic and organic only)
 if __name__ == "__main__":
@@ -329,18 +341,57 @@ if __name__ == "__main__":
     allowed_Zs = [1,6,7,8]
     target = 'cc'
     data_path = os.path.join(os.getcwd(), "data", "ANI-1ccx_clean_fullentry.h5")
-    skf_dir_base = os.path.join(os.getcwd(), "auorg-1-1") #0.0006212656602691023
-    skf_dir_mio = os.path.join(os.getcwd(), "mio-0-1") #
+    skf_dir_base = os.path.join(os.getcwd(), "dftbscratch", "au") #0.0006212656602691023
+    skf_dir_mio = os.path.join(os.getcwd(), "dftbscratch", "mio") #
     skf_dir_diff = os.path.join(os.getcwd(), "second_run") #1653.8940664244737
-    skf_dir_psc = os.path.join(os.getcwd(), "pscskf", "run14") #9.591953499658114
+    skf_dir_psc = os.path.join(os.getcwd(), "pscskf", "run27") #9.591953499658114
     skf_dir_old_rep = os.path.join(os.getcwd(), "old_rep_setting_run") #0.0007158606052278207
+    skf_dir_small_set = os.path.join(os.getcwd(), "fmt8020_skf")
+    skf_dir_small_set_2 = os.path.join(os.getcwd(), "fold_molecs_test_8020_internal")
     dataset = load_ani1(data_path, 1)
     print(f"The number of molecules in the dataset is {len(dataset)}")
-    add_dftb(dataset, skf_dir_base)
-    RMS = compute_results_ANI1(dataset, target, allowed_Zs)
+    add_dftb(dataset, skf_dir_small_set_2)
+    RMS = compute_results_ANI1(dataset, target, allowed_Zs, "RMS")
     print(f"Mean square error is {RMS} in Ha")
     print(f"Mean square error is {RMS * 627} in kcal/mol")
     pass
+    #skf_dir_base using auorg_1_1 is 14.556713352104877 kcal/mol, RMS error.
+    #skf_dir_psc using run 25 is 8.642467707661924 in kcal/mol, RMS error.
+    #skf_dir_psc using run 26 is 14.459295342708376 in kcal/mol, RMS error.
+    #skf_dir_psc using run 27 is 10.047199443654845 in kcal/mol, RMS error.
+    #skf_dir_small_set is 6.13989050763862 in kcal/mol, RMS error.
+    #skf_dir_mio is 15.3868130304943 in kcal/mol, RMS error.
+    #skf_dir_small_set_2 is 6.1886413563640605 in kcal/mol, RMS error.
+    
+    #skf_dir_base using auorg_1_1 10.902432164852327 in kcal/mol, MAE error.
+    #skf_dir_mio using mio_0_1 is 11.498048267608118 in kcal/mol, MAE error. 
+    #skf_dir_small_set is 4.754482065178127 in kcal/mol, MAE error
+    #skf_dir_small_set_2 is 4.877564199475571 in kcal/mol, MAE error
+    
+#%% Comparing SKF to saved models
+    
+    import pickle
+    from functools import reduce
+    
+    training_predictions = "MasterPackage/predicted_train.p"
+    validation_predictions = "MasterPackage/predicted_validation.p"
+    target = "Etot"
+    allowed_Zs = [1,6,7,8]
+    
+    train = pickle.load(open(training_predictions, 'rb'))
+    valid = pickle.load(open(validation_predictions, 'rb'))
+    
+    train_molecs = list(reduce(lambda x, y : x + y, train))
+    valid_molecs = list(reduce(lambda x, y : x + y, valid))
+    
+    dataset = train_molecs + valid_molecs
+    skf_dir = os.path.join(os.getcwd(), "MasterPackage", "old_rep_setting_run")
+    
+    add_dftb(dataset, skf_dir)
+    error = compute_results_ANI1(dataset, target, allowed_Zs, "MAE", True)
+    
+    
+    
     
     
     #%%
