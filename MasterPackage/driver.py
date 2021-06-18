@@ -35,6 +35,8 @@ def run_training(settings_filename: str, defaults_filename: str):
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
         
+        # import pdb; pdb.set_trace()
+        
         print(f"Number of training feeds: {len(training_feeds)}")
         print(f"Number of validation feeds: {len(validation_feeds)}")
         
