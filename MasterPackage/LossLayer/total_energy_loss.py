@@ -128,16 +128,16 @@ class TotalEnergyLoss(LossModel):
             computed_result = None
             if rep_method == 'old':
                 computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
-                temp_result = output['Erep'][bsize] + output['Eelec'][bsize]
+                #temp_result = output['Erep'][bsize] + output['Eelec'][bsize]
             elif rep_method == 'new':
                 computed_result = output['Eelec'][bsize] + output['Erep'][bsize]
             if per_atom_flag:
                 computed_result = torch.div(computed_result, n_heavy)
-                temp_result = torch.div(temp_result, n_heavy)
+                #temp_result = torch.div(temp_result, n_heavy)
             
             #Store the predictions by bsize as numpy arrays.
             #SET TO TEMP RESULT FOR NOW, EQUAL TO ELEC + EREP FOR DFTB
-            prediction_dict[bsize] = temp_result.detach().cpu().numpy()
+            prediction_dict[bsize] = computed_result.detach().cpu().numpy()
             
             target_result = feed['Etot'][bsize]
             if len(computed_result.shape) == 0:

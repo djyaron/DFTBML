@@ -91,7 +91,7 @@
         "impure_ratio" : 0.2,
         "lower_limit" : 4},
     
-    "train_ener_per_heavy" : false,
+    "train_ener_per_heavy" : true,
     "debug" : false,
     "include_dipole_backprop" : true,
     
@@ -105,7 +105,7 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 150
+    "nepochs" : 1
 
 },
 
@@ -137,7 +137,7 @@
 
 "repulsive_settings" : {
 
-    "rep_setting": "old"
+    "rep_setting": "new"
 },
     
 "run_id" : "old_rep_setting_run"

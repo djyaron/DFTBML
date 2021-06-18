@@ -14,6 +14,7 @@ import numpy as np
 Array = np.ndarray
 from MasterConstants import Model
 from Spline import SplineModel
+from DFTBrepulsive import train_repulsive_model
 
 #%% Code behind
 
@@ -54,12 +55,12 @@ class repulsive_energy:
         if len(training_feeds) > 0:
             total_dict_train, config_tracker_train = self.assemble_rep_input_all_feeds(training_feeds, all_models, layer)
             self.conversion_to_nparray(total_dict_train)
-            self.c_sparse, self.loc_train, self.gammas_train = driver.train_repulsive_model(total_dict_train, repulsive_opts)
+            self.c_sparse, self.loc_train, self.gammas_train = train_repulsive_model(total_dict_train, repulsive_opts)
             self.config_tracker_train = config_tracker_train
         if len(validation_feeds) > 0:
             total_dict_valid, config_tracker_valid = self.assemble_rep_input_all_feeds(validation_feeds, all_models, layer)
             self.conversion_to_nparray(total_dict_valid)
-            self.c_sparse_2, self.loc_valid, self.gammas_valid = driver.train_repulsive_model(total_dict_valid, repulsive_opts)
+            self.c_sparse_2, self.loc_valid, self.gammas_valid = train_repulsive_model(total_dict_valid, repulsive_opts)
             self.config_tracker_valid = config_tracker_valid
             #Sanity check on coefficient vector
             assert(len(self.c_sparse) == len(self.c_sparse_2))
@@ -132,7 +133,7 @@ class repulsive_energy:
         """
         final_dictionary = dict()
         all_bsizes = feed['basis_sizes']
-        output = layer(feed, all_models)
+        output = layer.forward(feed, all_models)
         for bsize in all_bsizes:
             output_elec = output['Eelec'][bsize]
             true_ener = feed['Etot'][bsize]
@@ -223,15 +224,16 @@ class repulsive_energy:
             opt (Dict): The options dictionary required for train_repulsive_model()
             
         TODO: Clarify mapping of fields in opt to fields in settings files, add those
-            fields to the settings files
+            fields to the settings files. For now, set dummy values in the
+            repulsive options sections.
         """
         opt = dict()
-        opt['nknots'] = s.num_knots
-        opt['deg'] = s.spline_deg
+        opt['nknots'] = 50
+        opt['deg'] = 3
         opt['rmax'] = 'short' #not sure how this translates (NEEDS TO BE INCLUDED IN SETTINGS FILE)
         opt['bconds'] = 'vanishing' #makes sense for repulsive potentials to go 0
-        opt['shift'] = False #energy shifter, default to True (NEEDS TO BE INCLUDED IN SETTINGS FILE)
-        opt['scale'] = False
+        opt['shift'] = True #energy shifter, default to True (NEEDS TO BE INCLUDED IN SETTINGS FILE)
+        opt['scale'] = True
         opt['atom_types'] = [1, 6, 7, 8] #Let the program infer it automatically from the data
         opt['map_grid'] = 500 #not sure how this maps (NEEDS TO BE INCLUDED IN SETTINGS FILE)
         if 'convex' in s.losses:
@@ -285,7 +287,7 @@ class repulsive_energy:
         """
         total_dict, config_tracker = self.assemble_rep_input_all_feeds(training_feeds, all_models, layer)
         self.conversion_to_nparray(total_dict)
-        self.c_sparse, self.loc_train, self.gammas_train = driver.train_repulsive_model(total_dict, self.repulsive_opts)
+        self.c_sparse, self.loc_train, self.gammas_train = train_repulsive_model(total_dict, self.repulsive_opts)
         self.config_tracker_train = config_tracker
 
     def update_model_crossover(self, s, training_feeds: List[Dict], validation_feeds: List[Dict],
