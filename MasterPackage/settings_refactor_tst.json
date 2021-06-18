@@ -32,7 +32,7 @@
 
 "model_settings" : {
 
-    "num_knots" : 50,
+    "num_knots" : 100,
     "buffer" : 0.0,
     "spline_mode" : "non-joined",
     "spline_deg" : 3,
@@ -91,7 +91,7 @@
         "impure_ratio" : 0.2,
         "lower_limit" : 4},
     
-    "train_ener_per_heavy" : true,
+    "train_ener_per_heavy" : false,
     "debug" : false,
     "include_dipole_backprop" : true,
     
@@ -105,7 +105,7 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 1
+    "nepochs" : 150
 
 },
 

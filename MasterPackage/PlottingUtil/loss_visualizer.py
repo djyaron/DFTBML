@@ -63,7 +63,7 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str) -> None:
     axs.yaxis.set_minor_locator(AutoMinorLocator())
     axs.xaxis.set_minor_locator(AutoMinorLocator())
     axs.legend()
-    fig.savefid(os.path.join(dest_dir, "Total_loss.png"))
+    fig.savefig(os.path.join(dest_dir, "Total_loss.png"))
     plt.show()
     
     print("All loss graphs saved")
