@@ -353,7 +353,7 @@ if __name__ == "__main__":
     dataset = load_ani1(data_path, 1)
     # dataset = [dataset[453]]
     print(f"The number of molecules in the dataset is {len(dataset)}")
-    add_dftb(dataset, skf_dir_mio_1_1)
+    add_dftb(dataset, skf_dir_base)
     diff = np.array([molec['pzero']['t'] - molec['dzero']['t'] for molec in dataset])
     print(f"Simple error is {np.mean(np.abs(diff)) * 627} in kcal/mol, MAE")
     RMS = compute_results_ANI1(dataset, target, allowed_Zs, "MAE")
