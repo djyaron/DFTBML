@@ -271,9 +271,9 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             #   overhead.
             #cpu() after detach() to prevent superfluous copying, https://stackoverflow.com/questions/49768306/pytorch-tensor-to-numpy-array
             ### UNCOMMENT THESE THREE LINES LATER!
-            # variables = model.get_variables().detach().cpu().numpy() 
-            # if apx_equal(np.sum(variables), 0):
-            #     return (model, 'noopt')
+            variables = model.get_variables().detach().cpu().numpy() 
+            if apx_equal(np.sum(variables), 0):
+                return (model, 'noopt')
             return (model, 'opt')
         else:
             # Case of using OffDiagModel
