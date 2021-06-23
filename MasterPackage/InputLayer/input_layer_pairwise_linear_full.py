@@ -3,6 +3,9 @@
 Created on Mon Jun  7 19:00:06 2021
 
 @author: fhu14
+
+Alternative version of the pairwise linear model that evaluates on the full
+set of xeval values rather than using the zero adjustment optimization
 """
 #%% Imports, definitions
 from MasterConstants import Model, RawData
@@ -156,15 +159,8 @@ class Input_layer_pairwise_linear:
         """
         xeval = np.array([elem.rdist for elem in mod_raw]) #xeval are in angstroms
         nval = len(xeval)
-        izero = np.where(xeval > self.cutoff)[0]
-        inonzero = np.where(xeval <= self.cutoff)[0]
-        xnonzero = xeval[inonzero] # Predict only on the non-zero x vals
-        if len(inonzero) > 0:
-            A,b = self.pairwise_linear_model.linear_model(xnonzero) #Computed based on angstrom values
-        elif len(inonzero) == 0:
-            A, b = None, None
-        return {'A': A, 'b': b, 'nval' : nval, 'izero' : izero, 'inonzero' : inonzero, 
-                'xeval' : xeval}
+        A,b = self.pairwise_linear_model.linear_model(xeval)
+        return {'A' : A, 'b' : b, 'nval' : nval}
     
     def get_values(self, feed: Dict) -> Tensor:
         r"""Generates a prediction from the spline
@@ -182,14 +178,5 @@ class Input_layer_pairwise_linear:
         """
         A = feed['A']
         b = feed['b']
-        nval = feed['nval']
-        izero = feed['izero'].long()
-        inonzero = feed['inonzero'].long()
-        if len(inonzero) == 0:
-            # If all values are zero, just return zeros with double datatype
-            return torch.zeros([nval], dtype = self.dtype, device = self.device)
-        result_temp = torch.matmul(A, self.variables) + b #Comes from angstrom values
-        result = torch.zeros([nval], dtype = self.dtype, device = self.device)
-        result[inonzero] = result_temp
-        result[izero] = 0.0
+        result = torch.matmul(A, self.variables) + b
         return result

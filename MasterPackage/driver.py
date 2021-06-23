@@ -13,6 +13,7 @@ from Precompute import precompute_stage
 from Training import training_loop, exclude_R_backprop, write_output_skf, \
     write_output_lossinfo
 import time, pickle
+from InputLayer import Input_layer_pairwise_linear
 
 #%% Code behind
 def run_training(settings_filename: str, defaults_filename: str):
@@ -35,10 +36,36 @@ def run_training(settings_filename: str, defaults_filename: str):
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
         
-        # import pdb; pdb.set_trace()
-        
+        R_mods = [mod for mod in model_variables.keys() if (not isinstance(mod, str)) and (mod.oper == 'R')]
+        print(f"Number of R model specs: {len(R_mods)}")
+        for mod in R_mods:
+            print(mod)
         print(f"Number of training feeds: {len(training_feeds)}")
         print(f"Number of validation feeds: {len(validation_feeds)}")
+        
+        #Pull out the number of zero values found within the feed dictionaries
+        #   for each spline model
+        
+        # num_zero_dict = dict()
+        
+        # double_spline_mods = [mod for mod in all_models if (not isinstance(mod, str)) and (len(mod.Zs) == 2) and 
+        #                       (isinstance(all_models[mod], Input_layer_pairwise_linear))]
+        
+        # for mod in double_spline_mods:
+        #     if mod not in num_zero_dict:
+        #         num_zero_dict[mod] = []
+        #     for index, feed in enumerate(training_feeds + validation_feeds):
+        #         try:
+        #             num_zero = len(feed[mod]['izero'])
+        #             num_zero_dict[mod].append(num_zero)
+        #         except KeyError:
+        #             print(f"Model {mod} not in feed {index}")
+        #             pass
+        
+        # for mod in num_zero_dict:
+        #     num_zero_dict[mod] = max(num_zero_dict[mod])
+        
+        # import pdb; pdb.set_trace()
         
         #Exclude the R models if new rep setting
         if s_obj.rep_setting == 'new':
