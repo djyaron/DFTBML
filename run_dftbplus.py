@@ -11,7 +11,7 @@ import os
 import shutil
 from subprocess import call
 import numpy as np
-import scipy
+import scipy, re
 import pickle as pkl
 from h5py import File
 from collections import Counter
@@ -336,6 +336,60 @@ def compute_results_ANI1(dataset: List[Dict], target: str, allowed_Zs: List[int]
     elif error_metric == "MAE":
         return np.mean(np.abs(diff))
     
+#%% Testing on molecules not seen before in the training/validation sets
+
+import pickle
+from functools import reduce
+
+def find_all_used_configs(dataset_path: str) -> List[tuple]:
+    r"""Goes through the pickled molecules stored at dataset_path
+        to find all unique (name, iconfig) pairs
+    
+    Arguments:
+        dataset_path (str): The relative path to the dataset
+        
+    Returns:
+        mols (List[tuple]): A list of (name, iconfig) pairs that encompass
+            all unique molecules in the dataset
+    """
+    pattern = r"Fold[0-9]+_molecs.p"
+    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir(dataset_path)))
+    all_molec_lsts = [pickle.load(open( os.path.join(dataset_path, name) , 'rb')) for name in valid_names]
+    molecs = list(reduce(lambda x, y : x + y, all_molec_lsts))
+    name_conf_pairs = [(molec['name'], molec['iconfig']) for molec in molecs]
+    assert(len(name_conf_pairs) == len(molecs))
+    assert(len(list(set(name_conf_pairs))) == len(molecs))
+    return name_conf_pairs
+
+def filter_dataset(dataset: List[Dict], name_conf_pairs: List[tuple]) -> List[Dict]:
+    r"""Takes the used configurations and removes elements of dataset that 
+        are found in name_conf_pairs
+    
+    Arguments:
+        dataset (List[Dict]): The list of molecule dictionaries to whittle
+            down
+        name_conf_pairs (list[tuple]): The list of pairs of names and 
+            configuration numbers that should be removed.
+    
+    Returns:
+        cleaned_set (List[Dict]): List of molecule dictionaries where 
+            every molecule included in name_conf_pairs is excluded.
+    """
+    cleaned_dataset = []
+    name_conf_pairs_set = set(name_conf_pairs)
+    for molecule in dataset:
+        if (molecule['name'], molecule['iconfig']) not in name_conf_pairs_set:
+            cleaned_dataset.append(molecule)
+    return cleaned_dataset
+    
+dataset_path = "./MasterPackage/fold_molecs_test_8020"
+name_conf_pairs = find_all_used_configs(dataset_path)
+dataset = pickle.load(open("./MasterPackage/fold_molecs_test_8020/Fold0_molecs.p", 'rb')) + \
+    pickle.load(open("./MasterPackage/fold_molecs_test_8020/Fold1_molecs.p", 'rb'))
+print(len(dataset))
+cleaned_dataset = filter_dataset(dataset, name_conf_pairs)
+assert(len(cleaned_dataset) == 0)
+
 #%% ANI Testing (dftbtorch, electronic and organic only)
 if __name__ == "__main__":
     
@@ -350,7 +404,9 @@ if __name__ == "__main__":
     skf_dir_old_rep = os.path.join(os.getcwd(), "old_rep_setting_run") #0.0007158606052278207
     skf_dir_small_set = os.path.join(os.getcwd(), "fmt8020_skf")
     skf_dir_small_set_2 = os.path.join(os.getcwd(), "fold_molecs_test_8020_internal")
-    dataset = load_ani1(data_path, 1)
+    dataset = load_ani1(data_path, 7)
+    print(f"length of original dataset: {len(dataset)}")
+    dataset = filter_dataset(dataset, find_all_used_configs("./MasterPackage/fold_molecs_test_8020"))
     # dataset = [dataset[453]]
     print(f"The number of molecules in the dataset is {len(dataset)}")
     add_dftb(dataset, skf_dir_small_set_2)
