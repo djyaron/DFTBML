@@ -779,7 +779,10 @@ def graph_generation(molecules: List[Dict], config: Dict, allowed_Zs: List[int],
     feeds, feed_dftblsts = list(), list()
     feed_batches = list()
     for index, batch in enumerate(train_dat_set):
-        feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs, par_dict)
+        try:
+            feed, batch_dftb_lst = create_graph_feed(config, batch, allowed_Zs, par_dict)
+        except:
+            continue
         all_bsizes = list(feed['Eelec'].keys())
         
         # Better organization for saved names and config numbers
