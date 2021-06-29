@@ -102,6 +102,39 @@ def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -
         1) Generate the feed dictionaries for each set of molecules
         2) Saves the feed dictionaries in h5 format
     Nothing is returned from this function
+    
+    The fields of s that matter are as follows:
+        1) par_dict_name (Dict): The parameter dictionary for calculations
+        2) train_ener_per_heavy (bool): Whether energies are trained per heavy atom
+        3) opers_to_model (List[str]): The list of operators to model
+        4) allowed_Zs (List[int]): The allowed elements in the molecules of the dataset
+        5) num_per_batch (int): The number of molecules to have per batch
+        6) losses (List[str]): The list of targets to include in the loss function
+        7) target_accuracy_[loss] (float): The weight given to each loss contained
+            in losses.
+        8) tensor_device (torch.device): The device to use for generated tensors
+        9) tensor_dtype (torch.dtype): The dtype to use for your generated tensors
+        10) reference_energy_starting_point (List[float]): The reference energy
+            parameters to use
+        11) low_end_correction_dict (Dict): Dictionary containing low ends of ranges for
+            atom pairs.
+        12) universal_high (float): The maximal range for all atom pairs
+        13) spline_mode (str): The mode of splines to use
+        14) spline_deg (int): The degree of the spline to use
+        15) debug (bool): Whether or not debugging mode is being used. Should 
+            always be set to false.
+        16) num_knots (int): The number of knots for the splines
+        17) buffer (float): How much to extend the ends of the spline range by
+        18) joined_cutoff (float): The cutoff point for splines 
+        19) cutoff_dictionary (Dict): The dictionary indicating the cutoffs for
+            different element pairs
+        20) off_diag_opers (List[str]): The operators to be modeled differently
+            than a normal univariate spline (i.e. hubbard G)
+        21) include_inflect (bool): Whether the inflection point penalty should be 
+            included for the S (overlap) operators.
+    
+    The values may not always be relevant, but be sure that these are 
+    set appropriately.
     """
     all_files = os.listdir(top_level_molec_path)
     pattern = r"Fold[0-9]+_molecs.p"

@@ -16,6 +16,9 @@ from MasterConstants import Model
 from Spline import SplineModel
 from DFTBrepulsive import train_repulsive_model
 
+#TODO: Fix/check set_spline_models, obtain_spline_vals to see if they are
+#   generating splines correctly
+
 #%% Code behind
 
 class repulsive_energy:
