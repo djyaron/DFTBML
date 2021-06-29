@@ -8,4 +8,4 @@ from .ani1_interface import get_ani1data
 from .fold_generator import generate_folds, save_folds
 from .precompute import compute_graphs_from_folds
 from .alt_dataset import randomize_existing_set, split_existing_set
-from .util import count_nheavy
+from .util import count_nheavy, init_ref_ener_params
