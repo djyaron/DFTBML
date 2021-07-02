@@ -50,6 +50,10 @@ def run_all_tests():
     
     print()
     
+    print("Testing dispersion...")
+    run_dispersion_tests()
+    print("Dispersion tests passed.")
+    
     print("All unit tests passed successfully")
 
 if __name__ == "__main__":
