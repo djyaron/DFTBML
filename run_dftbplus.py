@@ -404,9 +404,9 @@ if __name__ == "__main__":
     skf_dir_old_rep = os.path.join(os.getcwd(), "old_rep_setting_run") #0.0007158606052278207
     skf_dir_small_set = os.path.join(os.getcwd(), "fmt8020_skf")
     skf_dir_small_set_2 = os.path.join(os.getcwd(), "fold_molecs_test_8020_internal")
-    dataset = load_ani1(data_path, 7)
+    dataset = load_ani1(data_path, 1)
     print(f"length of original dataset: {len(dataset)}")
-    dataset = filter_dataset(dataset, find_all_used_configs("./MasterPackage/fold_molecs_test_8020"))
+    # dataset = filter_dataset(dataset, find_all_used_configs("./MasterPackage/fold_molecs_test_8020"))
     # dataset = [dataset[453]]
     print(f"The number of molecules in the dataset is {len(dataset)}")
     add_dftb(dataset, skf_dir_small_set_2)
