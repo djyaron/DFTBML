@@ -12,11 +12,6 @@ angular momenta up to f, only up to d. It is assumed that for all
 skf files constructed in this module, the simple format is being used
 """
 
-"""
-TODO:
-    1) Link up arguments to take in the repulsive setting and use the new repulsive
-        model for computing repulsive blocks
-"""
 import numpy as np
 Array = np.ndarray
 from typing import List, Dict

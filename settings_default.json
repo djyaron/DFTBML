@@ -14,7 +14,7 @@
     "reference_energy_starting_point" : [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
   1.27026973e-03],
     "opers_to_model" : ["H", "R", "S", "G"],
-    "spline_mode" : "non-joined",
+    "spline_mode" : "debugging",
     "spline_deg" : 3,
     
     "target_accuracy_energy" : 6270,

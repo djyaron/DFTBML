@@ -24,8 +24,8 @@ Array = np.ndarray
 import collections
 
 from time import time
-from auorg_1_1 import ParDict
-# from mio_0_1 import ParDict
+# from auorg_1_1 import ParDict
+from mio_0_1 import ParDict
 from dftb import DFTB
 pardict = ParDict()
 

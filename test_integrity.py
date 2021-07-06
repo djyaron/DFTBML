@@ -35,7 +35,8 @@ from run_dftbplus import add_dftb #Method for running the dftb executable
 from typing import Union, List, Dict
 Tensor = torch.Tensor
 Array = np.ndarray
-from auorg_1_1 import ParDict
+# from auorg_1_1 import ParDict
+from mio_0_1 import ParDict
 
 from util import Settings, update_pytorch_arguments
 
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     #File names
     settings_file_name = 'settings_default.json'
     ani1_path = os.path.join(os.getcwd(), "data", "ANI-1ccx_clean_fullentry.h5")
-    skf_path = os.path.join(os.getcwd(), "auorg-1-1")
+    skf_path = os.path.join(os.getcwd(), "mio-0-1")
     #These tolerances are only achievable (val < tol) if the spline mode
     #   is set to debugging, i.e. the values computed from the dftb.py
     #   backend are used in the layer. Useful for checking the correctness

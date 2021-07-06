@@ -10,10 +10,6 @@ Functions for writing and handling h5 files
 Note: to go back from bytestring to normal string, you have to do
 
     x.decode('UTF-8') where x is the byte string representation
-    
-TODO: 
-    1) Work on interface functions for loading a single graph at a time (X)
-    2) Integration test the single graph loading mechanism
        
 With this method of working with h5 files, the only certain pieces of information
 still need to be computed in the pre-computation stage. 
