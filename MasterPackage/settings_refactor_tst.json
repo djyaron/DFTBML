@@ -2,7 +2,7 @@
 
 "batch_data_fields" : {
 
-    "allowed_Zs" : [1, 6, 7, 8, 79],
+    "allowed_Zs" : [1,6,7,8],
     "heavy_atoms" : [1,2,3,4,5],
     "max_config" : 1,
     "target" : {"Etot" : "cc",
@@ -49,12 +49,7 @@
      "R,6,8": 2.2,
      "R,7,7": 2.2,
      "R,7,8": 2.2,
-     "R,8,8": 2.2,
-     "R,1,79": 3.5,
-     "R,6,79": 2.7,
-     "R,7,79": 2.7,
-     "R,8,79": 2.7,
-     "R,79,79": 3.4},
+     "R,8,8": 2.2},
     "include_inflect" : true,
     "off_diag_opers" : ["G"],
     "low_end_correction_dict" : {
@@ -67,12 +62,7 @@
     "1,8" : 0.599,
     "6,8" : 1.005,
     "7,8" : 0.933,
-    "8,8" : 1.062,
-    "1,79" : 1.32,
-    "6,79" : 0.83,
-    "7,79" : 0.97,
-    "8,79" : 0.81,
-    "79,79" : 2.37
+    "8,8" : 1.062
     }
     
 },
@@ -80,8 +70,8 @@
 "training_settings" : {
 
     "eig_method" : "new",
-    "reference_energy_starting_point" : [-2.23781507e-01, -3.63832721e+01, -5.24064442e+01, -7.19563187e+01,
-       -1.96820433e+04, -4.36332175e-02],
+    "reference_energy_starting_point" : [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
+  1.27026973e-03],
     "opers_to_model" : ["H", "R", "S", "G"],
     
     "target_accuracy_energy" : 6270,
@@ -90,7 +80,7 @@
     "target_accuracy_convex" : 1000,
     "target_accuracy_monotonic" : 1000,
     
-    "losses" : ["Etot", "convex"],
+    "losses" : ["Etot", "dipole", "charges", "convex"],
     "par_dict_name" : "Auorg_1_1",
     
     "ragged_dipole" : true,
@@ -149,6 +139,13 @@
 
     "rep_setting": "old"
 },
+
+"dispersion_settings" : {
     
-"run_id" : "skf_full_pairwise_linear"
+    "dispersion_form" : "LJ",
+    "dispersion_correction" : true
+
+},
+    
+"run_id" : "skf_8020_100knot_dispersion"
 }

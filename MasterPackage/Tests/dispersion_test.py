@@ -10,7 +10,7 @@ Lennard-Jones style potential is implemented for dispersion corrections.
 Will also have a few test cases for the geometric mean
 """
 #%% Imports, definitions
-from Dispersion import LJ_Dispersion, torch_geom_mean
+from Dispersion import LJ_Dispersion, torch_geom_mean, np_geom_mean
 import torch
 import pickle
 Tensor = torch.Tensor
@@ -19,7 +19,7 @@ Array = np.ndarray
 
 #%% Code behind
 
-def test_geom_mean():
+def test_torch_geom_mean():
     r"""Only concerned with 2-term geometric means in application, but
         will include additional terms here for testing purposes.
     """
@@ -40,6 +40,24 @@ def test_geom_mean():
     
     print("Geometric mean tests passed")
     
+    
+def test_np_geom_mean():
+    r"""Only concerned with 2-term geometric means in application, but
+        will include additional terms here for testing purposes.
+    """
+    print("Testing geometric mean...")
+    
+    x, y = 0, 100
+    assert(np_geom_mean([x, y]) == 0)
+    x, y, z = 0, 100, 20
+    assert(np_geom_mean([x, y, z]) == 0)
+    x, y = 1, 2
+    assert(abs(np_geom_mean([x, y]) - (2)**0.5) < 1E-12)
+    x, y = 3, 4
+    assert(abs(np_geom_mean([x, y]) - (12) ** 0.5) < 1E-12)
+    
+    print("Geometric mean tests passed")
+    
 def test_lj_dispersion():
     r"""Test to see if the Dispersion model functions properly
     """
@@ -47,8 +65,7 @@ def test_lj_dispersion():
     
     tst_feed_path = "test_files/tst_feed.p"
     device, dtype = None, torch.double
-    cutoff = 2.0 #Dummy cutoff value for testing purposes only
-    dispersion = LJ_Dispersion(cutoff, device, dtype)
+    dispersion = LJ_Dispersion(device, dtype)
     
     tst_feed = pickle.load(open(tst_feed_path, 'rb'))
     variables = dispersion.get_variables()
@@ -71,7 +88,8 @@ def test_lj_dispersion():
     print("Dispersion tests finished")
 
 def run_dispersion_tests():
-    test_geom_mean()
+    test_torch_geom_mean()
+    test_np_geom_mean()
     test_lj_dispersion()
 
 if __name__ == "__main__":

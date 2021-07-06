@@ -94,7 +94,8 @@ class TotalEnergyLoss(LossModel):
                 heavy_dict[bsize] = np.array(heavy_lst)
             feed['nheavy'] = heavy_dict
     
-    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool, rep_method: str) -> Tensor:
+    def get_value(self, output: Dict, feed: Dict, per_atom_flag: bool, rep_method: str,
+                  add_dispersion: bool = False) -> Tensor:
         r"""Computes the loss for the total energy
         
         Arguments:
@@ -104,6 +105,8 @@ class TotalEnergyLoss(LossModel):
                 per heavy atom basis
             rep_method (str): 'old' means that we add Erep, Eelec, and Eref from the 
                 output whereas 'new' means we just add 'Erep' and 'Eelec' (no 'Eref')
+            add_dispersion (bool): Whether to incorporate dispersion energies. 
+                Defaults to False.
             
         Returns:
             loss (Tensor): The value for the total energy loss with gradients
@@ -127,16 +130,21 @@ class TotalEnergyLoss(LossModel):
             n_heavy = feed['nheavy'][bsize].long()
             computed_result = None
             if rep_method == 'old':
-                computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
+                if (not add_dispersion):
+                    computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
+                else:
+                    computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] + output['Edisp'][bsize]
                 #temp_result = output['Erep'][bsize] + output['Eelec'][bsize]
             elif rep_method == 'new':
-                computed_result = output['Eelec'][bsize] + output['Erep'][bsize]
+                if (not add_dispersion):
+                    computed_result = output['Eelec'][bsize] + output['Erep'][bsize]
+                else:
+                    computed_result = output['Eelec'][bsize] + output['Erep'][bsize] + output['Edisp'][bsize]
             if per_atom_flag:
                 computed_result = torch.div(computed_result, n_heavy)
                 #temp_result = torch.div(temp_result, n_heavy)
             
             #Store the predictions by bsize as numpy arrays.
-            #SET TO TEMP RESULT FOR NOW, EQUAL TO ELEC + EREP FOR DFTB
             prediction_dict[bsize] = computed_result.detach().cpu().numpy()
             
             target_result = feed['Etot'][bsize]

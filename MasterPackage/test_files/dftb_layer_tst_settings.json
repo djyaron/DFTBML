@@ -9,7 +9,7 @@
            "dipole" : "wb97x_dz.dipole",
            "charges" : "wb97x_dz.cm5_charges"},
     "exclude" : ["O3", "N2O1", "H1N1O3", "H2"],
-    "num_per_batch" : 10,
+    "num_per_batch" : 1,
     "prop_train" : 0.8,
     "data_path" : "data/ANI-1ccx_clean_fullentry.h5",
     "shuffle" : [1,1]
@@ -19,7 +19,7 @@
 "loaded_data_fields" : {
 
     "loaded_data" : true,
-    "top_level_fold_path" : "fold_molecs",
+    "top_level_fold_path" : "test_files/fold_molecs_test",
     "run_check" : false,
     "type_conversion_ignore_keys" : ["glabels", "basis_sizes", "charges", "dipole_mat", "iconfigs"],
     "molec_file_names" : ["final_molec_test.h5", "final_valid_molec_test.h5"],
@@ -34,7 +34,7 @@
 
     "num_knots" : 50,
     "buffer" : 0.0,
-    "spline_mode" : "non-joined",
+    "spline_mode" : "debugging",
     "spline_deg" : 3,
     "joined_cutoff" : 3.5,
     "universal_high" : 10.0,
@@ -81,7 +81,7 @@
     "target_accuracy_monotonic" : 1000,
     
     "losses" : ["Etot", "dipole", "charges", "convex"],
-    "par_dict_name" : "auorg_1_1",
+    "par_dict_name" : "Auorg_1_1",
     
     "ragged_dipole" : true,
     
@@ -95,7 +95,7 @@
     "debug" : false,
     "include_dipole_backprop" : true,
     
-    "ref_direct" : "auorg-1-1",
+    "ref_direct" : "Auorg_1_1/auorg-1-1",
     
     "driver_mode" : "CV",
     "cv_mode" : "normal",
@@ -139,11 +139,6 @@
 
     "rep_setting": "old"
 },
-
-"dispersion_settings" : {
     
-    "dispersion_form" : "LJ",
-    "dispersion_correction" : false
-
-}
+"run_id" : "tsting_only_ignore"
 }

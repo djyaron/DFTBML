@@ -21,11 +21,20 @@ the numbers are originall in kcal/mol, but are converted to Hartrees following
 the conversion factor 627.5 kcal/mol = 1 Ha. 
 
 As more elements are needed, more of the data will be added to this module.
+
+The r_0 cutoff value is defined as:
+    
+    r_0 := 2^(-1/6) * r_ij
+    r_ij = (r_i * r_j)^(1/2)
+    
+References:
+    [1] Rappe´, A. K.; Casewit, C. J.; Colwell, K. S.; Goddard, W.
+    A., III; Skiff, W. M. J. Am. Chem. Soc. 1992, 114, 10024-10035.
 """
 
 KCAL_TO_HARTREE = 1/627.5 #To go from kcal to Ha, multiply by this factor
 
-VDW_dists = {
+VDW_dists = { #Angstroms
     
     1 : 2.886,
     6 : 3.851,
@@ -36,7 +45,7 @@ VDW_dists = {
     
     }
 
-VDW_well = {
+VDW_well = { #kcal/mol
     
     1 : 0.044 * KCAL_TO_HARTREE,
     6 : 0.105 * KCAL_TO_HARTREE,
@@ -47,8 +56,6 @@ VDW_well = {
     
     }
 
-#THIS VALUE IS A PLACEHOLDER, FIND OUT THE ACTUAL DISTANCE AT WHICH THE VDW
-#   INTERACTION GOES FROM REPULSIVE TO ATTRACTIVE!
-cutoff_distance = 2.00 #Angstroms
+
 
 

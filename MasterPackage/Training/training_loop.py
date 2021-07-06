@@ -97,13 +97,15 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
                 #Add in the repulsive energies if using new repulsive model
                 if s.rep_setting == 'new':
                     output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'valid')
+                if s.dispersion_correction:
+                    # import pdb; pdb.set_trace()
+                    output['Edisp'] = all_models['disp'].get_disp_energy(feed)
                 tot_loss = 0
                 for loss in all_losses:
                     if loss == 'Etot':
-                        if s.train_ener_per_heavy:
-                            res = all_losses[loss].get_value(output, feed, True, s.rep_setting)
-                        else:
-                            res = all_losses[loss].get_value(output, feed, False, s.rep_setting)
+                        # import pdb; pdb.set_trace()
+                        res = all_losses[loss].get_value(output, feed, s.train_ener_per_heavy, s.rep_setting,
+                                                         s.dispersion_correction)
                         val = losses[loss] * res[0]
                         tot_loss += val
                         loss_tracker[loss][2] += val.item()
@@ -154,13 +156,14 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             output = dftblayer.forward(feed, all_models)
             if s.rep_setting == 'new':
                 output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
+            if s.dispersion_correction:
+                output['Edisp'] = all_models['disp'].get_disp_energy(feed)
             tot_loss = 0
             for loss in all_losses:
                 if loss == 'Etot':
-                    if s.train_ener_per_heavy:
-                        res = all_losses[loss].get_value(output, feed, True, s.rep_setting)
-                    else:
-                        res = all_losses[loss].get_value(output, feed, False, s.rep_setting)
+                    # import pdb; pdb.set_trace()
+                    res = all_losses[loss].get_value(output, feed, s.train_ener_per_heavy, s.rep_setting, 
+                                                     s.dispersion_correction)
                     val = losses[loss] * res[0]
                     tot_loss += val
                     loss_tracker[loss][2] += val.item()

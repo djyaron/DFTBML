@@ -8,4 +8,4 @@ Module for handling a posteriori dispersion correction of energy terms
 outputted from DFTB
 """
 from .lj_dispersion import LJ_Dispersion
-from .util import torch_geom_mean
+from .util import torch_geom_mean, np_geom_mean

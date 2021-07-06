@@ -12,6 +12,7 @@ from DataManager import load_combined_fold
 from typing import Dict
 from DFTBLayer import model_loss_initialization, model_range_correction,\
     feed_generation, total_type_conversion
+from Dispersion import LJ_Dispersion
 
 
 #%% Code behind
@@ -92,6 +93,19 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
     feed_generation(validation_feeds, validation_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg,
                     s.tensor_device, s.tensor_dtype, s.debug, s.loaded_data, 
                     s.num_knots, s.buffer, s.joined_cutoff, s.cutoff_dictionary, s.off_diag_opers, s.include_inflect)
+    
+    if s.dispersion_correction:
+        print("Adding in dispersion correction")
+        #For now, only going to use LJ dispersion, may expand to other dispersion 
+        #   schemes later. 
+        all_models['disp'] = LJ_Dispersion(s.tensor_device, s.tensor_dtype)
+        #Add the dispersion parameters to the model variables dictionary. Add
+        #   as individual tensors
+        r_ij, d_ij = all_models['disp'].get_variables()
+        for elems, val in r_ij.items():
+            model_variables[f"disp_r_{elems}"] = val
+        for elems, val in d_ij.items():
+            model_variables[f"disp_d_{elems}"] = val
     
     print("Performing type conversion to tensors")
     total_type_conversion(training_feeds, validation_feeds, ignore_keys = s.type_conversion_ignore_keys,

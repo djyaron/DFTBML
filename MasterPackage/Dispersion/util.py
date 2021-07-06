@@ -9,6 +9,7 @@ Created on Wed Jun 30 17:34:14 2021
 import numpy as np
 import torch
 Tensor = torch.Tensor
+from typing import List
 
 #%% Code behind
 def torch_geom_mean(vals) -> Tensor:
@@ -38,3 +39,17 @@ def torch_geom_mean(vals) -> Tensor:
     concat_vec = torch.stack(vals)
     log_vec = torch.log(concat_vec)
     return torch.exp(torch.mean(log_vec))
+
+def np_geom_mean(vals: List) -> float:
+    r"""Same algorithm as the torch_geom_mean, but using numpy
+    
+    Arguments:
+        vals (List): The list of values to compute the geometric mean for
+    
+    Returns:
+        geom_mean (val): The geometric mean of the values in val
+    """
+    vals = np.array(vals)
+    log_vec = np.log(vals)
+    return np.exp(np.mean(log_vec))
+    
