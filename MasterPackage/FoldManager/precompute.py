@@ -4,7 +4,6 @@ Created on Wed Jun  9 13:08:28 2021
 
 @author: fhu14
 
-TODO: Add in functionality for saving the batches from the precomputes
 """
 #%% Imports, definitions
 from typing import List, Dict
@@ -145,7 +144,7 @@ def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -
     #Now cycle through each fold and do the precompute on it
     for name in fold_file_names:
         total_path = os.path.join(top_level_molec_path, name)
-        fold_num = name.split('_')[0][-1]
+        fold_num = name.split('_')[0][4:]
         with open(total_path, 'rb') as handle:
             molecs = pickle.load(handle)
             random.shuffle(molecs)
