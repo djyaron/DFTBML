@@ -21,6 +21,7 @@ from typing import Dict, List, Union
 import torch
 import json
 import importlib
+from copy import deepcopy
 
 #%% Code
 class Settings:
@@ -253,6 +254,25 @@ def collapse_to_master_settings(final_settings: Settings) -> Settings:
                 collapsed_settings += final_settings.__dict__[sub_field]
     collapsed_settings.run_id = final_settings.__dict__['run_id']
     return collapsed_settings
+
+def inflate_to_dict(final_settings: Settings) -> Dict:
+    r"""Takes advantage of the __dict__ method contained within Python objects
+        to reinflate the final_settings -> Dict.
+    
+    Argument:
+        final_settings (Settings): The final settings object outputted from
+            parse_input_dictionaries
+    
+    Returns:
+        master_settings_dict (Dict): The re-inflated dictionary representing 
+            all the settings in the original configuration file
+    """
+    obj_copy = deepcopy(final_settings)
+    master_settings_dict = obj_copy.__dict__
+    for key in master_settings_dict:
+        if isinstance(master_settings_dict[key], Settings):
+            master_settings_dict[key] = master_settings_dict[key].__dict__
+    return master_settings_dict
 
 #%% Main block
 if __name__ == "__main__":
