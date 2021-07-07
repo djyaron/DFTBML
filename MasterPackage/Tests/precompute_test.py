@@ -23,7 +23,7 @@ def run_fold_gen_test():
     target = {'Etot' : 'cc',
             'dipole' : 'wb97x_dz.dipole',
             'charges' : 'wb97x_dz.cm5_charges'}
-    data_path = os.path.join("ANI-1ccx_clean_fullentry.h5")
+    data_path = os.path.join(os.getcwd(), "test_files", "ANI-1ccx_clean_fullentry.h5")
     exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']
     lower_limit = 5
     num_folds = 6
