@@ -128,8 +128,8 @@ def compare_feeds(reference_file: str, reconstituted_feeds: List[Dict]) -> None:
     print("Tests passed!")
 
 def run_h5handler_tests():
-    batch_filename = os.path.join(os.getcwd(), "fold_molecs_internal", "Fold0", "batches.h5")
-    molec_filename = os.path.join(os.getcwd(), "fold_molecs_internal", "Fold0", "molecs.h5")
-    reference_filename = os.path.join(os.getcwd(), "fold_molecs_internal", "Fold0", "reference_data.p")
+    batch_filename = os.path.join(os.getcwd(), "test_files", "Fold0", "batches.h5")
+    molec_filename = os.path.join(os.getcwd(), "test_files", "Fold0", "molecs.h5")
+    reference_filename = os.path.join(os.getcwd(), "test_files", "Fold0", "reference_data.p")
     reconstituted_feeds = total_feed_combinator.create_all_feeds(batch_filename, molec_filename, True)
     compare_feeds(reference_filename, reconstituted_feeds)
