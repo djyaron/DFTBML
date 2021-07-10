@@ -105,7 +105,8 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 150
+    "nepochs" : 1,
+    "n_worker" : 1
 
 },
 
@@ -131,21 +132,30 @@
 
     "skf_extension" : "",
     "skf_ngrid" : 50,
-    "skf_strsep" : "  "
+    "skf_strsep" : "  ",
+    "spl_ngrid" : 500
 
 },
 
 "repulsive_settings" : {
 
-    "rep_setting": "old"
+    "rep_setting": "new",
+    "opts" : {
+        "nknots" : 25,
+        "cutoff" : "full",
+        "deg" : 3,
+        "bconds" : "vanishing",
+        "constr" : "+2"
+    },
+    "gammas_path" : "fold_molecs_test_8020/gammas.p"
 },
 
 "dispersion_settings" : {
     
     "dispersion_form" : "LJ",
-    "dispersion_correction" : true
+    "dispersion_correction" : false
 
 },
     
-"run_id" : "skf_8020_100knot_dispersion"
+"run_id" : "skf_8020_100knot_new_repulsive"
 }

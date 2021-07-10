@@ -6,9 +6,9 @@ import numpy as np
 from h5py import File
 from scipy.spatial.distance import pdist
 
-from ..consts import *
-from ..tfspline import spline_linear_model
-from ..util import path_check
+from consts import *
+from tfspline import spline_linear_model
+from util import path_check
 
 
 # TODO: Gammas class?

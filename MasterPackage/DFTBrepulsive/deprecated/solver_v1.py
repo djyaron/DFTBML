@@ -1,4 +1,4 @@
-from .model_v1 import LinearLoss, ModelZ
+from deprecated.model_v1 import LinearLoss, ModelZ
 from scipy.linalg import block_diag
 
 import cvxopt

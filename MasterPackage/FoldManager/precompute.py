@@ -9,6 +9,8 @@ Created on Wed Jun  9 13:08:28 2021
 from typing import List, Dict
 from DFTBLayer import DFTBList, graph_generation, model_loss_initialization,\
     model_range_correction, feed_generation
+from DFTBrepulsive import compute_gammas
+from InputLayer import generate_gammas_input
 from DataManager import save_feed_h5
 from .util import energy_correction
 import os
@@ -158,3 +160,46 @@ def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -
             
     print(f"All data successfully saved for molecules in {top_level_molec_path}")
 
+def precompute_gammas(opts: Dict, top_level_molec_path: str) -> None:
+    r"""Does the precompute process for the entire dataset to generate gammas. 
+        Also saves the config_tracker in a pickle file for use with gammas.
+    
+    Arguments: 
+        opts (Dict): The dictionary with hyperparameter settings for the
+            DFTBrepulsive model. 
+        top_level_molec_path (str): The relative path to the directory 
+            containing the molecules stored in pickle files. 
+    
+    Returns: None
+    
+    Notes: This method saves the gammas and config tracker to a pickle format. 
+        The config tracker is important because the gammas ordering is unique
+        in terms of the configs of the molecules for a given empirical formula.
+        
+        The gammas should be saved with the dataset, so the path should be
+        top_level_molec_path + gammas.p, and this path should be specified
+        correctly in the opts dictionary!
+        
+        In specifying paths in the json configuration file, the 
+        separator used in the path should be the forward slash, '/'. 
+    """
+    all_files = os.listdir(top_level_molec_path)
+    pattern = r"Fold[0-9]+_molecs.p"
+    fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
+    
+    mols_2D = [pickle.load(open(os.path.join(top_level_molec_path, name), 'rb')) for name in fold_file_names]
+    
+    gammas_input, config_tracker = generate_gammas_input(mols_2D)
+    
+    gammas_path = opts['repulsive_settings']['gammas_path']
+    gpath_splt = gammas_path.split("/")
+    #path safety check to ensure gammas are stored with the dataset that it is
+    #   precomputed for. 
+    assert(gpath_splt[-2] == top_level_molec_path)
+    
+    compute_gammas(gammas_input, opts)
+    
+    with open(os.path.join(top_level_molec_path, "config_tracker.p"), "wb") as handle:
+        pickle.dump(config_tracker, handle)
+    
+    print("Gammas and config tracker have been saved")

@@ -2,12 +2,13 @@ import numpy as np
 import pickle as pkl
 import scipy.sparse
 import scipy.special
-from ..elements import ELEMENTS
+from elements import ELEMENTS
 from h5py import File
 from matplotlib import pyplot as plt
-from ..tfspline import spline_linear_model, Bcond, spline_new_xvals
-from ..util import get_dataset_type
-from ..consts import ALIAS2TARGET
+from slakos.mio_0_1 import ParDict
+from tfspline import spline_linear_model, Bcond, spline_new_xvals
+from util import get_dataset_type
+from consts import ALIAS2TARGET
 
 
 # TODO: add a function to plot MIO/AUORG conveniently
@@ -330,9 +331,9 @@ class PolynomialModel(PairwiseLinearModel):
 class MIOFunction(PairwiseLinearModel):
     ANGSTROM2BOHR = 1.889725989
 
-    def __init__(self, Z, par_dict):
+    def __init__(self, Z):
         self.Z = Z
-        self.par_dict = par_dict
+        self.par_dict = ParDict()
 
     def r_range(self):
         return 0, 5.0

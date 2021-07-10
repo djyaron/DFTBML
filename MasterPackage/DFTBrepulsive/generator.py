@@ -5,9 +5,9 @@ from multiprocessing import Pool
 import numpy as np
 from scipy.spatial.distance import pdist
 
-from dataset import Dataset, Gammas
-from options import Options
-from tfspline import spline_linear_model
+from .dataset import Dataset, Gammas
+from .options import Options
+from .tfspline import spline_linear_model
 
 
 # TODO: compatibility with different models

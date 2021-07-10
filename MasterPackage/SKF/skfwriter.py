@@ -368,25 +368,42 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
 
-def compute_spline_repulsive_new(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array, float):
-    r"""Computes the repulsive spline coefficients for the repulsive block 
-        using the new repulsive model
+# def compute_spline_repulsive_new(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array, float):
+#     r"""Computes the repulsive spline coefficients for the repulsive block 
+#         using the new repulsive model
         
-    Arguments, Returns: identical to compute_spline_repulsive
+#     Arguments, Returns: identical to compute_spline_repulsive
     
-    Notes: This is based on the new repulsive model, i.e. integration with
-        DFTBrepulsive. The built-in method to the new repulsive model, 
-        obtain_spline_vals(), is used to get the values out using a 
-        given rgrid. 
+#     Notes: This is based on the new repulsive model, i.e. integration with
+#         DFTBrepulsive. The built-in method to the new repulsive model, 
+#         obtain_spline_vals(), is used to get the values out using a 
+#         given rgrid. 
+#     """
+#     #obtain the cutoff and range
+#     r_low, r_high = all_models['rep'].obtain_range(elems)
+#     cutoff = all_models['rep'].obtain_cutoff(elems)
+#     rgrid = np.linspace(r_low, cutoff, ngrid)
+#     r_vals = all_models['rep'].obtain_spline_vals(rgrid, elems)
+#     spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
+#     assert(spl.c.shape[1] == ngrid - 1)
+#     return spl.c, rgrid, cutoff
+
+def compute_spline_repulsive_new(elems: tuple, all_models: Dict) -> Dict:
+    r"""With the new repulsive model, the spline repulsive block should 
+        already be present in all_models['rep'].
+    
+    Arguments:
+        elems (tuple): The elements currently being written.
+        all_models (Dict): Dictionary of all trained models used during the 
+            run
+    
+    Returns:
+        spl_block (Dict): The spline block for the given element. 
     """
-    #obtain the cutoff and range
-    r_low, r_high = all_models['rep'].obtain_range(elems)
-    cutoff = all_models['rep'].obtain_cutoff(elems)
-    rgrid = np.linspace(r_low, cutoff, ngrid)
-    r_vals = all_models['rep'].obtain_spline_vals(rgrid, elems)
-    spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
-    assert(spl.c.shape[1] == ngrid - 1)
-    return spl.c, rgrid, cutoff
+    elems_rev = (elems[-1], elems[0])
+    spl_block = all_models['rep'].spl_block[elems] if elems in all_models['rep'].spl_block\
+        else all_models['rep'].spl_block[elems_rev]
+    return spl_block
 
 def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
     r"""Generates the necessary format for the coefficients for the spline
@@ -417,6 +434,7 @@ def assemble_spline_body_block(coeffs: Array, rgrid: Array) -> List:
 
 def assemble_spline_header(rgrid: Array, content: List, ngrid : int, cutoff: float) -> List:
     r"""Constructs the spline block header
+   
     Arguments:
         rgrid (Array): The distances spanned by the spline
         content (List): The original contents of the reference file as a list of lists
@@ -518,13 +536,15 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     if rep_mode == 'old':
         print("Calling compute_spline_repulsive")
         spline_coeffs, spline_grid, cutoff = compute_spline_repulsive(elems, all_models, spline_ngrid)
+        spline_block = assemble_spline_body_block(spline_coeffs, spline_grid)
+        spline_header = assemble_spline_header(spline_grid, content, spline_ngrid, cutoff)
     elif rep_mode == 'new':
         print("Calling compute_spline_repulsive_new")
-        spline_coeffs, spline_grid, cutoff = compute_spline_repulsive_new(elems, all_models, spline_ngrid)
+        spline_block = compute_spline_repulsive_new(elems, all_models)
+        spline_header = spline_block[:3]
+        spline_block = spline_block[3:]
     else:
         raise ValueError("Unrecognized repulsive setting")
-    spline_block = assemble_spline_body_block(spline_coeffs, spline_grid)
-    spline_header = assemble_spline_header(spline_grid, content, spline_ngrid, cutoff)
     
     #Final file assembly
     elem1, elem2 = elems
@@ -554,7 +574,7 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
         handle.close()
 
 def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: bool,
-         ref_direc: str, rep_mode: str, str_sep: str = "  ", spline_ngrid: int = 50, ext: str = None) -> None:
+         ref_direc: str, rep_mode: str, opts: Dict, str_sep: str = "  ", spline_ngrid: int = 50, ext: str = None) -> None:
     r"""Main method for writing out all the skf files for the given set of models
     
     Arguments:
@@ -566,6 +586,8 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
         ref_direc (str): The relative path to the directory containing all skf files
         rep_mode (str): One of 'new' and 'old', indicates which method should be used
             to compute the repulsive spline blocks
+        opts (Dict): The dictionary containing the hyperparameter settings for 
+            DFTBrepulsive. 
         str_sep (str): The separator for each line, defaults to two spaces
         spline_ngrid (int): The number of gridpoints ot use for the splines.
             Defaults to 50
@@ -578,6 +600,10 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
     Notes: See notes for write_single_skf_file
     """
     elem_pairs = extract_elem_pairs(all_models)
+    #If the new repulsive model is being used, generate the spline block from 
+    #   the DFTBrepulsive model immediately.
+    if rep_mode == 'new':
+        all_models['rep'].calc_spline_block(opts)
     for pair in elem_pairs:
         write_single_skf_file(pair, all_models, atom_nums, atom_masses, compute_S_block, 
                               ref_direc, rep_mode, str_sep, spline_ngrid, ext)

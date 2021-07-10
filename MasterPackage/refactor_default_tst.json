@@ -105,7 +105,8 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 5
+    "nepochs" : 5,
+    "n_worker" : 1
 
 },
 
@@ -131,13 +132,22 @@
 
     "skf_extension" : "",
     "skf_ngrid" : 50,
-    "skf_strsep" : "  "
+    "skf_strsep" : "  ",
+    "spl_ngrid" : 500
 
 },
 
 "repulsive_settings" : {
 
-    "rep_setting": "old"
+    "rep_setting": "old",
+    "opts" : {
+        "nknots" : 25,
+        "cutoff" : "full",
+        "deg" : 3,
+        "bconds" : "vanishing",
+        "constr" : "+2"
+    },
+    "gammas_path" : "fold_molecs_test_8020/gammas.p"
 },
 
 "dispersion_settings" : {

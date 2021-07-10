@@ -105,7 +105,8 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 5
+    "nepochs" : 5,
+    "n_worker" : 1
 
 },
 
@@ -137,7 +138,15 @@
 
 "repulsive_settings" : {
 
-    "rep_setting": "old"
+    "rep_setting": "old",
+    "opts" : {
+        "nknots" : 25,
+        "cutoff" : "full",
+        "deg" : 3,
+        "bconds" : "vanishing",
+        "constr" : "+2"
+    },
+    "gammas_path" : "fold_molecs_internal/gammas_test.p"
 },
     
 "run_id" : "old_rep_setting_run"

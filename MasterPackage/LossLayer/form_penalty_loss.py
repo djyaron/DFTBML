@@ -132,3 +132,10 @@ class FormPenaltyLoss(LossModel):
                                              pre_comp_xgrid = xgrid)
             total_loss += penalty_model.get_loss()
         return torch.sqrt(total_loss / len(form_penalty_dict))
+    
+    def clear_class_dicts(self) -> None:
+        r"""This resets the class attributes seen_concavity_dict and
+            seen_dgrid_dict to empty dictionaries
+        """
+        FormPenaltyLoss.seen_concavity_dict = {}
+        FormPenaltyLoss.seen_dgrid_dict = {}

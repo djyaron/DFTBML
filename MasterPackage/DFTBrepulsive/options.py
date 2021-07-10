@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 
-from consts import CUTOFFS, BCONDS
-from tfspline import Bcond
+from .consts import CUTOFFS, BCONDS
+from .tfspline import Bcond
 from typing import ItemsView, ValuesView, KeysView, Union, Iterable
-from util import formatZ, padZ, Z2A
+from .util import formatZ, padZ, Z2A
 
 import numpy as np
 import pickle as pkl

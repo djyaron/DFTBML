@@ -3,15 +3,21 @@
 Created on Wed Jun  9 18:27:50 2021
 
 @author: fhu14
+
+TODO: How to generate energies from the start? Do a pass through of all 
+    feeds to get initial Eelec guesses?
 """
 #%% Imports, definitions
 from typing import Dict, List
 from DFTBLayer import DFTBList, DFTB_Layer
-from .util import paired_shuffle, charge_update_subroutine
+from .util import paired_shuffle, charge_update_subroutine, paired_shuffle_triple
 import torch.optim as optim
-from InputLayer import repulsive_energy
+from InputLayer import generate_gammas_input, DFTBRepulsiveModel
+from DFTBrepulsive import compute_gammas
+from PredictionHandler import organize_predictions
 import time
 import torch
+import os, pickle
 
 #%% Code behind
 
@@ -20,7 +26,7 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
                   training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
                   training_batches: List[List[Dict]], validation_batches: List[List[Dict]],
                   losses: Dict, all_losses: Dict, loss_tracker: Dict,
-                  init_repulsive: bool = False):
+                  opts: Dict = None):
     r"""Training loop portion of the calculation
     
     Arguments:
@@ -46,9 +52,8 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
         all_losses (Dict): Dictionary of target losses and their loss classes
         loss_tracker (Dict): Dictionary for keeping track of loss data during
             training. The first list is validation, the second list is training.
-        init_repulsive (bool): Whether or not to initialize the repulsive model.
-            Defaults to False. Note that this parameter only has meaning if
-            s.rep_setting == 'new' (this only works for new repulsive model)
+        opts (Dict): The dictionary object storing all hyperparameters for the
+            repulsive model. Defaults to None. 
     
     Returns:
         ref_ener_params (List[float]): The current reference energy parameters
@@ -76,27 +81,30 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
     print("Running initial charge update")
     charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models)
     if s.rep_setting == 'new':
-        if init_repulsive:
-            print("Initializing repulsive model")            
-            all_models['rep'] = repulsive_energy(s, training_feeds, validation_feeds, all_models, dftblayer, s.tensor_dtype, s.tensor_device)
-        else:
-            print("Updating existing repulsive model")
-            all_models['rep'].update_model_crossover(s, training_feeds, validation_feeds, all_models, dftblayer, s.tensor_dtype, s.tensor_device)
-    
-    
+        config_tracker_path = os.path.join(s.top_level_fold_path, "config_tracker.p")
+        try:
+            config_tracker = pickle.load(open(config_tracker_path, 'rb'))
+        except:
+            raise ValueError("Config tracker could not be found with dataset!")
+        all_models['rep'] = DFTBRepulsiveModel(config_tracker)
+        print("Obtaining initial estimates for repulsive energies")
+        all_models['rep'].get_initial_rep_eners(training_feeds, validation_feeds, 
+                                                training_batches, validation_batches, 
+                                                dftblayer, all_models, opts, all_losses, 
+                                                s.train_ener_per_heavy)
     nepochs = s.nepochs
     for i in range(nepochs):
         start = time.process_time()
         
         #Validation routine
         validation_loss = 0
-        for feed in validation_feeds:
+        for j, feed in enumerate(validation_feeds):
             with torch.no_grad():
                 
                 output = dftblayer.forward(feed, all_models)
                 #Add in the repulsive energies if using new repulsive model
                 if s.rep_setting == 'new':
-                    output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'valid')
+                    output['Erep'] = all_models['rep'].add_repulsive_eners(feed)
                 if s.dispersion_correction:
                     # import pdb; pdb.set_trace()
                     output['Edisp'] = all_models['disp'].get_disp_energy(feed)
@@ -144,18 +152,19 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
                 loss_tracker[loss][2] = 0
         
             #Shuffle the validation data
-            validation_feeds, validation_dftblsts = paired_shuffle(validation_feeds, validation_dftblsts)
+            validation_feeds, validation_dftblsts, validation_batches = paired_shuffle_triple(validation_feeds, validation_dftblsts,
+                                                                                       validation_batches)
         
         #Training routine
         epoch_loss = 0.0
         
         # import pdb; pdb.set_trace()
         
-        for feed in training_feeds:
+        for j, feed in enumerate(training_feeds):
             optimizer.zero_grad()
             output = dftblayer.forward(feed, all_models)
             if s.rep_setting == 'new':
-                output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
+                output['Erep'] = all_models['rep'].add_repulsive_eners(feed)
             if s.dispersion_correction:
                 output['Edisp'] = all_models['disp'].get_disp_energy(feed)
             tot_loss = 0
@@ -205,15 +214,22 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             loss_tracker[loss][2] = 0
         
         #Shuffle training data
-        training_feeds, training_dftblsts = paired_shuffle(training_feeds, training_dftblsts)
+        training_feeds, training_dftblsts, training_batches = paired_shuffle_triple(training_feeds, training_dftblsts,
+                                                                             training_batches)
             
         #Update charges every charge_update_epochs:
         if (i % s.charge_update_epochs == 0):
             charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
             #Move the repulsive training routine outside so it updates every epoch
             if s.rep_setting == 'new':
-                print("Updating repulsive model")
-                all_models['rep'].update_model_training(s, training_feeds, all_models, dftblayer)
+                print("Updating predicted Eelec targets")
+                #Update the predicted electronic energies from the DFTBLayer
+                for j, feed in enumerate(validation_feeds):
+                    organize_predictions(feed, validation_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
+                for j, feed in enumerate(training_feeds):
+                    organize_predictions(feed, training_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
+                #Train the repulsive model with the new electronic targets
+                all_models['rep'].compute_repulsive_energies(training_batches + validation_batches, opts)
     
         times_per_epoch.append(time.process_time() - start)
     

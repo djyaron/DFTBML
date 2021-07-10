@@ -2,8 +2,8 @@ import cvxopt
 import numpy as np
 from scipy.linalg import block_diag
 
-from options import Options
-from target import Constraint
+from .options import Options
+from .target import Constraint
 
 
 cvxopt.solvers.options['show_progress'] = False

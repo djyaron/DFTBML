@@ -7,13 +7,14 @@ Created on Wed Jun  9 19:31:05 2021
 Main driver file
 """
 #%% Imports, definitions
-from InputParser import parse_input_dictionaries, collapse_to_master_settings
+from InputParser import parse_input_dictionaries, collapse_to_master_settings,\
+    inflate_to_dict
 import argparse
+from FoldManager import precompute_gammas
 from Precompute import precompute_stage
 from Training import training_loop, exclude_R_backprop, write_output_skf, \
     write_output_lossinfo
 import time, pickle
-from InputLayer import Input_layer_pairwise_linear
 
 #%% Code behind
 def run_training(settings_filename: str, defaults_filename: str):
@@ -24,11 +25,11 @@ def run_training(settings_filename: str, defaults_filename: str):
         defaults_filename (str): The name of the defaults json file
     """
     s_obj = parse_input_dictionaries(settings_filename, defaults_filename)
+    opts = inflate_to_dict(s_obj) #opts is a dictionary for DFTBrepulsive to use only. 
     s_obj = collapse_to_master_settings(s_obj)
     
     #Established models and variables
     model_save, variable_save = None, None
-    init_repulsive = True
     
     #Analyze the split mapping
     num_splits = len(s_obj.split_mapping.keys())
@@ -36,56 +37,24 @@ def run_training(settings_filename: str, defaults_filename: str):
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
         
-        R_mods = [mod for mod in model_variables.keys() if (not isinstance(mod, str)) and (mod.oper == 'R')]
-        print(f"Number of R model specs: {len(R_mods)}")
-        for mod in R_mods:
-            print(mod)
-        print(f"Number of training feeds: {len(training_feeds)}")
-        print(f"Number of validation feeds: {len(validation_feeds)}")
-        
-        #Pull out the number of zero values found within the feed dictionaries
-        #   for each spline model
-        
-        # num_zero_dict = dict()
-        
-        # double_spline_mods = [mod for mod in all_models if (not isinstance(mod, str)) and (len(mod.Zs) == 2) and 
-        #                       (isinstance(all_models[mod], Input_layer_pairwise_linear))]
-        
-        # for mod in double_spline_mods:
-        #     if mod not in num_zero_dict:
-        #         num_zero_dict[mod] = []
-        #     for index, feed in enumerate(training_feeds + validation_feeds):
-        #         try:
-        #             num_zero = len(feed[mod]['izero'])
-        #             num_zero_dict[mod].append(num_zero)
-        #         except KeyError:
-        #             print(f"Model {mod} not in feed {index}")
-        #             pass
-        
-        # for mod in num_zero_dict:
-        #     num_zero_dict[mod] = max(num_zero_dict[mod])
-        
-        # import pdb; pdb.set_trace()
-        
         #Exclude the R models if new rep setting
         if s_obj.rep_setting == 'new':
             exclude_R_backprop(model_variables)
             
         #Run the training loop
         reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = training_loop(s_obj, all_models, model_variables, training_feeds, validation_feeds,
-                                                                                                        training_dftblsts, validation_dftblsts, training_batches, validation_batches, losses, all_losses, loss_tracker, init_repulsive)
-        init_repulsive = False #no longer need to initialize repulsive model
+                                                                                                        training_dftblsts, validation_dftblsts, training_batches, validation_batches, losses, all_losses, loss_tracker, opts)
         
         write_output_lossinfo(s_obj, loss_tracker, times_per_epoch, i, s_obj.split_mapping, all_models)
 
-        write_output_skf(s_obj, all_models)
+        write_output_skf(s_obj, all_models, opts)
         
         if (model_save is not None) and (variable_save is not None):
             assert(model_save is all_models)
             assert(variable_save is model_variables)
         
         if i == num_splits - 1:
-            write_output_skf(s_obj, all_models)
+            write_output_skf(s_obj, all_models, opts)
             return reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch
         
         model_save = all_models
@@ -104,8 +73,12 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    # settings = "settings_refactor_tst.json"
+    # defaults = "refactor_default_tst.json"
+    
     start = time.process_time()
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_training(args.settings, args.defaults)
+    # import pdb; pdb.set_trace()
     end = time.process_time()
     
     print(f"Run took {end - start} seconds")

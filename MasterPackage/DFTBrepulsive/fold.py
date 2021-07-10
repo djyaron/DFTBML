@@ -3,7 +3,7 @@ from collections.abc import MutableMapping
 from .consts import *
 from h5py import File
 from random import Random
-from typing import ItemsView, Iterator, List, Union, Tuple
+from typing import Generator, ItemsView, Iterator, List, Union, Tuple
 from .util import get_dataset_type
 
 import copy
@@ -306,7 +306,7 @@ class FoldCVGenerator:
         self.reverse = reverse
         self.cv = cv
 
-    def split(self, fold: Fold):
+    def split(self, fold: Fold) -> Generator[Tuple[Fold, Fold]]:
         r"""Create a generator of pairs of train and test set
 
         Args:

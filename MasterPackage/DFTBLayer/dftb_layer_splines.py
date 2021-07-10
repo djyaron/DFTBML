@@ -858,6 +858,8 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
         elif loss in ["convex", "monotonic", "smooth"]:
             all_losses[loss] = FormPenaltyLoss(loss)
             loss_tracker[loss] = [list(), list(), 0]
+            #Additional step of clearing the FormPenaltyLoss
+            all_losses[loss].clear_class_dicts()
         elif loss == "dipole":
             all_losses['dipole'] = DipoleLoss() #Use DipoleLoss2 for dipoles computed from ESP charges!
             loss_tracker['dipole'] = [list(), list(), 0]

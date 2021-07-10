@@ -21,8 +21,8 @@ os.environ['OMP_NUM_THREADS'] = '1'  # Single thread for each calculation
 if __name__ == '__main__':
 
     # Model training and testing
-    # h5set_path = '/home/francishe/Documents/DFTBrepulsive/Datasets/aed_1K.h5'
-    h5set_path = '/home/francishe/Documents/DFTBrepulsive/Datasets/Au_energy_clean_dispersion.h5'
+    h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/aed_1k.h5'
+    # h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/Au_energy_clean_dispersion.h5'
 
     target = 'fm-pf+pr'
 
@@ -47,8 +47,8 @@ if __name__ == '__main__':
 
     # Plot splines and save spline values to generate SKFs
     ngrid = 500
-    res_path = f"/home/francishe/Documents/DFTBrepulsive/xydata.pkl"
-    save_dir = f"/home/francishe/Documents/DFTBrepulsive/SKF/{opts['cutoff']}/"
+    res_path = f"/export/home/hanqingh/Documents/DFTBrepulsive/xydata.pkl"
+    save_dir = f"/export/home/hanqingh/Documents/DFTBrepulsive/SKF/{opts['cutoff']}/"
     path_check(save_dir)
 
     grid = {Z: np.linspace(c[0], c[1], ngrid) for Z, c in CUTOFFS[opts['cutoff']].items()}
@@ -63,30 +63,21 @@ if __name__ == '__main__':
     calc_opts = {'n_worker': n_cpu,
                  'FermiTemp': 0.1,  # in electronvolts (0.1 eV ~ 1100 K)
                  'ShellResolvedSCC': True,
-                 'dftb_dir': '/home/francishe/opt/dftb+/',
-
-                 # 'dataset_path': '/home/francishe/Documents/DFTBrepulsive/Datasets/Au_energy_clean_dispersion.h5',
+                 'dftb_dir': '/export/home/hanqingh/opt/dftb+/',
                  'dataset_path': h5set_path,
-                 # 'dataset_path': '/home/francishe/Documents/DFTBrepulsive/Datasets/n2.h5',
 
-                 'save_dir': '/home/francishe/Documents/DFTBrepulsive/dftb+_res/',
-                 # 'save_dir': '/home/francishe/Documents/DFTBrepulsive/dftb+_res_1K/',
-                 # 'save_dir': '/home/francishe/Documents/DFTBrepulsive/res_n2/',
+                 # 'save_dir': '/scratch/dftb+_res/',
+                 'save_dir': '/scratch/dftb+_res_1K/',
 
-                 # 'skf_dir': '/home/francishe/opt/dftb+/slakos/auorg-1-1/',
-                 # 'skf_dir': '/home/francishe/Documents/DFTBrepulsive/SKF/aed_convex/',
-                 'skf_dir': '/home/francishe/Documents/DFTBrepulsive/SKF/a1k/',
+                 'skf_dir': '/export/home/hanqingh/opt/dftb+/slakos/auorg-1-1/',
+                 # 'skf_dir': '/export/home/hanqingh/Documents/DFTBrepulsive/SKF/a1k/',
                  }
     parse_opts = {'n_worker': n_cpu,
                   'res_dir': calc_opts['save_dir'],
-
-                  # 'save_path_h5': '/home/francishe/Documents/DFTBrepulsive/Datasets/aec_dftb+.h5',
-                  'save_path_h5': '/home/francishe/Documents/DFTBrepulsive/Datasets/a1k_convex.h5',
-                  # 'save_path_h5': '/home/francishe/Documents/DFTBrepulsive/Datasets/n2_tb.h5',
-
-                  # 'save_path_pkl': '/home/francishe/Documents/DFTBrepulsive/Datasets/aec_dftb+.pkl',
-                  'save_path_pkl': '/home/francishe/Documents/DFTBrepulsive/Datasets/a1k_convex.pkl',
-                  # 'save_path_pkl': '/home/francishe/Documents/DFTBrepulsive/Datasets/n2_tb.pkl',
+                  'save_path_h5': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_auorg.h5',
+                  # 'save_path_h5': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_+2.h5',
+                  'save_path_pkl': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_auorg.pkl',
+                  # 'save_path_h5': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_+2.pkl',
                   }
 
     with Timer("DFTB+ calculation"):
@@ -94,7 +85,7 @@ if __name__ == '__main__':
     with Timer("DFTB+ parsing"):
         res = dftb_parse(parse_opts)
 
-    # Examining DFTB+ output
+    # Examine DFTB+ output
     rset = Dataset(File(parse_opts['save_path_h5'], 'r'), conf_entry='dftb_plus.rep_energy', fixed_entry=())
     tset = dset.extract('coordinates', entries=('atomic_numbers',))
     rset = Dataset.merge(rset, tset)

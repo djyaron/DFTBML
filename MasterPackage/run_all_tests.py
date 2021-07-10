@@ -33,7 +33,7 @@ def run_all_tests():
     print()
     
     print("Testing fold generation, saving, precomputation, and saving...")
-    # run_fold_precomp_tests()
+    run_fold_precomp_tests(True)
     print("fold generation, saving, precomputation tests complete.")
     
     print()
@@ -54,13 +54,29 @@ def run_all_tests():
     run_dispersion_tests()
     print("Dispersion tests passed.")
     
+    print()
+    
     print("Testing Dftbplus...")
-    # run_dftbplus_tests()
+    run_dftbplus_tests()
     print("Dftbplus tests passed")
+    
+    print()
     
     print("Testing DFTB Layer...")
     run_layer_tests()
     print("DFTB Layer tests passed")
+    
+    print()
+    
+    print("Testing DFTBrepulsive...")
+    run_repulsive_tests()
+    print("DFTBrepulsive tests passed")
+    
+    print()
+    
+    print("Testing total model against benchmarks...")
+    run_total_model_tests()
+    print("Total model tests passed")
     
     print("All unit tests passed successfully")
 

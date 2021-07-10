@@ -4,6 +4,7 @@ import os
 import pickle as pkl
 from _pickle import UnpicklingError
 from collections import Counter
+from itertools import combinations
 from time import time
 from typing import Optional, Iterable
 
@@ -181,9 +182,16 @@ def Z2A(Zs: Iterable) -> tuple:
         res.update(Z)
     return tuple(sorted(res))
 
+def A2Z(atom_types: Iterable) -> tuple:
+    return formatZ(combinations(atom_types, 2), unique=True, ordered=False)
+
 def padZ(item, Zs: Iterable) -> dict:
     _Zs = formatZ(Zs)
     if isinstance(item, dict):
         if _Zs == formatZ(item.keys()):
             return item
     return {Z: item for Z in _Zs}
+
+def Zs_from_opts(opts: dict):
+    Zs = opts['model_settings']['low_end_correction_dict'].keys()
+    return formatZ(Zs, unique=True, ordered=False)

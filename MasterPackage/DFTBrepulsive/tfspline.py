@@ -46,10 +46,11 @@ routines, it is a reasonable test of everything.
 
 
 """
+from collections import namedtuple
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import splrep, splev
-from .consts import Bcond
 
 
 def maxabs(x):
@@ -153,6 +154,10 @@ def tckb_from_knots(xknots, xyeval=None, k=3):
     if k == 3:
         assert (len(tckb[1]) == len(xknots) + 2)
     return tckb
+
+
+Bcond = namedtuple('Bcond', ['ix', 'der', 'val'])
+
 
 def apply_constraint(X, const, bc=None, wz=None):
     """

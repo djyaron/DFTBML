@@ -6,15 +6,15 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.linalg import block_diag
 
-from consts import HARTREE
-from dataset import Dataset, Gammas
-from generator import Generator
-from options import Options
-from shifter import Shifter
-from skf import SKFSet
-from solver import Solver
-from spline import BSpline
-from util import padZ, Z2A
+from .consts import HARTREE
+from .dataset import Dataset, Gammas
+from .generator import Generator
+from .options import Options
+from .shifter import Shifter
+from .skf import SKFSet
+from .solver import Solver
+from .spline import BSpline
+from .util import padZ, Z2A
 
 
 ## WARNING: dense grid to apply constraint is hardcoded
@@ -94,7 +94,10 @@ class RepulsiveModel:
 
     def predict(self, dset: Dataset, gammas: Gammas = None, n_worker: int = 1) -> Dataset:
         _gammas = gammas if gammas is not None else Generator(dset, self.opts).gammas(n_worker)
-        return _gammas * self.coef
+        preds = _gammas * self.coef
+        if self.shifter is not None:
+            preds = self.shifter.shift(preds, 'prediction', reverse=True)
+        return preds
 
     def __call__(self, grid: Union[dict, np.ndarray]):
         r"""Evaluate models on a dense grid"""

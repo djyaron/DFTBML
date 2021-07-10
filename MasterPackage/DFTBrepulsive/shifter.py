@@ -3,8 +3,8 @@ from collections import Counter
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-from consts import SYM2ATOM
-from dataset import Dataset
+from .consts import SYM2ATOM
+from .dataset import Dataset
 
 
 class Shifter:
@@ -35,12 +35,13 @@ class Shifter:
         self.intercept = self.shifter.intercept_
 
     # WARNING: Hardcoded output dataset entries: coordinates, atomic_numbers and the shifted entry
-    def shift(self, dset: Dataset, target: str) -> Dataset:
+    def shift(self, dset: Dataset, target: str, reverse=False) -> Dataset:
         r"""Shift a target using pre-fitted shifter
 
         Args:
             dset: Dataset
             target: str
+            reverse: bool
 
         Returns:
             sset: Dataset
@@ -59,7 +60,10 @@ class Shifter:
             atom_counts = Counter(moldata['atomic_numbers'])
             atom_counts = np.reshape([atom_counts[_atype] for _atype in self.atypes], (1, -1))
             shifter_pred = self.shifter.predict(atom_counts).flatten()
-            data.update({target: moldata[target] - shifter_pred})
+            if reverse:
+                data.update({target: moldata[target] + shifter_pred})
+            else:
+                data.update({target: moldata[target] - shifter_pred})
             sset[mol] = data
         rset = Dataset(sset, dset.conf_entry, dset.fixed_entry)
         return rset

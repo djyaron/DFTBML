@@ -122,7 +122,7 @@ def exclude_R_backprop(model_variables: Dict) -> None:
     for mod in bad_mods:
         del model_variables[mod]
         
-def write_output_skf(s, all_models: Dict) -> None:
+def write_output_skf(s, all_models: Dict, opts: Dict) -> None:
     r"""Writes the skf output files after done with training
     
     Arguments:
@@ -146,7 +146,7 @@ def write_output_skf(s, all_models: Dict) -> None:
     target_folder = os.path.join(s.skf_extension, s.run_id)
     if not os.path.isdir(target_folder):
         os.mkdir(target_folder)
-    main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.rep_setting, s.skf_strsep, 
+    main(all_models, atom_nums, atom_masses, train_s_block, s.ref_direct, s.rep_setting, opts, s.skf_strsep, 
          s.skf_ngrid, target_folder)
 
 def write_output_lossinfo(s, loss_tracker: Dict, times_per_epoch: List[float], split_num: int,

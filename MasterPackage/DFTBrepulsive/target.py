@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import ItemsView, KeysView, List, ValuesView
 
-from consts import ALIAS2TARGET
+from .consts import ALIAS2TARGET
 
 
 class Target:

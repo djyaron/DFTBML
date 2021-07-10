@@ -3,7 +3,7 @@ from typing import Iterable, List
 import numpy as np
 from matplotlib import pyplot as plt
 
-import tfspline
+from .tfspline import spline_linear_model, spline_vals
 
 
 # TODO: integrate tfspline.py
@@ -19,13 +19,13 @@ class BSpline:
     # TODO: allow users to specify the desired order of derivatives
     def __call__(self, grid: np.ndarray, bases_only: bool = False) -> List[np.ndarray]:
         # return the derivatives of the splines (up to order of self.max_der)
-        _spl_dict = tfspline.spline_linear_model(xknots=self.xknots, xeval=grid, xyfit=None,
+        _spl_dict = spline_linear_model(xknots=self.xknots, xeval=grid, xyfit=None,
                                                  bconds=self.bconds, max_der=self.maxder, deg=self.deg)
         # bases_only: returns the derivatives of the bases
         if bases_only:
             return _spl_dict['X']
         else:
-            return [tfspline.spline_vals(_spl_dict, ider=i, coefs=self.coef) for i in range(self.maxder)]
+            return [spline_vals(_spl_dict, ider=i, coefs=self.coef) for i in range(self.maxder)]
 
     def fit(self, x: np.ndarray, y: np.ndarray, trim: bool = True) -> np.ndarray:
         r"""Fit splines to given spline grid and values
@@ -43,16 +43,16 @@ class BSpline:
             xyfit = (x[mask], y[mask])
         else:
             xyfit = (x, y)
-        _spl_dict = tfspline.spline_linear_model(xknots=self.xknots, xeval=None, xyfit=xyfit,
+        _spl_dict = spline_linear_model(xknots=self.xknots, xeval=None, xyfit=xyfit,
                                                  bconds=self.bconds, max_der=self.maxder, deg=self.deg)
         self.coef = _spl_dict['coefs']
         return self.coef
 
     def plot(self, grid: np.ndarray, der: int = 0) -> None:
-        _spl_dict = tfspline.spline_linear_model(xknots=self.xknots, xeval=grid, xyfit=None,
+        _spl_dict = spline_linear_model(xknots=self.xknots, xeval=grid, xyfit=None,
                                                  bconds=self.bconds, max_der=self.maxder, deg=self.deg)
         x = grid
-        y = tfspline.spline_vals(_spl_dict, ider=der, coefs=self.coef)
+        y = spline_vals(_spl_dict, ider=der, coefs=self.coef)
         plt.plot(x, y)
         plt.show()
 

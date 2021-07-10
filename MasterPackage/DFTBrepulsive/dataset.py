@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import pickle as pkl
 from itertools import combinations
 from typing import ItemsView, Iterable, Iterator, KeysView, List, Union, ValuesView, Dict
 
@@ -10,14 +11,13 @@ import pandas as pd
 from h5py import File
 from scipy.spatial.distance import pdist
 
-from consts import ATOM2SYM, TARGET2ALIAS
-from fold import Fold
-from target import Target
-from util import formatZ
+from .consts import ATOM2SYM, TARGET2ALIAS
+from .fold import Fold
+from .target import Target
+from .util import formatZ
 
 
 # TODO: implement Dataset.shuffle and Dataset.split when necessary
-# TODO: compare entries?
 # TODO: concatenate datasets (with same entries)?
 # TODO: Flatten dataset with coordinates?
 
@@ -224,6 +224,16 @@ class Dataset:
     def split(self):
         raise NotImplementedError
 
+    def to_hdf5(self, path):
+        with File(path, 'w') as des:
+            for mol, moldata in self.items():
+                g_mol = des.create_group(mol)
+                for entry, data in moldata.items():
+                    g_mol.create_dataset(entry, data=data)
+
+    def to_pickle(self, path):
+        pkl.dump(self, open(path, 'wb'))
+
     def values(self) -> ValuesView:
         return self.dset.values()
 
@@ -364,30 +374,30 @@ class Gammas(Dataset):
         return Dataset(rset, conf_entry='prediction', fixed_entry=('atomic_numbers',))
 
 
-if __name__ == '__main__':
-    h5set_path = '/home/francishe/Documents/DFTBrepulsive/Datasets/aed_1K.h5'
-    with File(h5set_path, 'r') as h5set:
-        dset = Dataset(h5set)
-
-    eset = dset.extract('fhi_aims_md.mermin_energy', ('atomic_numbers', 'coordinates'))
-    print(eset.entries())
-    eset = eset.extract('fhi_aims_md.mermin_energy', ('atomic_numbers', 'coordinates'))
-    print(eset.entries())
-    eset = eset.extract('fm', ('atomic_numbers', 'coordinates'))
-    print(eset.entries())
-    eset = eset.extract('fm', ('atomic_numbers', 'coordinates'))
-    print(eset.entries())
-    eset = eset.extract('fm', ('atomic_numbers', 'coordinates', 'non_existing_entry'))
-    print(eset.entries())
-
-    fset = dset.flatten()
-    print(fset.head())
-
-    err = Dataset.compare(dset, 'fm', dset, 'pt')
-    print(f"{err: .3f} Hartrees")
-
-    a = dset.extract('fm')
-    b = dset.extract('coordinates')
-    c = dset.extract('pf')
-    rset = Dataset.merge(a, b, c)
-    print(rset.entries())
+# if __name__ == '__main__':
+#     h5set_path = '/home/francishe/Documents/DFTBrepulsive/Datasets/aed_1K.h5'
+#     with File(h5set_path, 'r') as h5set:
+#         dset = Dataset(h5set)
+#
+#     eset = dset.extract('fhi_aims_md.mermin_energy', ('atomic_numbers', 'coordinates'))
+#     print(eset.entries())
+#     eset = eset.extract('fhi_aims_md.mermin_energy', ('atomic_numbers', 'coordinates'))
+#     print(eset.entries())
+#     eset = eset.extract('fm', ('atomic_numbers', 'coordinates'))
+#     print(eset.entries())
+#     eset = eset.extract('fm', ('atomic_numbers', 'coordinates'))
+#     print(eset.entries())
+#     eset = eset.extract('fm', ('atomic_numbers', 'coordinates', 'non_existing_entry'))
+#     print(eset.entries())
+#
+#     fset = dset.flatten()
+#     print(fset.head())
+#
+#     err = Dataset.compare(dset, 'fm', dset, 'pt')
+#     print(f"{err: .3f} Hartrees")
+#
+#     a = dset.extract('fm')
+#     b = dset.extract('coordinates')
+#     c = dset.extract('pf')
+#     rset = Dataset.merge(a, b, c)
+#     print(rset.entries())

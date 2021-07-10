@@ -69,7 +69,7 @@ def pass_feeds_through(settings_filename: str, defaults_filename: str,
                     res = all_losses[loss].get_value(output, feed, s.rep_setting)
                     if isinstance(res, tuple):
                         feed[f"predicted_{loss}"] = res[1]
-        organize_predictions(feed, validation_batches[i], losses)
+        organize_predictions(feed, validation_batches[i], losses, ['Eelec'], s.train_ener_per_heavy)
         
     for i, feed in enumerate(training_feeds):
         output = layer.forward(feed, saved_models)
@@ -89,7 +89,22 @@ def pass_feeds_through(settings_filename: str, defaults_filename: str,
                 res = all_losses[loss].get_value(output, feed, s.rep_setting)
                 if isinstance(res, tuple):
                     feed[f"predicted_{loss}"] = res[1]
-        organize_predictions(feed, training_batches[i], losses)
+        organize_predictions(feed, training_batches[i], losses, ['Eelec'], s.train_ener_per_heavy)
+    
+    MAE_val = []
+    MAE_train = []
+    
+    for batch in validation_batches:
+        for molec in batch:
+            MAE_val.append(abs(molec['targets']['Etot'] - molec['predictions']['Etot']))
+    
+    for batch in training_batches:
+        for molec in batch:
+            MAE_train.append(abs(molec['targets']['Etot'] - molec['predictions']['Etot']))
+    
+    print(f"MAE diff of validation is {sum(MAE_val) / len(MAE_val)}")
+    print(f"MAE diff of train is {sum(MAE_train) / len(MAE_train)}")
+                           
     
     with open("predicted_train.p", "wb") as handle:
         pickle.dump(training_batches, handle)
@@ -100,8 +115,8 @@ def pass_feeds_through(settings_filename: str, defaults_filename: str,
     print("Predictions generated and saved for batches")
 
 if __name__ == "__main__":
-    settings = "settings_refactor_tst.json"
-    default = "refactor_default_tst.json"
+    settings = "test_files/settings_refactor_tst_pred.json"
+    default = "test_files/refactor_default_tst_pred.json"
     all_models = "fold_molecs_test_8020/Split0/saved_models.p"
     pass_feeds_through(settings, default, all_models)
     

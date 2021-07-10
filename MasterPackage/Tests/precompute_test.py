@@ -8,11 +8,14 @@ Testing for the functionalities implemented in DataPrecompute
 
 NOTE: This test does NOT guarantee correctness, only that the code can run through
     the fold generation and precompute processes!
+    
+TODO: Incorporate gammas precompute into the precompute testing
 """
 #%% Imports, definittions 
 import os
-from FoldManager import generate_folds, save_folds, compute_graphs_from_folds
-from InputParser import parse_input_dictionaries, collapse_to_master_settings
+from FoldManager import generate_folds, save_folds, compute_graphs_from_folds, precompute_gammas
+from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
+import shutil
 
 #%% Code behind
 
@@ -35,19 +38,26 @@ def run_fold_gen_test():
                             lower_limit, num_folds, num_folds_lower)
     save_folds(folds, local_fold_molecs)
 
-def run_precompute_test():
+def run_precompute_test(clear_direc: bool = True):
     print("Testing out precompute...")
     settings_filename = "test_files/settings_refactor_tst.json"
-    defaults_filename = "test_files/refactor_default_tst.json"
+    defaults_filename = "test_files/refactor_default_tst_precomp_only.json"
     resulting_settings_obj = parse_input_dictionaries(settings_filename, defaults_filename)
+    opts = inflate_to_dict(resulting_settings_obj)
     final_settings = collapse_to_master_settings(resulting_settings_obj)
+    #Do the graph computation
     compute_graphs_from_folds(final_settings, "fold_molecs_internal", True)
+    #Now do the gammas computation
+    precompute_gammas(opts, "fold_molecs_internal")
     print("Precompute executed successfully.")
+    #Delete the directory at the end. 
+    if clear_direc:
+        shutil.rmtree("fold_molecs_internal")
     pass
 
-def run_fold_precomp_tests():
+def run_fold_precomp_tests(clear_direc: bool):
     run_fold_gen_test()
-    run_precompute_test()
+    run_precompute_test(clear_direc)
 
 #%% Main block
 if __name__ == "__main__":

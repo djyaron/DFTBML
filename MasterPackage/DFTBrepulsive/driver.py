@@ -1,268 +1,192 @@
-from .deprecated import *
-from .fold import *
-from sklearn.linear_model import LinearRegression
-from .consts import CUTOFFS
-from .util import count_n_heavy_atoms
+import numpy as np
+
+import pickle as pkl
+
+from scipy.interpolate import CubicSpline
+
+from .consts import CUTOFFS, ANGSTROM2BOHR, EXPCOEFS
+from .dataset import Dataset
+from .generator import Generator
+
+from .model import RepulsiveModel
+from .options import Options
+from .util import Z2A, Zs_from_opts, count_n_heavy_atoms
 
 
-def train_repulsive_model(dset, opts):
+def compute_gammas(dset: dict, opts: dict) -> None:
+    r"""Precomputation of gammas
+    Args:
+        dset: dict
+            ANI-like dataset (nested dictionary). No targets needed for this function
+            ================================= Data structure =================================
+            {mol_0 (str):
+                {'atomic_numbers': np.ndarray, shape=(n_atoms,),
+                 'coordinates': np.ndarray, shape=(n_confs, n_atoms, 3),
+             mol_1: {...},
+             mol_2: {...},
+             ...}
+            ==================================================================================
+        opts: dict
+            Highest level dictionary of options and hyperparameters
+
+    Note: Call this function in precomputation over the entire dataset
+    """
+    n_worker = opts['training_settings']['n_worker']
+    gammas_path = opts['repulsive_settings']['gammas_path']
+    _dset = Dataset(dset, conf_entry='coordinates', fixed_entry=('atomic_numbers',))
+    _opts = Options(opts['repulsive_settings']['opts'])
+    _Zs = Zs_from_opts(opts)
+
+    _gen = Generator(_dset, _opts.convert(_Zs))
+    gammas = _gen.gammas(n_worker=n_worker)
+    gammas.to_pickle(gammas_path)
+
+
+def train_repulsive_model(dset: dict, opts: dict):
     r"""API for dftbtorch
 
     Args:
         dset: dict
             ANI-like data fold (nested dictionary)
             ================================= Data structure =================================
-            {mol_name_0 (str):
+            {mol_0 (str):
                 {'atomic_numbers': np.ndarray, shape=(n_atoms,),
                  'coordinates': np.ndarray, shape=(n_confs, n_atoms, 3),
-                 'baseline': np.ndarray, shape=(n_confs,). E.g. 'dftb.elec_energy',
-                 'target': np.ndarray, shape=(n_confs,). E.g. 'ccsd(t)_cbs.energy'},
-             mol_name_1: {...},
-             mol_name_2: {...},
+                 'target': np.ndarray, shape=(n_confs,)
+             mol_1: {...},
+             mol_2: {...},
              ...}
             ==================================================================================
         opts: dict
-            'nknots': number of knots of the sparse model
-            'deg': degree of splines of the sparse model
-            'rmax': cut-off radii of the sparse model, e.g. 'short', 'medium', etc.
-            'bconds': recommended value: 'vanishing'
-            'shift': set to True to shift the targets using a linear model (linear shifter)
-            'scale': scale the energies in data by the number of heavy atoms
-            'atom_types': set to 'infer' to automatically determine the atom types from input
-                          data fold. Or can be set to a SORTED array of atomic numbers
-            'map_grid': recommended value: 500
-            'constraint': 'monotonic' or 'convex'
-            'pen_grid': recommended value: 500
-            'n_worker': number of CPUs to use in parallel
+            Highest level dictionary of options and hyperparameters
 
     Returns:
-        c: np.ndarray
-            coefficients of the repulsive model
-        loc: dict(str, np.ndarray)
-            dictionary describing the locations of the content in c, whose keys include
-              atom pair tuples ((1, 1), (1, 6), ...) and 'ref'
-            Usage:
-            c[loc[(1, 1)]] -> coefficients of H-H splines
-            c[loc['ref']] -> coefficients of reference energies
-        gammas: dict(str, dict)
-            spline bases and atom counts of the repulsive model
+        mod: model.RepulsiveModel
+        preds: dict
+            ANI-like data fold (nested dictionary)
             ================================= Data structure =================================
-            {mol_name_0 (str):
-                {'gammas': np.ndarray, shape=(n_confs, len(c))
-                 'n_heavy_atoms': np.int64}
-             mol_name_1: {...},
-             mol_name_2: {...},
-             ...,
-             '_INFO': dict
-                The last entry of gammas dictionary is always '_INFO', which contains the
-                parameters used to generate gammas and to build corresponding dense model.
-                Refer to generator_v0.py for more details.
-                {'Zs': np.array
-                 'Xis': np.array
-                 'Nknots': np.array
-                 'Degrees': np.array
-                 'R_cutoffs': np.array
-                 'Xknots': np.array}
-            }
+            {mol_0 (str):
+                {'atomic_numbers': np.ndarray, shape=(n_atoms,),
+                 'prediction': np.ndarray, shape=(n_confs,)
+             mol_1: {...},
+             mol_2: {...},
+             ...}
             ==================================================================================
-            Usage:
-            gammas[mol].dot(c) -> estimated repulsive energies of all the conformations
-                                  of a molecule
-            gammas[mol][conf_id].dot(c) -> estimated repulsive energy of a conformation
-            gammas[mol][conf_id][loc[Z]].dot(c[loc[Z]]) -> estimated repulsive energy of
-                                                           pairwise interaction Z of a
-                                                           conformation
+
+    Note: target = ground_truth - dftbtorch_elec
+          LOSS = (ground_truth - dftbtorch_elec)/n_heavy_atom
+          for i in epochs:
+            for j in data_batch:
+                gradient_descent
+          Update_charges
+          DFTBrepulsive_rep
+
     """
 
-    # Scale and shift energies if needed
-    _dset = dset
-    c_shifter = np.zeros(len(opts['atom_types']) + 1)
-    if opts['scale']:
-        _dset = scale_dset(_dset)
-    if opts['shift']:
-        _dset, c_shifter = shift_dset(_dset, opts['atom_types'])
+    _dset = {mol: {'atomic_numbers': moldata['atomic_numbers'],
+                   'coordinates': moldata['coordinates'],
+                   # Scale up the target
+                   'target': moldata['target'] * count_n_heavy_atoms(moldata['atomic_numbers'])}
+             for mol, moldata in dset.items()}
+    n_worker = opts['training_settings']['n_worker']
+    gammas_path = opts['repulsive_settings']['gammas_path']
+    _dset = Dataset(_dset, conf_entry='coordinates', fixed_entry=('atomic_numbers',))
+    _opts = Options(opts['repulsive_settings']['opts'])
+    _Zs = Zs_from_opts(opts)
 
-    # Train repulsive model
-    gammas = compute_gammas(_dset, opts)  # 50 knots, 5-th order dense model
-    c, loc = train(_dset, gammas, opts)
-    c[loc['ref']] += c_shifter
+    _gammas = pkl.load(open(gammas_path, 'rb'))
 
-    # # Test: print training error
-    # preds = get_predictions_from_dense(c, gammas=gammas, in_memory=True)
-    # targets = get_targets_from_dataset(data=scale_dset(dset), in_memory=True)
-    # errdict, err = compare_target_pred(targets, preds)
-    # print(errdict['mae'] * HARTREE)
+    mod = RepulsiveModel(_opts.convert(_Zs))
+    mod.fit(_dset, target='target', gammas=_gammas, shift=True, n_worker=n_worker)
+    _preds = mod.predict(_dset, gammas=_gammas, n_worker=n_worker)
 
-    return c, loc, gammas
+    preds = {mol: {'atomic_numbers': moldata['atomic_numbers'],
+                   'prediction': moldata['prediction'] / count_n_heavy_atoms(moldata['atomic_numbers'])}
+             for mol, moldata in _preds.items()}
 
-
-def scale_dset(dset):
-    sset = {}
-    for mol, moldata in dset.items():
-        _moldata = {}
-        n_heavy_atoms = count_n_heavy_atoms(moldata['atomic_numbers'])
-        for entry, data in moldata.items():
-            if entry == 'target':
-                _data = data * n_heavy_atoms
-            else:
-                _data = data
-            _moldata[entry] = _data
-        sset[mol] = _moldata
-    return sset
+    return mod, preds
 
 
-def count_atomic_numbers(atomic_numbers, atom_types='infer'):
-    r"""Count the number of atoms of each type in an array of atomic numbers"""
-    _atypes = atom_types if atom_types != 'infer' else sorted(set(atomic_numbers))
-    _anumbers = list(atomic_numbers)
-    counts = [_anumbers.count(_atype) for _atype in _atypes]
-    return _atypes, counts
+def get_spline_block(mod: RepulsiveModel, opts: dict) -> dict:
+    r"""Generate a spline block from pretrained model
 
+    Args:
+        mod: RepulsiveModel
+        opts: dict
 
-def flatten_dset(dset, atom_types='infer'):
-    r"""Create a flattened dataset including only atom counts and energies"""
-    # Infer atom types from the input dataset
-    _atypes = infer_atom_types(dset) if atom_types == 'infer' else atom_types
+    Returns:
+        spl_blocks: dict
+            Keys: Zs, values: spline block in lines
 
-    # Flatten dataset
-    fset = {_atype: [] for _atype in _atypes}
-    fset.update({'baseline': [], 'target': []})
+    """
+    # Use exponential coefficients in mio-0-1 or auorg-1-1
+    Au = 'au' in opts['repulsive_settings']['opts']['cutoff']
+    exp_coefs = EXPCOEFS['auorg-1-1'] if Au else EXPCOEFS['mio-0-1']
 
-    for mol, moldata in dset.items():
-        nconfs = len(moldata['target'])
-        # Columns of atom types
-        _, counts = count_atomic_numbers(moldata['atomic_numbers'], _atypes)
-        for _atype, count in zip(_atypes, counts):
-            fset[_atype].extend([count] * nconfs)
-        # Columns of energies
-        fset['baseline'].extend(moldata['baseline'])
-        fset['target'].extend(moldata['target'])
+    Zs = mod.Zs
+    spl_ngrid = opts['skf_settings']['spl_ngrid']
+    cutoff = CUTOFFS[opts['repulsive_settings']['opts']['cutoff']]
 
-    return pd.DataFrame(fset)
+    spl_grids = {Z: np.linspace(c[0], c[1], spl_ngrid) for Z, c in cutoff.items()}
+    spl_vals = mod(spl_grids)
 
+    spl_blocks = {}
+    for Z in Zs:
+        spl_grid = spl_grids[Z] * ANGSTROM2BOHR
+        spl_val = spl_vals[Z]
+        spl_coef = CubicSpline(spl_grid, spl_val).c
+        spl_ints = np.array([spl_grid[:-1], spl_grid[1:]]).T
+        exp_coef = exp_coefs[Z]
 
-def shift_dset(dset, atom_types='infer'):
-    r"""Shift baselines and targets in ANI-like data fold"""
-    # Infer atom types from the input dataset
-    _atypes = infer_atom_types(dset) if atom_types == 'infer' else atom_types
+        line0 = ['Spline']  # title
+        line1 = [spl_ngrid - 1, cutoff[Z][-1]]  # nInt, cutoff
+        line2 = list(exp_coef)  # exponential coefficients
+        lines = [[*spl_int, *spl_coef[:, i]] for i, spl_int in enumerate(spl_ints)]
+        lines[-1].extend([0, 0])  # zero-pad cubic spline coefs into 5-th order
+        spl_blocks[Z] = [line0, line1, line2, *lines]
 
-    # Fit a linear model to the difference between target and baseline
-    fset = flatten_dset(dset, _atypes)
-    X = fset[_atypes]
-    y = fset['target'] - fset['baseline']
-
-    shifter = LinearRegression()
-    shifter.fit(X, y)
-
-    # Create a shifted dataset
-    sset = {}
-    for mol, moldata in dset.items():
-        sset[mol] = {'atomic_numbers': moldata['atomic_numbers'],
-                     'coordinates': moldata['coordinates'],
-                     'baseline': moldata['baseline']}
-        # Shift targets
-        _, counts = count_atomic_numbers(moldata['atomic_numbers'], _atypes)
-        X = np.reshape(counts, (1, -1))
-        pred = shifter.predict(X)
-        sset[mol]['target'] = moldata['target'] - pred
-
-    # concatenate intercept and coefficients of the shifter into c_shifter
-    c_shifter = np.insert(shifter.coef_, 0, shifter.intercept_)
-
-    return sset, c_shifter
-
-
-def compute_gammas(dset, opts):
-    # Generate gammas using data (50 knots, 5-th order dense model by default)
-    Au = 'au' in opts['rmax']
-    n_worker = opts.get('n_worker', 1)
-
-    dense_nknots = 50
-    dense_deg = 5
-    dense_bconds = 'vanishing'
-    dense_rmax = 'au_full' if Au else 'full'
-    
-    # import pdb; pdb.set_trace()
-
-    g_mod = Generator(dset, dense_nknots, dense_deg, dense_rmax,
-                      dense_bconds, in_memory=True, n_worker=n_worker)
-    g_mod.init_model()
-    return g_mod.gammas
-
-
-def train(dset, gammas, opts):
-    map_grid = opts.get('map_grid', 500)
-    ptype = opts.get('constraint')
-    pen_grid = opts.get('pen_grid', 500)
-    # Create dense model
-    dense_model_Z, dense_loss_func = create_dense(data=dset, gammas=gammas, in_memory=True)
-    # Create sparse model
-    Zs = dense_model_Z.Zs()
-    nknots_Z = {Z: opts['nknots'] for Z in Zs}
-    rmax_Z = CUTOFFS[opts['rmax']]
-    xknots_Z = {Z: np.linspace(rmin, rmax, n)
-                for (rmin, rmax), (Z, n) in zip(rmax_Z.values(), nknots_Z.items())}
-    config_Z = {Z: {'xknots': xknots,
-                    'deg': opts['deg'],
-                    'bconds': opts['bconds']}
-                for Z, xknots in xknots_Z.items()}
-    sparse_models_only = {Z: SplineModel(config)
-                          for Z, config in config_Z.items()}
-    map_models, sparse_model_Z = map_linear_models_Z(sparse_models_only, dense_model_Z, map_grid)
-    sparse_loss_func = sparse_loss_from_dense(map_models, dense_loss_func)
-    solver = Solver(sparse_model_Z, sparse_loss_func, {ptype: None}, pen_grid)
-    sparse_coef = solver.solve()
-    c = dense_coefs_from_sparse(map_models, sparse_coef)
-    loc = dense_model_Z.locs
-    return c, loc
-
-
-def infer_atom_types(dset):
-    _atypes = set()
-    for moldata in dset.values():
-        _atypes.update(moldata['atomic_numbers'])
-    _atypes = sorted(_atypes)
-    return _atypes
+    return spl_blocks
 
 
 if __name__ == '__main__':
-    dset_path = '/home/francishe/Documents/DFTBrepulsive/example_dict.p'
-    with open(dset_path, 'rb') as f:
-        dset = pkl.load(f)
+    from h5py import File
 
-    # # Save dset as h5
-    # sample_path = '/home/francishe/Documents/DFTBrepulsive/sample.h5'
-    # with File(sample_path, 'w') as des:
-    #     dset = scale_dset(dset)
-    #     for mol, moldata in dset.items():
-    #         g = des.create_group(mol)
-    #         g.create_dataset('atomic_numbers', data=moldata['atomic_numbers'])
-    #         g.create_dataset('coordinates', data=moldata['coordinates'])
-    #         g.create_dataset('ccsd(t)_cbs.energy', data=moldata['target'])
-    #         g.create_dataset('dftb_plus.elec_energy', data=moldata['baseline'])
+    h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/aed_1k.h5'
+    dset = Dataset(File(h5set_path, 'r'))
 
-    # # Load aed_1K dataset
-    # src_path = '/home/francishe/Documents/DFTBrepulsive/Datasets/aed_1K.h5'
-    # with File(src_path, 'r') as src:
-    #     dset = {mol: {'atomic_numbers': moldata['atomic_numbers'][()],
-    #                   'coordinates': moldata['coordinates'][()],
-    #                   'target': moldata[TARGETS['fm']][()],
-    #                   # See tests/driver__precision_test.py for details
-    #                   'baseline': moldata[TARGETS['pf']][()] - moldata[TARGETS['pr']][()]}
-    #             for mol, moldata in src.items()}
+    eset = dset.extract('coordinates').dset
+    target = 'fm-pf+pr'
+    _tset = dset.extract(target, entries=('atomic_numbers', 'coordinates'))
+    tset = {mol: {'atomic_numbers': moldata['atomic_numbers'],
+                  'coordinates': moldata['coordinates'],
+                  'target': moldata[target] / count_n_heavy_atoms(moldata['atomic_numbers'])}
+            for mol, moldata in _tset.items()}
 
-    opts = {'nknots': 50,
-            'deg': 3,
-            'rmax': 'short',
-            'bconds': 'vanishing',
-            'shift': True,
-            'scale': True,  # scale 'target' by number of heavy atoms
-            'atom_types': [1, 6, 7, 8],
-            'map_grid': 500,
-            'constraint': 'convex',
-            'pen_grid': 500,
-            'n_worker': 8}
+    opts = {"model_settings": {"low_end_correction_dict": {"1,1" : 1.00,
+                                                           "6,6" : 1.04,
+                                                           "1,6" : 0.602,
+                                                           "7,7" : 0.986,
+                                                           "6,7" : 0.948,
+                                                           "1,7" : 0.573,
+                                                           "1,8" : 0.599,
+                                                           "6,8" : 1.005,
+                                                           "7,8" : 0.933,
+                                                           "8,8" : 1.062,
+                                                           "1, 79": 0.000,
+                                                           "6, 79": 0.000,
+                                                           "7, 79": 0.000,
+                                                           "8, 79": 0.000,
+                                                           "79, 79": 0.000}},
+            "skf_settings": {"spl_ngrid": 500},
+            "training_settings": {"n_worker": 24},
+            "repulsive_settings": {"opts": {"nknots": 25,
+                                            "cutoff": "au_full",
+                                            "deg": 3,
+                                            "bconds": "vanishing",
+                                            "constr": "+2"},
+                                   "gammas_path": "/export/home/hanqingh/Documents/DFTBrepulsive/gammas_a1k.pkl"}}
 
-    from util import Timer
-    with Timer('driver'):
-        c, loc, gammas = train_repulsive_model(dset, opts)
+    compute_gammas(eset, opts)
+    mod, c, loc, preds = train_repulsive_model(tset, opts)
+    spl_block = get_spline_block(mod, opts)
+

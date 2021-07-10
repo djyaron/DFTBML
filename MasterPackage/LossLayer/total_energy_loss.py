@@ -134,18 +134,28 @@ class TotalEnergyLoss(LossModel):
                     computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize]
                 else:
                     computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] + output['Edisp'][bsize]
+                if per_atom_flag:
+                    computed_result = torch.div(computed_result, n_heavy)
                 #temp_result = output['Erep'][bsize] + output['Eelec'][bsize]
             elif rep_method == 'new':
                 if (not add_dispersion):
-                    computed_result = output['Eelec'][bsize] + output['Erep'][bsize]
+                    computed_result = output['Eelec'][bsize]
                 else:
-                    computed_result = output['Eelec'][bsize] + output['Erep'][bsize] + output['Edisp'][bsize]
-            if per_atom_flag:
-                computed_result = torch.div(computed_result, n_heavy)
+                    computed_result = output['Eelec'][bsize] + output['Edisp'][bsize]
+                if per_atom_flag:
+                    computed_result = torch.div(computed_result, n_heavy) + output['Erep'][bsize]
                 #temp_result = torch.div(temp_result, n_heavy)
             
-            #Store the predictions by bsize as numpy arrays.
-            prediction_dict[bsize] = computed_result.detach().cpu().numpy()
+            #Store the predictions by bsize as numpy arrays. Individual 
+            #   components of the energy are stored separately to allow for 
+            #   more flexibility later on
+            prediction_dict[bsize] = dict()
+            prediction_dict[bsize]['Erep'] = output['Erep'][bsize].detach().cpu().numpy()
+            prediction_dict[bsize]['Eelec'] = output['Eelec'][bsize].detach().cpu().numpy()
+            if rep_method == 'old':
+                prediction_dict[bsize]['Eref'] = output['Eref'][bsize].detach().cpu().numpy()
+            if add_dispersion:
+                prediction_dict[bsize]['Edisp'] = output['Edisp'][bsize].detach().cpu().numpy()
             
             target_result = feed['Etot'][bsize]
             if len(computed_result.shape) == 0:

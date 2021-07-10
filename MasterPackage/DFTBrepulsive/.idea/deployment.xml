@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="Cat1" remoteFilesAllowedToDisappearOnAutoupload="false">
+    <serverData>
+      <paths name="Cat1">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/export/home/hanqingh/Documents/PycharmProjects/DFTBrepulsive" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
     <option name="myAutoUpload" value="ALWAYS" />
   </component>
 </project>
