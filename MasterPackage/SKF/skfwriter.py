@@ -589,7 +589,7 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
         opts (Dict): The dictionary containing the hyperparameter settings for 
             DFTBrepulsive. 
         str_sep (str): The separator for each line, defaults to two spaces
-        spline_ngrid (int): The number of gridpoints ot use for the splines.
+        spline_ngrid (int): The number of gridpoints to use for the repulsive splines.
             Defaults to 50
         ext (str): Additional save path (e.g., to a directory or something). 
             Defaults to None

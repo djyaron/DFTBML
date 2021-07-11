@@ -13,7 +13,7 @@ import os
 
 
 #%% Code behind
-trained_skf_path = os.path.join(os.getcwd(), "skfarchive", "skf_8020_100knot")
+trained_skf_path = os.path.join(os.getcwd(), "skf_8020_100knot_new_repulsive")
 #Directory for the skf files with the original repulsive
 ref_direc = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
 dest_dir = "spliced_skf"
