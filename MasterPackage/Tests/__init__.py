@@ -16,3 +16,4 @@ from .dftbplus_test import run_dftbplus_tests
 from .dftblayer_test import run_layer_tests
 from .repulsive_test import run_repulsive_tests
 from .model_total_test import run_total_model_tests
+from .skf_test import run_skf_tests

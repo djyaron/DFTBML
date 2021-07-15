@@ -175,7 +175,7 @@ class Options:
         res_opts.update({opt: self[opt] for opt in ('constr', 'solver', 'maxder')})
         # Copy Zs and determine atypes
         res_opts['Zs'] = _Zs
-        res_opts['atypes'] = Z2A(res_opts)
+        res_opts['atypes'] = Z2A(res_opts) #FH POT. BUG: instead of res_opts, shouldn't you be passing in _Zs?
 
         return Options(res_opts)
 

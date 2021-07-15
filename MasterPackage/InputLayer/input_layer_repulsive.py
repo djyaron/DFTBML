@@ -20,6 +20,8 @@ from DFTBrepulsive import train_repulsive_model, get_spline_block
 from functools import reduce
 from PredictionHandler import organize_predictions
 import torch
+from copy import deepcopy
+from collections import Counter
 
 #%% Code behind
 
@@ -60,16 +62,42 @@ def generate_gammas_input(all_batches: List[List[Dict]]) -> Dict:
         total_data_dict[molecule]['coordinates'] = np.array(total_data_dict[molecule]['coordinates'])
     return total_data_dict, config_tracker
 
+def count_n_heavy_atoms(atomic_numbers):
+    counts = sum([c for a, c in dict(Counter(atomic_numbers)).items() if a > 1])
+    return counts
+
 class DFTBRepulsiveModel:
     
-    def __init__(self, config_tracker: Dict, device: torch.device = None, dtype: torch.dtype = None):
+    def __init__(self, config_tracker: Dict, gammas, device: torch.device = None, dtype: torch.dtype = None,
+                 mode: str = 'external') -> None:
+        r"""Initializes the repulsive model based on the DFTBrepulsive backend
+        
+        Arguments:
+            config_tracker (Dict): Internal data structure to keep track of the different
+                conformations, and dictates the order of the dataset as was used to generate
+                gammas.
+            gammas: The gammas object that was precomputed for the dataset.
+            device (torch.device): The torch device to use when generating 
+                tensors internally.
+            dtype (torch.dtype): The torch datatype for internal tensors
+            mode (str): The way in which the repulsive model is applied. If the 
+                mode is 'external', the model is used external of the gradient
+                descent scheme. If 'internal', then the coefficients are 
+                incorporated in the gradient descent scheme.
+        
+        Returns:
+            None
+        """
         self.pred = None
-        # self.c = None
-        # self.loc = None
+        self.pred_torch = None #Predictions for internally doing gammas * self.coef
+        self.gammas = gammas
         self.mod = None
         self.device, self.dtype = device, dtype
         self.config_tracker = config_tracker
         self.spl_block = None
+        self.ref_info = None
+        self.coef = None #Coefficients extracted from self.mod
+        self.mode = mode
 
     def compute_repulsive_energies(self, pred_batches: List[List[Dict]], opts: Dict) -> None:
         r"""Generates the repulsive energies for all the molecules contained in the
@@ -109,7 +137,7 @@ class DFTBRepulsiveModel:
                 if input_dict[molecule]['atomic_numbers'] is None:
                     input_dict[molecule]['atomic_numbers'] = curr_molec_dict['atomic_numbers']
                 input_dict[molecule]['coordinates'].append(curr_molec_dict['coordinates'])
-                input_dict[molecule]['target'].append(curr_molec_dict['targets']['Etot'] - curr_molec_dict['predictions']['Etot'])
+                input_dict[molecule]['target'].append(curr_molec_dict['targets']['Etot'] - curr_molec_dict['predictions']['Etot']['Etot'])
             input_dict[molecule]['coordinates'] = np.array(input_dict[molecule]['coordinates'])
             input_dict[molecule]['target'] = np.array(input_dict[molecule]['target'])
         
@@ -132,14 +160,15 @@ class DFTBRepulsiveModel:
         Notes: The repulsive energies for each bsize will be a tensor of zeros
             of the same size as the corresponding Eelec value. We don't care
             about the loss returned because we are only concerned with the
-            currently predicted Eelec. 
+            currently predicted Eelec. This method is used when trying to get
+            predictions for initializing the model.
         """
         output['Erep'] = dict()
         for bsize in output['Eelec']:
             output['Erep'][bsize] = torch.zeros(output['Eelec'][bsize].shape, device = self.device,
                                                 dtype = self.dtype)
     
-    def get_initial_rep_eners(self, training_feeds: List[Dict], validation_feeds: List[Dict],
+    def initialize_rep_model(self, training_feeds: List[Dict], validation_feeds: List[Dict],
                              training_batches: List[List[Dict]], validation_batches: List[List[Dict]],
                              dftblayer, all_models: Dict, opts: Dict, all_losses: Dict,
                              train_ener_per_heavy: bool = True):
@@ -225,6 +254,36 @@ class DFTBRepulsiveModel:
             #Now with the predictions added to the batches, time to solve for the initial
             #   repulsive energies
             self.compute_repulsive_energies(training_batches + validation_batches, opts)
+            
+        #Having trained the repulsive model, extract the coefficients and get the 
+        #   reference energy information
+        _ = self.get_ref_ener_info()
+        
+        if self.mode == 'internal':
+            
+            self.coef = self.mod.coef
+            
+            #Quick sanity check
+            assert(self.coef is not None)
+            assert(self.ref_info is not None)
+            
+            #Do the reference coefficient correction
+            self.ref_correct_coef()
+            
+            #initialize the coefficients as torch-optimizable variable tensors
+            self.coef = torch.tensor(self.coef, device = self.device, dtype = self.dtype, requires_grad = True)
+    
+    def get_variables(self) -> Tensor:
+        r"""Returns the coefficient tensor as a torch optimizable quantity.
+            Should only be called after initialize_rep_model
+        
+            Raises ValueError if the variable is not initialized or of the 
+                right form.
+        """
+        if isinstance(self.coef, Tensor) and (self.coef.requires_grad) and (self.mode == 'internal'):
+            return self.coef
+        else:
+            raise ValueError("Repulsive coefficients are not present or not required!")
     
     def add_repulsive_eners(self, feed: Dict) -> Dict:
         r"""Takes the current feed and adds in the predicted repulsive energies
@@ -241,6 +300,8 @@ class DFTBRepulsiveModel:
             output predictions into the correct format for use in the
             training loop calculations
         """
+        if self.mode == 'internal':
+            self.get_rep_eners_torch()
         all_bsizes = feed['basis_sizes']
         rep_dict = dict()
         for bsize in all_bsizes:
@@ -249,8 +310,13 @@ class DFTBRepulsiveModel:
             assert(np.array(curr_names).shape == np.array(curr_iconfigs).shape)
             true_indices = [self.config_tracker[x[0]].index(x[1]) for _, x in enumerate(zip(curr_names, curr_iconfigs))]
             #Turn it into a torch tensor since everything is a tensor in later calcs?
-            rep_dict[bsize] = torch.tensor([   self.pred[pair[0]]['prediction'][pair[1]] for _, pair in enumerate(zip(curr_names, true_indices))   ],
-                                           device = self.device, dtype = self.dtype)
+            if self.mode == 'external':
+                #In the external case, we create a tensor from numpy arrays
+                rep_dict[bsize] = torch.tensor([   self.pred[pair[0]]['prediction'][pair[1]] for _, pair in enumerate(zip(curr_names, true_indices))   ],
+                                               device = self.device, dtype = self.dtype)
+            elif self.mode == 'internal':
+                temp = [   self.pred_torch[pair[0]]['prediction'][pair[1]] for _, pair in enumerate(zip(curr_names, true_indices))   ]
+                rep_dict[bsize] = torch.stack(temp)
         return rep_dict
     
     def calc_spline_block(self, opts: Dict) -> None:
@@ -268,4 +334,55 @@ class DFTBRepulsiveModel:
             get_spline_block(), which takes in the models and options. 
         """
         self.spl_block = get_spline_block(self.mod, opts)
+    
+    def get_ref_ener_info(self) -> Dict:
+        r"""Obtains the reference energy parameters and writes them out to be
+            used in correcting the DFTB+ predicted energies.
+            
+        Arguments:
+            self
+        
+        Returns:
+            Dict containing the coefficients, intercepts, and atypes (ordering of
+              the atomic numbers).
+        """
+        coef_int_dict = self.mod.get_ref_coef()
+        atype_ordering = self.mod.atypes
+        
+        self.ref_info = {'coef' : coef_int_dict['coef'], 'intercept' : coef_int_dict['intercept'],
+                'atype_ordering' : atype_ordering}
+        
+        return deepcopy(self.ref_info)
+    
+    def ref_correct_coef(self) -> None:
+        r"""Adds in the correct reference energy coefficients
+        
+        Arguments:
+            None
+        
+        Returns:
+            None
+        
+        Notes: This method requires that the self.ref_info, self.config_tracker, 
+            and self.mod are all initialized. This method should be invoked to 
+            correct the coefficients BEFORE they are converted to a pytorch
+            tensor and used to optimize. 
+        """
+        loc = self.mod.loc
+        ref_coefs, ref_intercept = self.ref_info['coef'], self.ref_info['intercept']
+        full_ref = np.hstack((ref_intercept, ref_coefs))
+        self.coef[loc['ref']] = full_ref
+    
+    def get_rep_eners_torch(self):
+        r"""We do the division by nheavy so that the behavior remains consistent
+            with the usual DFTBrepulsive backend.
+        """
+        self.pred_torch = self.gammas * self.coef
+        #Do the division by nheavy
+        for mol in self.pred_torch:
+            self.pred_torch[mol]['prediction'] = self.pred_torch[mol]['prediction'] / count_n_heavy_atoms(self.pred_torch[mol]['atomic_numbers'])
+            
+        
+        
+        
         

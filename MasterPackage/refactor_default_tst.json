@@ -140,6 +140,7 @@
 "repulsive_settings" : {
 
     "rep_setting": "old",
+    "rep_integration" : "external",
     "opts" : {
         "nknots" : 25,
         "cutoff" : "full",

@@ -14,7 +14,7 @@ from .shifter import Shifter
 from .skf import SKFSet
 from .solver import Solver
 from .spline import BSpline
-from .util import padZ, Z2A
+from .util import padZ, Z2A, count_n_heavy_atoms
 
 
 ## WARNING: dense grid to apply constraint is hardcoded
@@ -65,8 +65,11 @@ class RepulsiveModel:
         else:
             targets = dset.extract(self.target)
         for mol in targets.mols():
-            target_mol = targets[mol][self.target]
-            gamma_mol = self.gammas[mol]['gammas']
+            nHA = count_n_heavy_atoms(self.gammas[mol]['atomic_numbers'])
+            target_mol = targets[mol][self.target] / nHA
+            gamma_mol = self.gammas[mol]['gammas'] / nHA
+            # target_mol = targets[mol][self.target]
+            # gamma_mol = self.gammas[mol]['gammas']
             alpha += gamma_mol.T.dot(gamma_mol)
             beta += target_mol.T.dot(gamma_mol)
             const += target_mol.T.dot(target_mol)
@@ -121,6 +124,47 @@ class RepulsiveModel:
             plt.ylim(0, 20)
             plt.show()
         return res
+
+    def get_ref_coef(self):
+        r"""Retrieve the coefficients of the reference model
+
+        Returns: dict
+
+        """
+        try:
+            coef_ = self.coef[self.loc['ref']][1:]
+        except KeyError:
+            coef_ = np.zeros_like(self.atypes)
+        try:
+            intercept_ = self.coef[self.loc['const']]
+        except KeyError:
+            intercept_ = 0
+
+        # Incorporate the coefficients of energy shifter
+        if self.shifter is not None:
+            coef_ += self.shifter.shifter.coef_.flatten()
+            intercept_ += self.shifter.shifter.intercept_
+
+        return {"coef": coef_, "intercept": intercept_}
+
+    def get_ref_energy(self, atom_counts: np.ndarray) -> np.ndarray:
+        r"""Predict the reference energy given atom counts
+
+        Args:
+            atom_counts: np.ndarray
+                Rows: conformations; columns: number of atoms. Atom types must match self.atypes
+        Returns:
+            E_ref: np.ndarray:
+                An array of reference energies (including the predictions of the shifter)
+
+        """
+        # Construct a shifter from self.coef
+        ref_shifter = Shifter()
+        ref_shifter.shifter.coef_, ref_shifter.shifter.intercept_ = \
+            self.get_ref_coef().values()
+        ref_shifter.atypes = self.atypes
+
+        return ref_shifter.shifter.predict(atom_counts).flatten()
 
     def to_skf(self, skfdir_path, **kwargs):
         raise NotImplementedError

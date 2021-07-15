@@ -49,12 +49,17 @@ def organize_predictions(feed: Dict, batch: List[Dict], losses: Dict, ener_spec:
                 elif (pred_key in feed) and (pred_key == "predicted_Etot"): 
                     #Specifically handle the total energy case
                     curr_ener_bsize_dict = feed[pred_key][bsize]
+                    predicted_Etot = dict()
                     tot_ener_vec = 0
                     for spec in ener_spec:
+                        predicted_Etot[spec] = curr_ener_bsize_dict[spec][index]
                         tot_ener_vec += curr_ener_bsize_dict[spec]
                     if per_heavy_prediction: 
                         tot_ener_vec = tot_ener_vec / feed['nheavy'][bsize].numpy()
-                    curr_pred_dict[loss] = tot_ener_vec[index]
+                        for spec in ener_spec:
+                            predicted_Etot[spec] = predicted_Etot[spec] / feed['nheavy'][bsize].numpy()[index]
+                    predicted_Etot['Etot'] = tot_ener_vec[index]
+                    curr_pred_dict[loss] = predicted_Etot
             batch[glabel]['predictions'] = curr_pred_dict
 
 

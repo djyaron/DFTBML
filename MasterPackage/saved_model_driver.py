@@ -48,6 +48,7 @@ def pass_feeds_through(settings_filename: str, defaults_filename: str,
     model_save, variable_save = None, None
     
     all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s, s.par_dict_name, 0, s.split_mapping, model_save, variable_save)
+            
     
     for i, feed in enumerate(validation_feeds):
         with torch.no_grad():

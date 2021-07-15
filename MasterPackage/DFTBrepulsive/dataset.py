@@ -10,11 +10,13 @@ import numpy as np
 import pandas as pd
 from h5py import File
 from scipy.spatial.distance import pdist
+import torch
+Tensor = torch.Tensor
 
 from .consts import ATOM2SYM, TARGET2ALIAS
 from .fold import Fold
 from .target import Target
-from .util import formatZ
+from .util import formatZ, count_n_heavy_atoms
 
 
 # TODO: implement Dataset.shuffle and Dataset.split when necessary
@@ -285,7 +287,7 @@ class Dataset:
     @classmethod
     def compare(cls, dset1: Dataset, entry1: str,
                 dset2: Dataset, entry2: str,
-                metric: str = 'mae'):
+                metric: str = 'mae', scale: bool = False):
         # Check if the molecules and conformations of the datasets are identical
         try:
             for (mol1, conf_arr1), (mol2, conf_arr2) in zip(dset1.mol_confs(), dset2.mol_confs()):
@@ -297,12 +299,17 @@ class Dataset:
         diff = []
         _d1 = dset1.extract(entry1)
         _d2 = dset2.extract(entry2)
-        for moldata1, moldata2 in zip(_d1.values(), _d2.values()):
-            diff.extend(moldata1[entry1] - moldata2[entry2])
+        if scale:
+            for moldata1, moldata2 in zip(_d1.values(), _d2.values()):
+                nHA = count_n_heavy_atoms(moldata1['atomic_numbers'])
+                diff.extend((moldata1[entry1] - moldata2[entry2]) / nHA)
+        else:
+            for moldata1, moldata2 in zip(_d1.values(), _d2.values()):
+                diff.extend(moldata1[entry1] - moldata2[entry2])
         # Compute the different in given metric
         if metric in ('mae', 'MAE', 'mean absolute error', 'mean_absolute_error'):
             return np.average(np.abs(diff))
-        elif metric in ('rmse', 'RMSE', 'root mean square error', 'root_mean_square_error'):
+        elif metric in ('rms', 'RMS', 'rmse', 'RMSE', 'root mean square error', 'root_mean_square_error'):
             return np.sqrt(np.average(np.square(diff)))
         elif metric in ('err', 'error'):
             return np.array(diff)
@@ -366,10 +373,11 @@ class Gammas(Dataset):
         mol = self.mols()[0]
         return self[mol]['gammas'].shape[1]
 
-    def __mul__(self, coef: np.ndarray) -> Dataset:
+    def __mul__(self, coef: Union[np.ndarray, Tensor]) -> Dataset:
         r"""Multiple gammas by a coefficient vector to give model predictions"""
         rset = {mol: {'atomic_numbers': moldata['atomic_numbers'],
-                      'prediction': moldata['gammas'].dot(coef)}
+                      'prediction': moldata['gammas'].dot(coef) if isinstance(coef, np.ndarray) else\
+                          torch.matmul(torch.tensor(moldata['gammas'], dtype = torch.double), coef)}
                 for mol, moldata in self.items()}
         return Dataset(rset, conf_entry='prediction', fixed_entry=('atomic_numbers',))
 

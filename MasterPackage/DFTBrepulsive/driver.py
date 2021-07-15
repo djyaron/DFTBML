@@ -58,7 +58,50 @@ def train_repulsive_model(dset: dict, opts: dict):
              ...}
             ==================================================================================
         opts: dict
-            Highest level dictionary of options and hyperparameters
+            Highest level dictionary of options and hyperparameters.
+            The following entries are required:
+            {"model_settings": {"low_end_correction_dict": dict},
+             # The keys in low_end_correction_dict are used as Zs in DFTBrepulsive
+             # (after sorting and formatting)
+
+             "skf_settings": {"spl_ngrid": int},
+             # The number of points of the dense grid on which the splines are evaluated
+             # during generating the spline block
+
+             "training_settings": {"n_worker": int},
+             # The number of CPUs for DFTBrepulsive to run in parallel
+
+             "repulsive_settings": {"opts": {"nknots": int,
+                                             # The number of knots of the splines
+                                             # of each pairwise potential
+
+                                             "cutoff": str,
+                                             # The alias of the cutoff radii dictionary
+                                             # specified in consts.py
+
+                                             "deg": int,
+                                             # The order of the splines (3 to 5)
+
+                                             "bconds": str,
+                                             # The alias of the boundary conditions of the splines
+                                             # Examples
+                                             #     "vanishing": 2nd deriv -> 0 at the first knot
+                                             #                  0th and 1st deriv -> 0 at the last knot
+                                             #     "natural": 2nd deriv -> 0 at the first and the last knot
+
+                                             "constr": str
+                                             # The constraints on the derivatives of the splines
+                                             # "+" or "-" symbol indicates positive/negative constraints,
+                                             # with the following number indicating the order of derivative
+                                             # (no more than 5-th order)
+                                             # Multiple constraints can be applied simultaneously
+                                             # Examples:
+                                             #     "-1": negative first derivative (monotonic decreasing)
+                                             #     "+2": positive second derivative (convex)
+                                             #     "+2-1": convex and monotonic decreasing
+
+                                    "gammas_path": "/export/home/hanqingh/Documents/DFTBrepulsive/gammas_a1k.pkl"}
+                                    # The file path to save gammas}
 
     Returns:
         mod: model.RepulsiveModel
@@ -141,7 +184,7 @@ def get_spline_block(mod: RepulsiveModel, opts: dict) -> dict:
         line0 = ['Spline']  # title
         line1 = [spl_ngrid - 1, cutoff[Z][-1]]  # nInt, cutoff
         line2 = list(exp_coef)  # exponential coefficients
-        lines = [[*spl_int, *spl_coef[:, i]] for i, spl_int in enumerate(spl_ints)]
+        lines = [[*spl_int, *spl_coef[::-1, i]] for i, spl_int in enumerate(spl_ints)]
         lines[-1].extend([0, 0])  # zero-pad cubic spline coefs into 5-th order
         spl_blocks[Z] = [line0, line1, line2, *lines]
 
@@ -162,21 +205,21 @@ if __name__ == '__main__':
                   'target': moldata[target] / count_n_heavy_atoms(moldata['atomic_numbers'])}
             for mol, moldata in _tset.items()}
 
-    opts = {"model_settings": {"low_end_correction_dict": {"1,1" : 1.00,
-                                                           "6,6" : 1.04,
-                                                           "1,6" : 0.602,
-                                                           "7,7" : 0.986,
-                                                           "6,7" : 0.948,
-                                                           "1,7" : 0.573,
-                                                           "1,8" : 0.599,
-                                                           "6,8" : 1.005,
-                                                           "7,8" : 0.933,
-                                                           "8,8" : 1.062,
-                                                           "1, 79": 0.000,
-                                                           "6, 79": 0.000,
-                                                           "7, 79": 0.000,
-                                                           "8, 79": 0.000,
-                                                           "79, 79": 0.000}},
+    opts = {"model_settings": {"low_end_correction_dict": {(1, 1) : 1.00,
+                                                           (6, 6) : 1.04,
+                                                           (1, 6) : 0.602,
+                                                           (7, 7) : 0.986,
+                                                           (6, 7) : 0.948,
+                                                           (1, 7) : 0.573,
+                                                           (1, 8) : 0.599,
+                                                           (6, 8) : 1.005,
+                                                           (7, 8) : 0.933,
+                                                           (8, 8) : 1.062,
+                                                           (1, 79): 0.000,
+                                                           (6, 79): 0.000,
+                                                           (7, 79): 0.000,
+                                                           (8, 79): 0.000,
+                                                           (79, 79): 0.000}},
             "skf_settings": {"spl_ngrid": 500},
             "training_settings": {"n_worker": 24},
             "repulsive_settings": {"opts": {"nknots": 25,

@@ -37,13 +37,29 @@ if __name__ == '__main__':
     dset = Dataset(File(h5set_path, 'r'))
     mod = RepulsiveModel(opts.convert(dset.Zs()))
     with Timer('RepulsiveModel training'):
-        mod.fit(dset, target='fm-pf+pr', gammas=None, shift=True, n_worker=n_cpu)
+        mod.fit(dset, target=target, gammas=None, shift=True, n_worker=n_cpu)
     with Timer('RepulsiveModel predicting'):
         pred = mod.predict(dset, mod.gammas, n_worker=n_cpu)
-    mae = Dataset.compare(mod.shifter.shift(dset, target), target,
+    # MAE
+    err = Dataset.compare(dset, target,
                           pred, 'prediction',
-                          metric='mae')
-    print(f"Training error by RepulsiveModel: {mae * HARTREE:.3f} kcal/mol")
+                          metric='mae', scale=False)
+    print(f"Training MAE by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
+    ## Error per heavy atom
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='mae', scale=True)
+    print(f"Training MAE per heavy atom by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
+    # RMS
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='rms', scale=False)
+    print(f"Training RMS by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
+    ## Error per heavy atom
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='rms', scale=True)
+    print(f"Training RMS per heavy atom by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
 
     # Plot splines and save spline values to generate SKFs
     ngrid = 500

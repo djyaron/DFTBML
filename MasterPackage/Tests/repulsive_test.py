@@ -31,7 +31,7 @@ def test_repulsive():
     """
     print("Testing repulsive...")
     
-    tolerance = 1.0
+    tolerance = 0.002
     #Dummy options dictionary
     settings_filename = "test_files/settings_refactor_tst_new_rep.json"
     defaults_filename = "test_files/refactor_default_tst_new_rep.json"
@@ -65,7 +65,7 @@ def test_repulsive():
     avg_disagreement = sum(disagreements) / len(disagreements)
     assert(avg_disagreement < tolerance)
     
-    print(f"Repulsive test passed with tolerance of {tolerance}")
+    print(f"Repulsive test passed with tolerance of {tolerance} with a disagreement of {avg_disagreement}")
 
 def run_repulsive_tests():
     test_repulsive()

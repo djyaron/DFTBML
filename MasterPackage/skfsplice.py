@@ -13,10 +13,10 @@ import os
 
 
 #%% Code behind
-trained_skf_path = os.path.join(os.getcwd(), "skf_8020_100knot_new_repulsive")
+trained_skf_path = os.path.join(os.getcwd(), "skf_8020_100knot_new_repulsive_10epochupdate")
 #Directory for the skf files with the original repulsive
 ref_direc = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
-dest_dir = "spliced_skf"
+dest_dir = "spliced_skf_tr_re"
 
 if (not os.path.isdir(dest_dir)):
     os.mkdir(dest_dir)
@@ -33,7 +33,8 @@ for file_name in good_files:
     reference_content = open(reference_path, 'r').read().splitlines()
     ref_spline_ind = reference_content.index("Spline")
     train_spline_ind = trained_content.index("Spline")
-    resulting_content = trained_content[:train_spline_ind] + reference_content[ref_spline_ind:]
+    # resulting_content = trained_content[:train_spline_ind] + reference_content[ref_spline_ind:]
+    resulting_content = reference_content[:ref_spline_ind] + trained_content[train_spline_ind:]
     
     dest_path = os.path.join(dest_dir, file_name)
     with open(dest_path, "w+") as handle:

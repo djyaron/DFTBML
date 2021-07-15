@@ -26,7 +26,7 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
                   training_dftblsts: List[DFTBList], validation_dftblsts: List[DFTBList],
                   training_batches: List[List[Dict]], validation_batches: List[List[Dict]],
                   losses: Dict, all_losses: Dict, loss_tracker: Dict,
-                  opts: Dict = None):
+                  opts: Dict = None, init_repulsive: bool = False):
     r"""Training loop portion of the calculation
     
     Arguments:
@@ -53,7 +53,9 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
         loss_tracker (Dict): Dictionary for keeping track of loss data during
             training. The first list is validation, the second list is training.
         opts (Dict): The dictionary object storing all hyperparameters for the
-            repulsive model. Defaults to None. 
+            repulsive model. Defaults to None.
+        init_repulsive (bool): Whether or not to initialize the new repulsive model
+            during the training scheme. Defaults to False. 
     
     Returns:
         ref_ener_params (List[float]): The current reference energy parameters
@@ -67,31 +69,39 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
     Notes: The training loop consists of the main training as well as a 
         charge update subroutine.
     """
-    #Instantiate the dftblayer, optimizer, and scheduler
+    
+    #Instantiate the dftblayer
     dftblayer = DFTB_Layer(device = s.tensor_device, dtype = s.tensor_dtype, eig_method = s.eig_method, repulsive_method = s.rep_setting)
-    learning_rate = s.learning_rate
-    optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
-    #TODO: Experiment with alternative learning rate schedulers
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
-                                                     patience = s.scheduler_patience, threshold = s.scheduler_threshold)
     
     validation_losses, training_losses = list(), list()
     
     times_per_epoch = list()
     print("Running initial charge update")
     charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models)
-    if s.rep_setting == 'new':
+    if s.rep_setting == 'new' and init_repulsive:
         config_tracker_path = os.path.join(s.top_level_fold_path, "config_tracker.p")
+        gammas_path = s.gammas_path
         try:
             config_tracker = pickle.load(open(config_tracker_path, 'rb'))
+            gammas = pickle.load(open(gammas_path, 'rb'))
         except:
-            raise ValueError("Config tracker could not be found with dataset!")
-        all_models['rep'] = DFTBRepulsiveModel(config_tracker)
+            raise ValueError("Config tracker or gammas could not be found with dataset!")
+        all_models['rep'] = DFTBRepulsiveModel(config_tracker, gammas, s.tensor_device, s.tensor_dtype, s.rep_integration) #Hardcoding mode as 'internal' right now
         print("Obtaining initial estimates for repulsive energies")
-        all_models['rep'].get_initial_rep_eners(training_feeds, validation_feeds, 
+        all_models['rep'].initialize_rep_model(training_feeds, validation_feeds, 
                                                 training_batches, validation_batches, 
                                                 dftblayer, all_models, opts, all_losses, 
                                                 s.train_ener_per_heavy)
+        #TODO: Add the repulsive model mode into settings
+        if s.rep_integration == 'internal':
+            model_variables['rep'] = all_models['rep'].get_variables()
+    
+    learning_rate = s.learning_rate
+    optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
+    #TODO: Experiment with alternative learning rate schedulers
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
+                                                     patience = s.scheduler_patience, threshold = s.scheduler_threshold)
+    
     nepochs = s.nepochs
     for i in range(nepochs):
         start = time.process_time()
@@ -220,20 +230,29 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
         #Update charges every charge_update_epochs:
         if (i % s.charge_update_epochs == 0):
             charge_update_subroutine(s, training_feeds, training_dftblsts, validation_feeds, validation_dftblsts, all_models, epoch = i)
-            #Move the repulsive training routine outside so it updates every epoch
-            if s.rep_setting == 'new':
-                print("Updating predicted Eelec targets")
-                #Update the predicted electronic energies from the DFTBLayer
-                for j, feed in enumerate(validation_feeds):
-                    organize_predictions(feed, validation_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
-                for j, feed in enumerate(training_feeds):
-                    organize_predictions(feed, training_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
-                #Train the repulsive model with the new electronic targets
-                all_models['rep'].compute_repulsive_energies(training_batches + validation_batches, opts)
+        #Move the repulsive training routine outside so it updates every epoch
+        if s.rep_setting == 'new' and s.rep_integration == 'external':
+            print("Updating predicted Eelec targets")
+            #Update the predicted electronic energies from the DFTBLayer
+            for j, feed in enumerate(validation_feeds):
+                organize_predictions(feed, validation_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
+            for j, feed in enumerate(training_feeds):
+                organize_predictions(feed, training_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
+            #Train the repulsive model with the new electronic targets
+            all_models['rep'].compute_repulsive_energies(training_batches + validation_batches, opts)
     
         times_per_epoch.append(time.process_time() - start)
     
     print(f"Finished with {s.nepochs} epochs")
+    
+    if s.rep_setting == 'new' and s.rep_integration == 'external':
+        print("Conducting final repulsive energy update")
+        for j, feed in enumerate(validation_feeds):
+            organize_predictions(feed, validation_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
+        for j, feed in enumerate(training_feeds):
+            organize_predictions(feed, training_batches[j], losses, ['Eelec'], s.train_ener_per_heavy)
+        #Train the repulsive model with the new electronic targets
+        all_models['rep'].compute_repulsive_energies(training_batches + validation_batches, opts)
     
     print("Reference energy parameters:")
     reference_energy_params = list(model_variables['Eref'].detach().cpu().numpy())

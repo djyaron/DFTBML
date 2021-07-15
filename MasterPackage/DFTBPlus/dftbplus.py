@@ -197,3 +197,39 @@ def read_dftb_out(file_path: str) -> dict:
         results['Eev'] = np.nan
         raise Exception('DFTB Calculation Failed')
     return results
+
+def read_detailed_out(file_path: str) -> dict:
+    r"""Parse a detailed.out file
+    
+    Arguments:
+        file_path (str): path to detailed.out file
+    
+    Returns:
+        results (Dict): Dictionary containing the total energy,
+            total electronic energy, and total repulsive energy. 
+    """
+    name_mapping = {
+        'total energy:' : 't',
+        'total electronic energy:' : 'e',
+        'repulsive energy:' : 'r'
+        }
+    result_dict = dict()
+    triggered = False
+    content = open(file_path).read().splitlines()
+    for i in range(len(content)):
+        #Remove the extraneous whitespace and fix capitalization
+        content[i] = content[i].strip().lower()
+    for line in content:
+        for start in name_mapping:
+            if line.startswith(start):
+                #Only care about Ha values
+                curr_line = line.split()
+                print(curr_line)
+                H_index = curr_line.index('h')
+                val_ind = H_index - 1
+                result_dict[name_mapping[start]] = float(curr_line[val_ind])
+                triggered = True
+    if (not triggered):
+        raise ValueError("DFTB+ calculation failed!")
+    return result_dict
+    

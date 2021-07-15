@@ -105,7 +105,7 @@
     },
     
     "charge_update_epochs" : 10,
-    "nepochs" : 1,
+    "nepochs" : 2,
     "n_worker" : 1
 
 },
@@ -140,6 +140,7 @@
 "repulsive_settings" : {
 
     "rep_setting": "new",
+    "rep_integration" : "external",
     "opts" : {
         "nknots" : 25,
         "cutoff" : "full",
@@ -157,5 +158,5 @@
 
 },
     
-"run_id" : "skf_8020_100knot_new_repulsive"
+"run_id" : "skf_8020_100knot_new_repulsive_ignore_skf"
 }

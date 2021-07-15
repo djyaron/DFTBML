@@ -7,7 +7,7 @@ Created on Mon Jul  5 12:50:30 2021
 
 #%% Imports, definitions
 import os
-from DFTBPlus import find_all_used_configs, filter_dataset, run_organics
+from DFTBPlus import find_all_used_configs, filter_dataset, run_organics, read_detailed_out
 import pickle
 
 #%% Code behind
@@ -91,11 +91,24 @@ def test_dftbplus_organics():
         #Non-specified argument default values are good for testing.
         error_Ha, error_Kcal = run_organics(data_path, max_config, maxheavy, 
                                             allowed_Zs, target, skf_dir_name, 
-                                            exec_path, pardict)
+                                            exec_path, pardict, 'old')
         assert(apx_equal(error_Kcal, accepted_vals_kcal[i]))
     
     print("DFTB+ run on organics passed")
 
+def test_dftbplus_detailed_out():
+    r"""Tests out the function to parse and read a detailed.out file.
+    """
+    print("Testing detailed.out parsing...")
+    
+    file_path = "test_files/detailed.out"
+    result = read_detailed_out(file_path)
+    assert(result['t'] == -4.8133377035)
+    assert(result['e'] == -5.1997524973)
+    assert(result['r'] == 0.3864147938)
+    
+    print("detailed.out parsing successful")
+    
 def run_dftbplus_tests():
     test_molecule_exclusion()
     test_dftbplus_organics()

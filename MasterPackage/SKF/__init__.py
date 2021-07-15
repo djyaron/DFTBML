@@ -6,4 +6,4 @@ Created on Tue Jun  8 12:53:54 2021
 """
 
 from .skfinfo import SkfInfo
-from .skfwriter import main
+from .skfwriter import main, determine_index

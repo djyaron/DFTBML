@@ -15,7 +15,7 @@ skf files constructed in this module, the simple format is being used
 import numpy as np
 Array = np.ndarray
 from typing import List, Dict
-import os, os.path
+import os, os.path, pickle
 from functools import partial
 from scipy.interpolate import CubicSpline
 from MasterConstants import ANGSTROM2BOHR, Model
@@ -522,6 +522,9 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     #Dealing with the H,S datablock
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
+    #WARNING: HARDCODE TO INCREASE GRID DENSITY FOR SKFS, REMOVE LATER
+    grid_dist /= 2
+    ngrid *= 2 
     if compute_S_block: #When fitting S
         print("Computing S block")
         s_block = compute_S(elems, all_models, grid_dist, ngrid)
@@ -604,6 +607,11 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
     #   the DFTBrepulsive model immediately.
     if rep_mode == 'new':
         all_models['rep'].calc_spline_block(opts)
+        print("Saving reference energy parameters")
+        ref_dict = all_models['rep'].get_ref_ener_info()
+        filename = "ref_params.p" if ext is None else os.path.join(ext, "ref_params.p")
+        with open(filename, 'wb') as handle:
+            pickle.dump(ref_dict, handle)
     for pair in elem_pairs:
         write_single_skf_file(pair, all_models, atom_nums, atom_masses, compute_S_block, 
                               ref_direc, rep_mode, str_sep, spline_ngrid, ext)
