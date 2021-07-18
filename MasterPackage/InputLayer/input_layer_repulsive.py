@@ -68,7 +68,7 @@ def count_n_heavy_atoms(atomic_numbers):
 
 class DFTBRepulsiveModel:
     
-    def __init__(self, config_tracker: Dict, gammas, device: torch.device = None, dtype: torch.dtype = None,
+    def __init__(self, config_tracker: Dict, gammas = None, device: torch.device = None, dtype: torch.dtype = None,
                  mode: str = 'external') -> None:
         r"""Initializes the repulsive model based on the DFTBrepulsive backend
         

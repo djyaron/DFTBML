@@ -226,6 +226,9 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                         #Should always be guaranteed the total energy
                         try:
                             res2['e'] = dftb_res['e']
+                        except:
+                            pass
+                        try:
                             res2['r'] = dftb_res['r']
                         except:
                             pass

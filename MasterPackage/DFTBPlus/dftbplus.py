@@ -219,16 +219,19 @@ def read_detailed_out(file_path: str) -> dict:
     for i in range(len(content)):
         #Remove the extraneous whitespace and fix capitalization
         content[i] = content[i].strip().lower()
-    for line in content:
+    for line in content[::-1]:
         for start in name_mapping:
-            if line.startswith(start):
+            if line.startswith(start) and (name_mapping[start] not in result_dict):
                 #Only care about Ha values
-                curr_line = line.split()
-                print(curr_line)
-                H_index = curr_line.index('h')
-                val_ind = H_index - 1
-                result_dict[name_mapping[start]] = float(curr_line[val_ind])
-                triggered = True
+                try:
+                    curr_line = line.split()
+                    print(curr_line)
+                    H_index = curr_line.index('h')
+                    val_ind = H_index - 1
+                    result_dict[name_mapping[start]] = float(curr_line[val_ind])
+                    triggered = True
+                except:
+                    pass
     if (not triggered):
         raise ValueError("DFTB+ calculation failed!")
     return result_dict

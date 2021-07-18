@@ -107,11 +107,17 @@ def test_dftbplus_detailed_out():
     assert(result['e'] == -5.1997524973)
     assert(result['r'] == 0.3864147938)
     
+    file_path = "test_files/err_C1H1N3O2_zero.out"
+    result = read_detailed_out(file_path)
+    assert(result['t'] == -15.6928067773)
+    assert(result['e'] == -16.5861217217)
+    assert('r' not in result)
     print("detailed.out parsing successful")
     
 def run_dftbplus_tests():
     test_molecule_exclusion()
     test_dftbplus_organics()
+    test_dftbplus_detailed_out()
     
 if __name__ == "__main__":
     run_dftbplus_tests()

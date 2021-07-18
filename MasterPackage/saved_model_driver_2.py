@@ -79,6 +79,20 @@ def count_nheavy(count: Dict) -> int:
             num_heavy += count[elem]
     return num_heavy
 
+def scale_mol_ener(mol: Dict) -> None:
+    r"""Scales mol['targets']['Etot'] by nheavy
+    
+    Arguments:
+        mol (Dict): The molecule dictionary to correct
+    
+    Returns:
+        None
+    """
+    z_count = collections.Counter(mol['atomic_numbers'])
+    heavy_counts = [z_count[x] for x in z_count if x > 1]
+    n_heavy = sum(heavy_counts)
+    mol['targets']['Etot'] *= n_heavy
+
 def correct_rep_eners(ref_param: Dict, output: Dict, feed: Dict) -> None:
     r"""Corrects for the reference energy by subtracting off the reference energy
         contribution from the repulsive.
@@ -108,12 +122,26 @@ def correct_rep_eners(ref_param: Dict, output: Dict, feed: Dict) -> None:
         ref_dict[bsize] = np.hstack(ref_eners)
         n_heavy_dict[bsize] = feed['nheavy'][bsize].numpy()
         
-    #Correct the reference energy now
+        #Correct the reference energy now
         rep_start = output['Erep'][bsize]
         new_rep = (rep_start * n_heavy_dict[bsize]) - ref_dict[bsize]
         output['Erep'][bsize] = new_rep
 
-def pass_feeds_through(all_models_filename: str, reference_params_filename: str) -> List[Dict]:
+def scale_Erep(output: Dict, feed: Dict) -> None:
+    r"""Scales the repulsive energies so they are not per heavy atom.
+    
+    Arguments:
+        output (Dict): The current output
+        feed (Dict): The feed dictionary that generated the given output
+    
+    Returns:
+        None
+    """
+    for bsize in output['Erep']:
+        n_heavy = feed['nheavy'][bsize].numpy()
+        output['Erep'][bsize] = output['Erep'][bsize] * n_heavy
+
+def pass_feeds_through(all_models_filename: str, reference_params_filename: str, comp_to_dplus: bool = True) -> List[Dict]:
     r"""Passes feeds through the dftb layer and generates predictions
         from the DFTBlayer.
     
@@ -123,11 +151,18 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str)
         reference_params_filename (str): The filename of the 
             reference energy parameters, needed for correcting DFTBrepuslive
             predictions by removing the reference energy.
+        comp_to_dplus (bool): Whether currently comparing to the energies obtained from 
+            DFTB+, in which case the reference energy is subtracted off. 
     
     Returns: 
-        all_batches (List[Dict]): The 
+        all_batches (List[Dict]): The models with the predictions added in from both 
+            DFTB+ and the DFTB_Layer + loaded trained models
     """
     saved_models = pickle.load(open(all_models_filename, 'rb'))
+    
+    if ('rep' in saved_models) and (not hasattr(saved_models['rep'], 'mode')):
+        saved_models['rep'].mode = 'external' #If mode is not present, default to 'external' mode
+        
     print("Loaded in saved models")
     reference_parameters = pickle.load(open(reference_params_filename, 'rb'))
     print("Loaded in reference parameters")
@@ -165,8 +200,12 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str)
             output = layer.forward(feed, saved_models)
             #Add in repulsive energies if the repulsive model is new
             if s.rep_setting == 'new':
-                output['Erep'] = saved_models['rep'].add_repulsive_eners(feed)
-                correct_rep_eners(reference_parameters, output, feed)
+                output['Erep'] = saved_models['rep'].add_repulsive_eners(feed) #per heavy atom, Erep + Eref
+                if comp_to_dplus:
+                    correct_rep_eners(reference_parameters, output, feed) #per molecule, Erep only
+                else:
+                    scale_Erep(output, feed) #per molecule, Erep + Eref
+                #At this point, it's consistently per molecule
             for loss in all_losses:
                 if loss == 'Etot':
                     res = all_losses[loss].get_value(output, feed, s.train_ener_per_heavy, s.rep_setting)
@@ -187,14 +226,17 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str)
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "skf_8020_100knot_new_repulsive_ignore_skf/Split0/saved_models.p"
-    ref_filename = "skf_8020_100knot_new_repulsive_ignore_skf/ref_params.p"
-    all_batches = pass_feeds_through(mod_filename, ref_filename)
+    mod_filename = "skf_8020_100knot_new_repulsive_eachepochupdate/Split0/saved_models.p"
+    ref_filename = "sparse_skf/ref_params.p"
+    all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
     
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    skf_dir = os.path.join(os.getcwd(), "skf_8020_100knot_new_repulsive_ignore_skf")
+    skf_dir = os.path.join(os.getcwd(), "sparse_skf")
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
+    
+    with open("sparse_skf/sparse_skf_comp.p", "wb") as handle:
+        pickle.dump(all_mols, handle)
     
 

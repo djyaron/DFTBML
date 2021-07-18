@@ -121,6 +121,15 @@ for filename in os.listdir(sparse_direc):
         top_line = content[0].split()
         assert(float(top_line[0]) == 0.02)
         assert(float(top_line[1]) == 500)
+        
+for filename in os.listdir(dense_direc):
+    if filename.split(".")[1] == 'skf':
+        content_dense = open(os.path.join(os.getcwd(), dense_direc, filename)).read().splitlines()
+        content_sparse = open(os.path.join(os.getcwd(), sparse_direc, filename)).read().splitlines()
+        d_s = content_dense.index("Spline")
+        s_s = content_sparse.index("Spline")
+        assert(d_s - s_s == 500)
+        
 
 ref_sparse = "sparse_skf/ref_params.p"
 ref_dense = "dense_skf/ref_params.p"

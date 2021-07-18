@@ -43,6 +43,13 @@ def test_repulsive():
     batches_valid = pickle.load(open("test_files/predicted_validation_elec_only.p", "rb"))
     all_train = list(reduce(lambda x, y : x + y, batches_train))
     all_valid = list(reduce(lambda x, y : x + y, batches_valid))
+    #Do a correction to the format of the dictionaries to accomodate the new 
+    #   DFTBRepulsiveModel functionality
+    for mol in all_train + all_valid:
+        save_val = mol['predictions']['Etot']
+        mol['predictions']['Etot'] = dict()
+        mol['predictions']['Etot']['Etot'] = save_val
+    
     gammas_input, config_tracker = generate_gammas_input(batches_train + batches_valid)
     compute_gammas(gammas_input, opts)
     
@@ -59,7 +66,7 @@ def test_repulsive():
         name, config = molecule['name'], molecule['iconfig']
         prediction_index = config_tracker[name].index(config)
         pred_rep_ref = model.pred[name]['prediction'][prediction_index]
-        tot_ener = pred_rep_ref + molecule['predictions']['Etot']
+        tot_ener = pred_rep_ref + molecule['predictions']['Etot']['Etot']
         disagreements.append(abs(molecule['targets']['Etot'] - tot_ener))
     
     avg_disagreement = sum(disagreements) / len(disagreements)
