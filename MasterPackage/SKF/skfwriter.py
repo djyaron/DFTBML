@@ -10,6 +10,8 @@ to a specific format as described in the slater-koster file format document
 Right now, the writer only handles simple format since we are not doing
 angular momenta up to f, only up to d. It is assumed that for all
 skf files constructed in this module, the simple format is being used
+
+TODO: NEED TO TEST NEW SKF CODE AFTER NEW DFTBREPULSIVE CODE INTEGRATED!
 """
 
 import numpy as np
@@ -18,7 +20,8 @@ from typing import List, Dict
 import os, os.path, pickle
 from functools import partial
 from scipy.interpolate import CubicSpline
-from MasterConstants import ANGSTROM2BOHR, Model
+from MasterConstants import ANGSTROM2BOHR, Model, H_entries, S_entries, atom_header_entries
+from DFTBrepulsive import SKF, SKFBlockCreator
 
 #%% Header, H, and S block
 def load_file_content(elems: tuple, ref_direc: str, atom_nums: Dict) -> List[List[str]]:
@@ -273,6 +276,8 @@ def obtain_occupation_ds(content: List) -> (Array, Array):
         occupations (Array): The orbital occupations at ground state as a list
         Ed (Array): On-site energy for the d orbital
         Ud (Array): Hubbard parameter for the d orbital
+    
+    Notes: Hard-coded indexing works with simple format SKF
     """
     second_line = content[1]
     return (np.array(second_line[7:]).astype('float64'),
@@ -317,7 +322,7 @@ def construct_header(elems : tuple, all_models: Dict, atom_masses: Dict,
         Es = all_models[Model('H', (elem1, ), 's')].variables[0].item()
         Up = 0.0 if elem1 == 1 else all_models[Model('G', (elem1, ), 'pp')].variables[0].item()
         Us = all_models[Model('G', (elem1, ), 'ss')].variables[0].item()
-        occupations, Ed_orig, Ud_orig = obtain_occupation_ds(content)
+        occupations, Ed_orig, Ud_orig = obtain_occupation_ds(content) #NOTE: this will have to change when dealing with elements with angular momenta greater than p
         Ed = Ed_orig if ignore_d else all_models[Model('H', (elem1, ), 'd')].variables[0].item()
         Ud = Ud_orig if ignore_d else all_models[Model('G', (elem1, ), 'dd')].variables[0].item()
         Erun = np.array([Ed, Ep, Es])
@@ -367,6 +372,36 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     #Coefficients of the spline
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
+
+def compute_spline_repulsive_vals(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array):
+    r"""Same functionality as compute_spline_repulsive, but returns the rgrid and 
+        the values for each point in rgrid instead of spline coefficients. Again, 
+        used with the new DFTBRepulsive SKF functionalities.
+        
+    Arguments:
+        elems (tuple): The elements whose repulsive interaction is concerned
+        all_models (Dict): Dictionary referencing all the models
+        ngrid (int): The number of gridpoints to use for the repulsive splines. 
+            Defaults to 50
+    
+    Returns:
+        rgrid (Array): The rgrid that was used, in angstroms
+        r_vals (Array): The values from evaluating the repulsive model
+            on the given rgrid
+    
+    Notes: Even though this is code duplication, the idea is to make the 
+        old repulsive models backward compatible with the new DFTBRepulsive 
+        SKF functionalities
+    """
+    R_mods = [mod for mod in all_models.keys() if isinstance(mod, Model) and mod.oper == 'R' and\
+              (mod.Zs == elems or mod.Zs == (elems[1], elems[0]))]
+    assert(len(R_mods) == 1) # Should only be one repulsive mod per atom pair
+    r_model = all_models[R_mods[0]]
+    xlow, xhigh = r_model.pairwise_linear_model.r_range()
+    cutoff = r_model.cutoff #Use the cutoff distance from the model itself (only works for joined splines)
+    rgrid = np.linspace(xlow, cutoff, ngrid) #rgrid here is in angstroms
+    r_vals = get_yvals(R_mods[0], rgrid, all_models)
+    return rgrid, r_vals
 
 # def compute_spline_repulsive_new(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array, float):
 #     r"""Computes the repulsive spline coefficients for the repulsive block 
@@ -457,7 +492,7 @@ def assemble_spline_header(rgrid: Array, content: List, ngrid : int, cutoff: flo
     line3 = content[index]
     return [line1, line2, line3]
 
-#%% File Assembly 
+#%% File Assembly (Old method)  
 def combine_list_to_str(strlst: List, sep: str = "  ") -> str:
     r"""Combines a list of strings into a single string
     
@@ -523,8 +558,8 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
     #WARNING: HARDCODE TO INCREASE GRID DENSITY FOR SKFS, REMOVE LATER
-    grid_dist /= 2
-    ngrid *= 2 
+    # grid_dist /= 2
+    # ngrid *= 2 
     if compute_S_block: #When fitting S
         print("Computing S block")
         s_block = compute_S(elems, all_models, grid_dist, ngrid)
@@ -606,9 +641,11 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
     #If the new repulsive model is being used, generate the spline block from 
     #   the DFTBrepulsive model immediately.
     if rep_mode == 'new':
+        if (all_models['rep'].mode is not None) and (all_models['rep'].mode == 'internal'):
+            all_models['rep'].update_mod_coefs()
         all_models['rep'].calc_spline_block(opts)
         print("Saving reference energy parameters")
-        ref_dict = all_models['rep'].get_ref_ener_info()
+        ref_dict = all_models['rep'].get_ref_ener_info(False)
         filename = "ref_params.p" if ext is None else os.path.join(ext, "ref_params.p")
         with open(filename, 'wb') as handle:
             pickle.dump(ref_dict, handle)
@@ -616,6 +653,266 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
         write_single_skf_file(pair, all_models, atom_nums, atom_masses, compute_S_block, 
                               ref_direc, rep_mode, str_sep, spline_ngrid, ext)
 
+#%% File Assembly (New method, using DFTBrepulsive)
 
+#TODO: Implement me!
+
+"""
+These functions will use the functions written in the Header, H, and S block to assemble the
+dictionaries necessary for the SKF functions in the DFTBrepulsive backend. 
+"""
+
+def obtain_HS_dict(H_block: Array, S_block: Array) -> Dict:
+    r"""Generates the dictionary formatted input for the Hamiltonian and overlap
+        operator integral elements.
+    
+    Arguments: 
+        H_block (Array): The Hamiltonian integral block, of shape (ngrid, 10)
+        S_block (Array): The overlap integral block, of shape (ngrid, 10)
+    
+    Returns:
+        HS_dict (Dict): The dictionary that decomposes the H and S blocks 
+            into their integral labels. 
+    
+    Notes: This method only works with the simple format of the SKF files, not
+        the extended format. This function depends on the compute_H and computer_S
+        methods.
+    """
+    HS_dict = dict()
+    for key in H_entries:
+        HS_dict[key] = H_block[:, H_entries[key]]
+    for key in S_entries:
+        HS_dict[key] = S_block[:, S_entries[key]]
+    return HS_dict
+
+def get_header_dict(header_block: List[List], homo: bool) -> Dict:
+    r"""Generates the dictionary containing the input for the header block of the 
+        SKFs.
+    
+    Arguments: 
+        header_block (List[List]): The header block used in SKF files. Contains
+            the first few lines.
+        homo (bool): Whether this is for a homonuclear SKF or heteronuclear.
+            
+    Returns:
+        grid_dist (float): The grid distance
+        atom_info_dict (Dict): The dictionary with the requisite entries for the 
+            header block.
+        mass (float): The mass, only relevant when dealing with the homonuclear case.
+        poly_coef (Array): The array of polynomial coefficients. They are 
+            defaulted as 0 because splines are defined for repulsive. 
+        rcut (float): 0, since repulsive is explained by splines
+        
+    Notes: This function depends on the construct_header method from above,
+        and decomposes the output from this method. The first three lines 
+        provided have the following formats:
+            1) grid_dist, ngrid
+            2) Ed, Ep, Es, SPE, Ud, Up, Us, fd, fp, fs
+            3) mass, c1, c2, c3, ...
+        For line 3, the polynomial coefficients c2 -> c9, rcut, and d1 -> d10 are
+        all set as zero. The DFTBrepulsive SKF backend excludes the second line
+        (mapping to atom_info_dict), so assuming passing in a dummy dict of zeros is 
+        acceptable.
+    """
+    grid_dist = float(header_block[0][0])
+    poly_coef = np.zeros(8)
+    rcut = 0
+    
+    if homo:
+        atom_info_dict = {
+            key : val for key, val in zip(atom_header_entries, header_block[1])
+            }
+        mass = header_block[2][0]
+    else: 
+        atom_info_dict = {
+            key : 0 for key in atom_header_entries
+            }
+        mass = header_block[1][0]
+    
+    return grid_dist, atom_info_dict, mass, poly_coef, rcut
+
+def assemble_final_header_dict(H_block: Array, S_block: Array, header_block: List[List], homo: bool) -> Dict:
+    r"""Uses obtain_HS_dict() and atom_info_dict() to make final dictionary
+        for use in creating SKFS
+    
+    Arguments;
+        H_block (Array): The Hamiltonian integral table
+        S_block (Array): The overlap integral table
+        header_block (List[List]): Nested list for the first three lines of the
+            skf files.
+        homo (bool): Whether we're dealing with a homonuclear case
+    
+    Returns:
+        final_dict (Dict): The dictionary containing the various elements 
+            needed by DFTBrepulsive's SKF class to generate SKFs.
+    """
+    HS_dict = obtain_HS_dict(H_block, S_block)
+    grid_dist, atom_info_dict, mass, poly_coef, rcut = get_header_dict(header_block, homo)
+    
+    #Assemble all the pieces together
+    final_dict = {
+        
+        'gridDist' : grid_dist,
+        'atomic_info' : atom_info_dict,
+        'mass' : np.array([mass]),
+        'poly_coef' : poly_coef,
+        'rcut' : np.array([rcut]),
+        'HS' : HS_dict
+        
+        }
+    
+    return final_dict
+
+def get_exp_coef(spline_header: List) -> Array:
+    r"""Depends upon the method assemble_spline_header() to get the 
+        short-range exopnential coefficients
+    
+    Arguments:
+        spline_header (List): The spline header block constructed by 
+            assemble_spline_header()
+    
+    Returns:
+        exp_coefs (Array): The array of short-range exponential coefficients
+    
+    Notes: Takes in the header generated by assemble_spline_header(). The
+        third line is what we're interested in.
+    """
+    assert(len(spline_header) == 3)
+    assert(len(spline_header[2]) == 3) #Should have three coefficients for the exponential expression
+    
+    #Coefficients are strings here, need them to be floats, do a type-cast
+    exp_coefs = spline_header[2]
+    exp_coefs = list(map(lambda x : float(x), exp_coefs))
+    return np.array(exp_coefs).astype('float64')
+
+def get_spl_xydata(all_models: Dict, rep_mode: str, all_elems: List[tuple], spl_ngrid: int = 500) -> Array:
+    r"""Computes the spline xydata for the repulsive potential block
+    
+    Arguments:
+        all_models (Dict): The dictionary containing all the models
+        rep_mode (str): Which repulsive mode is being used
+        all_elems (tuple): The elements whose interaction is being addressed 
+            (e.g. (1, 6) for H-C)
+        spl_ngrid (int): The number of grid points ot use for evaluating the 
+            spline repulsive. Defaults to 500 for a dense grid.
+    
+    Returns:
+        xy_data (Dict): The xy_data required to construct the spline block
+    
+    Notes: This part is tricky because it requires casing on the repulsive mode. 
+        If dealing with the new repulsive, need to invoke the create_xydata() method
+        of the RepulsiveModel backend. If dealing with old repulsive, need to get the 
+        xydata for the element from compute_spline_repulsive_vals().
+        
+        Because the new DFTBRepulsive repulsive model has the create_xydata for 
+        all Zs, to prevent redundant computation, going to do all Zs together for 
+        both old and new repulsive.
+        
+        The reverse atom pairs should be present in all_elems, and they should
+        also be present in the xydata dictionary generated by the 
+        create_xydata() method.
+    
+    Raises:
+        ValueError if rep_mode is not 'new' or 'old'
+    """
+    if (rep_mode == 'old'):
+        print("Using old repulsive")
+        xy_data = dict()
+        for Zs in all_elems:
+            rgrid, r_vals = compute_spline_repulsive_vals(Zs, all_models, spl_ngrid)
+            assert(len(rgrid) == len(r_vals))
+            data = np.zeros((len(rgrid), 2))
+            data[:, 0] = rgrid #rgrid is in angstroms
+            data[:, 1] = r_vals
+            xy_data[Zs] = data
+        return xy_data
+    elif (rep_mode == 'new'):
+        print("Using new repulsive")
+        #We know then that an instance of DFTBRepulsiveModel exists in all_models
+        grid_dict = {elems : np.linspace(v[0], v[1], spl_ngrid) for elems, v in all_models['rep'].mod.opts.cutoff.items()}
+        xy_data = all_models['rep'].mod.create_xydata(grid_dict, expand = True) #Setting expand to True ensures that the reverse element pairs are included
+        #These asserts should pass because with the inclusion of the 
+        #   reflexive pair, the keys should be equivalent
+        assert(set(all_elems) == set(xy_data.keys()))
+        return xy_data
+    else:
+        raise ValueError("Unrecognized repulsive method!")
+
+def write_skfs(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: bool, 
+               ref_direc: str, rep_mode: str, dest: str = None, spl_ngrid: int = 500) -> None:
+    r"""Master method for writing out SKFs using the new DFTBRepulsive framework
+    
+    Arguments:
+        all_models (Dict): The dictionary containing all the models
+        atom_nums (Dict): The dictionary mapping atom numbers to their symbols
+        atom_masses (Dict): The dictionary mapping atom numbers to their masses
+        compute_S_block (bool): Whether or not to compute values for the overlap operator S.
+        ref_direc (str): The relative path to the directory containing all skf files
+        rep_mode (str): One of 'new' and 'old', indicates which method should be used
+            to compute the repulsive spline blocks
+        dest (str): The location where the SKF will be saved. Defaults to 
+            None, so will be saved at same level as main module
+        spl_ngrid (int): The number of grid points ot use for evaluating the 
+            spline repulsive. Defaults to 500 for a dense grid.
+    
+    Returns:
+        None
+    
+    Notes: This method uses the methods defined in this block, previous methods defined in the 
+        first block, and the DFTBRepulsive SKF backend to write out SKF files
+        using the new SKF classes. 
+    """
+    elem_pairs = extract_elem_pairs(all_models)
+    #Need to construct the HS block and the 
+    master_Z_dict = dict()
+    for Zs in elem_pairs:
+        master_Z_dict[Zs] = dict()
+        content = load_file_content(Zs, ref_direc, atom_nums)
+        grid_dist, ngrid = get_grid_info(content)
+        if compute_S_block:
+            print("Computing S block")
+            s_block = compute_S(Zs, all_models, grid_dist, ngrid)
+        else:
+            print("Extracting S block")
+            s_block = extract_S_content(Zs, content, ngrid)
+        h_block = compute_H(Zs, all_models, grid_dist, ngrid)
+        HS_header = construct_header(Zs, all_models, atom_masses, grid_dist, ngrid, content)
+        header_dict = assemble_final_header_dict(h_block, s_block, HS_header, Zs[0] == Zs[1])
+        #We only care about the exponential coefficients, which come from the refernce
+        #   content. As such, the other arguments are dummies.
+        spline_header = assemble_spline_header([], content, spl_ngrid, 0.0)
+        exp_coefs = get_exp_coef(spline_header)
+        master_Z_dict[Zs]['header_HS_data'] = header_dict
+        master_Z_dict[Zs]['exp_coef'] = exp_coefs
+    #master_Z_dict now has all the necessary header and electronic integral table information, but still 
+    #   need to obtain the repulsive information
+    xy_data = get_spl_xydata(all_models, rep_mode, elem_pairs, spl_ngrid)
+    assert(set(xy_data.keys()) == set(master_Z_dict.keys()))
+    
+    #Now create all the SKF objects and write them to the necessary location
+    for Zs in master_Z_dict:
+        # print(Zs)
+        creator = SKFBlockCreator()
+        header_HS_data, exp_coef, spl_xydata = master_Z_dict[Zs]['header_HS_data'],\
+            master_Z_dict[Zs]['exp_coef'], xy_data[Zs]
+        # print(header_HS_data['mass'])
+        header_HS_block = creator.create_header_HS_block(Zs, header_HS_data)
+        spline_block = creator.create_spline_block(exp_coef, spl_xydata)
+        skf = SKF(skf_data = {})
+        skf['homo'] = header_HS_block['homo']
+        skf['extend'] = header_HS_block['extend']
+        skf['Z'] = header_HS_block['Z']
+        skf['header'] = header_HS_block['header']
+        skf['HS'] = header_HS_block['HS']
+        skf['spline'] = spline_block
+        skf['doc'] = {'doc' : []} #Leave the documentation block as empty for now
+        elem1, elem2 = Zs
+        atom1, atom2 = atom_nums[elem1], atom_nums[elem2]
+        save_file_name = f"{atom1}-{atom2}.skf" if dest is None else os.path.join(dest, f"{atom1}-{atom2}.skf")
+        skf.to_file(save_file_name)
+    
+    print("All SKFs written!")
+
+#%% Main block
 if __name__ == "__main__":
     pass

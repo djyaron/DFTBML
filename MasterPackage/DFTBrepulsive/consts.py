@@ -15,8 +15,6 @@ HARTREE = 627.50947406
 # Full cut-offs: Lower set to 0.00, upper set to 10.00, both uniformly
 
 # Cut-off radii for ANI-1ccx_energy_clean ("cec") dataset
-# TODO: build in more domain knowledge when selecting cut-offs
-# TODO: restrict cut-off to short range: E_total = E_rep + E_elec + E_dis (DFT-D3)
 
 CUTOFFS_SRT = {(1, 1): (0.63, 2.10),
                (1, 6): (0.60, 1.60),
@@ -158,90 +156,45 @@ CUTOFFS = {"short": CUTOFFS_SRT.copy(),
            "au_extend": CUTOFFS_AEX.copy(),
            "au_full": CUTOFFS_AFL.copy()}
 
-# Exponential coefficients in mio-0-1
-EXPCOEFS_MIO01 = {(1, 1): (3.729040602121917, 1.528691797102741, -0.02094423834462684),
-                  (1, 6): (2.198518512629381, 2.147421636649093, -0.1560071349326178),
-                  (1, 7): (1.958336446918536, 1.791710281689402, -0.1275386902804464),
-                  (1, 8): (2.872317393175472, 2.731242468503665, -0.0683179495995197),
-                  (1, 16): (1.328996967632858, 1.585603771658841, -0.2393319290995536),
-                  (6, 6): (2.151029456234113, 3.917667206325493, -0.4605879014976964),
-                  (6, 7): (2.813730278950125, 4.615141789326417, 0.001737132463214941),
-                  (6, 8): (2.14182700157814, 3.910645070270616, -0.6376116569276089),
-                  (6, 16): (1.558606732347297, 3.709742217533178, -0.8319996368153171),
-                  (7, 7): (1.699369911669323, 3.444972807149358, -0.7901335292428873),
-                  (7, 8): (2.038570066963013, 3.701909003128241, -0.5731191875234836),
-                  (7, 16): (2.230597030848203, 4.919882698248328, -0.596910738167177),
-                  (8, 8): (1.788867452977217, 3.08928509925334, -0.4767443647627316),
-                  (8, 16): (1.849060399685043, 4.173425622126763, -0.7078979951704247),
-                  (16, 16): (1.408556584432291, 4.130362637113512, -1.46726141042049)}
-
-# Exponential coefficients in auorg-1-1
-EXPCOEFS_AUORG11 = {(1, 1): (3.729040602121917, 1.528691797102741, -0.02094423834462684),
-                    (1, 6): (2.198518512629381, 2.147421636649093, -0.1560071349326178),
-                    (1, 7): (1.958336446918536, 1.791710281689402, -0.1275386902804464),
-                    (1, 8): (2.872317393175472, 2.731242468503665, -0.0683179495995197),
-                    (1, 16): (1.328996967632858, 1.585603771658841, -0.2393319290995536),
-                    (1, 79): (1.06695418133, 2.16203034913, -0.843907096058),
-                    (6, 6): (2.151029456234113, 3.917667206325493, -0.4605879014976964),
-                    (6, 7): (2.813730278950125, 4.615141789326417, 0.001737132463214941),
-                    (6, 8): (2.14182700157814, 3.910645070270616, -0.6376116569276089),
-                    (6, 16): (1.558606732347297, 3.709742217533178, -0.8319996368153171),
-                    (6, 79): (1.37517761414, 5.30945756445, -12.7742583034),
-                    (7, 7): (1.699369911669323, 3.444972807149358, -0.7901335292428873),
-                    (7, 8): (2.038570066963013, 3.701909003128241, -0.5731191875234836),
-                    (7, 16): (2.230597030848203, 4.919882698248328, -0.596910738167177),
-                    (7, 79): (1.08595710989, 3.82300386946, -3.63448379907),
-                    (8, 8): (1.788867452977217, 3.08928509925334, -0.4767443647627316),
-                    (8, 16): (1.849060399685043, 4.173425622126763, -0.7078979951704247),
-                    (8, 79): (1.08822773588, 3.82772385503, -3.70275209101),
-                    (16, 16): (1.408556584432291, 4.130362637113512, -1.46726141042049),
-                    (16, 79): (0.967172298316, 4.28264888526, -6.46853835975),
-                    (79, 79): (4.06611088035, 14.7376297055, -0.0335996827064)}
-
-# Look-up table for exponential coefficients
-EXPCOEFS = {'mio-0-1': EXPCOEFS_MIO01.copy(),
-            'auorg-1-1': EXPCOEFS_AUORG11.copy()}
-
 # Map natural language to boundary conditions
 BCONDS = {'natural': (Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)),
           'vanishing': (Bcond(0, 2, 0.0), Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0))}
 
-ALIAS2TARGET = {# Entries in ANI-1ccx
-           'dt': 'dftb.total_energy', # Dftb Total
-           'de': 'dftb.elec_energy',  # Dftb Electronic
-           'dr': 'dftb.rep_energy',  # Dftb Repulsive
-           'pt': 'dftb_plus.total_energy', # dftb Plus Total
-           'pe': 'dftb_plus.elec_energy',  # dftb Plus Electronic
-           # Non-SCC energy plus other contributions to
-           # electronic energy (SCC, spin, ...)
-           'pr': 'dftb_plus.rep_energy',  # dftb Plus Repulsive
-           # Pairwise contribution to total energy
-           'hd': 'hf_dz.energy',  # Hf Dz
-           'ht': 'hf_tz.energy',
-           'hq': 'hf_qz.energy',
-           'wd': 'wb97x_dz.energy',  # Wb97x Dz
-           'wt': 'wb97x_tz.energy',
-           'md': 'mp2_dz.energy',  # Mp2 Dz
-           'mt': 'mp2_tz.energy',
-           'mq': 'mp2_qz.energy',
-           'td': 'tpno_ccsd(t)_dz.energy',  # Tpno Dz
-           'nd': 'npno_ccsd(t)_dz.energy',  # Npno Dz
-           'nt': 'npno_ccsd(t)_tz.energy',
-           'cc': 'ccsd(t)_cbs.energy',
-           # Entries in Au dataset
-           'dm': 'dftb.mermin_free_energy',
-           'dem': 'dftb.elec_mermin_energy',
-           'ft': 'fhi_aims_md.total_energy',
-           'fm': 'fhi_aims_md.mermin_energy',  # total system energy with mermin
-           'fh': 'fhi_aims_md.homo_energy',
-           'fl': 'fhi_aims_md.lumo_energy',
-           # Entries in Au dataset with dispersion
-           'p0': 'dftb_plus.0K_energy',
-           'pd': 'dftb_plus.disp_energy',
-           'pf': 'dftb_plus.force_related_energy',
-           'pm': 'dftb_plus.mermin_energy',  # total system energy with mermin
-           'pc': 'dftb_plus.rep_corrected_energy'  # force_related - rep
-           }
+ALIAS2TARGET = {'dt': 'dftb.total_energy',  # Dftb Total
+                'de': 'dftb.elec_energy',  # Dftb Electronic
+                'dr': 'dftb.rep_energy',  # Dftb Repulsive
+                'pt': 'dftb_plus.total_energy',  # dftb Plus Total
+                'pe': 'dftb_plus.elec_energy',  # dftb Plus Electronic
+                # Non-SCC energy plus other contributions to
+                # electronic energy (SCC, spin, ...)
+                'pr': 'dftb_plus.rep_energy',  # dftb Plus Repulsive
+                # Pairwise contribution to total energy
+                'hd': 'hf_dz.energy',  # Hf Dz
+                'ht': 'hf_tz.energy',
+                'hq': 'hf_qz.energy',
+                'wd': 'wb97x_dz.energy',  # Wb97x Dz
+                'wt': 'wb97x_tz.energy',
+                'md': 'mp2_dz.energy',  # Mp2 Dz
+                'mt': 'mp2_tz.energy',
+                'mq': 'mp2_qz.energy',
+                'td': 'tpno_ccsd(t)_dz.energy',  # Tpno Dz
+                'nd': 'npno_ccsd(t)_dz.energy',  # Npno Dz
+                'nt': 'npno_ccsd(t)_tz.energy',
+                'cc': 'ccsd(t)_cbs.energy',
+                # Entries in Au dataset
+                'dm': 'dftb.mermin_free_energy',
+                'dem': 'dftb.elec_mermin_energy',
+                'ft': 'fhi_aims_md.total_energy',
+                'fm': 'fhi_aims_md.mermin_energy',  # total system energy with mermin
+                'fh': 'fhi_aims_md.homo_energy',
+                'fl': 'fhi_aims_md.lumo_energy',
+                # Entries in Au dataset with dispersion
+                'p0': 'dftb_plus.0K_energy',
+                'pd': 'dftb_plus.disp_energy',
+                'pf': 'dftb_plus.force_related_energy',
+                'pm': 'dftb_plus.mermin_energy',  # total system energy with mermin
+                'pc': 'dftb_plus.rep_corrected_energy'  # force_related - rep
+                }
 
 TARGET2ALIAS = {target: alias for alias, target in ALIAS2TARGET.items()}
 

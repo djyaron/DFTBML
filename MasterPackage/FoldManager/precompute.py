@@ -203,3 +203,32 @@ def precompute_gammas(opts: Dict, top_level_molec_path: str) -> None:
         pickle.dump(config_tracker, handle)
     
     print("Gammas and config tracker have been saved")
+
+def precompute_gammas_per_fold(opts: Dict, top_level_molec_path: str) -> None:
+    r"""Similar functionality as precompute_gammas but the gammas are 
+        computed for each fold and saved for each fold rather than for the entire
+        dataset.
+    """
+    all_files = os.listdir(top_level_molec_path)
+    pattern = r"Fold[0-9]+_molecs.p"
+    fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
+    
+    for name in fold_file_names:
+        full_name = os.path.join(top_level_molec_path, name)
+        molecs = pickle.load(open(full_name, 'rb'))
+        #The input to generate_gammas_input has to be a 2D list due to internal operations,
+        #   so wrap the 1D list in another list
+        gammas_input, config_tracker = generate_gammas_input([molecs])
+        gammas = compute_gammas(gammas_input, opts, return_gammas = True)
+        fold_name = name.split("_")[0]
+        gammas_name = os.path.join(top_level_molec_path,  f"{fold_name}_gammas.p")
+        config_name = os.path.join(top_level_molec_path, f"{fold_name}_config_tracker.p")
+        
+        with open(gammas_name, 'wb') as handle:
+            pickle.dump(gammas, handle)
+        
+        with open(config_name, 'wb') as handle:
+            pickle.dump(config_tracker, handle)
+        
+        print(f"Gammas and config_tracker saved for {name}")
+    

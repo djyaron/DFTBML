@@ -8,15 +8,16 @@ from typing import ItemsView, Iterable, Iterator, KeysView, List, Union, ValuesV
 import h5py
 import numpy as np
 import pandas as pd
+import torch
 from h5py import File
 from scipy.spatial.distance import pdist
-import torch
-Tensor = torch.Tensor
 
 from .consts import ATOM2SYM, TARGET2ALIAS
 from .fold import Fold
 from .target import Target
 from .util import formatZ, count_n_heavy_atoms
+
+Tensor = torch.Tensor
 
 
 # TODO: implement Dataset.shuffle and Dataset.split when necessary
@@ -181,8 +182,8 @@ class Dataset:
                     fset[ATOM2SYM[atype]].extend([count] * nconf)
             for entry, data in moldata.items():
                 if entry not in self.fixed_entry \
-                and entry != 'coordinates' \
-                and 'forces' not in entry:
+                        and entry != 'coordinates' \
+                        and 'forces' not in entry:
                     fset[entry].extend(data)
         fset = pd.DataFrame(fset)
         return fset
@@ -376,11 +377,10 @@ class Gammas(Dataset):
     def __mul__(self, coef: Union[np.ndarray, Tensor]) -> Dataset:
         r"""Multiple gammas by a coefficient vector to give model predictions"""
         rset = {mol: {'atomic_numbers': moldata['atomic_numbers'],
-                      'prediction': moldata['gammas'].dot(coef) if isinstance(coef, np.ndarray) else\
-                          torch.matmul(torch.tensor(moldata['gammas'], dtype = torch.double), coef)}
+                      'prediction': moldata['gammas'].dot(coef) if isinstance(coef, np.ndarray)
+                      else torch.matmul(torch.tensor(moldata['gammas'], dtype=torch.double), coef)}
                 for mol, moldata in self.items()}
         return Dataset(rset, conf_entry='prediction', fixed_entry=('atomic_numbers',))
-
 
 # if __name__ == '__main__':
 #     h5set_path = '/home/francishe/Documents/DFTBrepulsive/Datasets/aed_1K.h5'

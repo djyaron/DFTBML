@@ -27,7 +27,7 @@ class SKF:
             None
 
         Examples:
-            >>> from skfvis import SKF
+            >>> from deprecated.skfvis_v0 import SKF
             >>> skf_path = "PATH_TO_SLATER_KOSTER_FILE"
             >>> skf = SKF(skf_path, spl_ngrid=500)
         """
@@ -248,7 +248,7 @@ class SKF:
             None
 
         Examples:
-            >>> from skfvis import SKF
+            >>> from deprecated.skfvis_v0 import SKF
             >>> skf_path = "SKF_PATH"
             >>> skf = SKF(skf_path)
             >>> skf.plot(entries=['all'])

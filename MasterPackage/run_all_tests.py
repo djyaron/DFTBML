@@ -81,8 +81,14 @@ def run_all_tests():
     print()
     
     print("Testing skf writer functionalities...")
-    run_skf_tests()
+    run_skf_tests(True)
     print("SKF functionality tests passed")
+    
+    print()
+    
+    print("Testing gammas construction")
+    run_gammas_tests()
+    print("Gammas tests passed")
     
     print()
     

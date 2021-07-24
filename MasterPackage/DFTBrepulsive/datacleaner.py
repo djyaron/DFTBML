@@ -1,9 +1,7 @@
 from h5py import File
-import h5py
 import numpy as np
 from os import walk
 from os.path import join
-
 
 
 if __name__ == "__main__":
@@ -33,7 +31,7 @@ if __name__ == "__main__":
         mols = tuple(sorted(src.keys()))
         for mol in mols:
             molgroup = src[mol]
-            ## Sort conformations by their id (starting from 1)
+            # Sort conformations by their id (starting from 1)
             i_confs = sorted(int(mol_conf.rsplit('_', 1)[-1]) for mol_conf in molgroup.keys())
             confs = tuple(f"{mol}_{i_conf}" for i_conf in i_confs)
             moldata = {'E_mermin': [],
@@ -50,7 +48,7 @@ if __name__ == "__main__":
                        'positions': []}
             for conf in confs:
                 confdata = molgroup[conf]
-                ## Miscellaneous data
+                # Miscellaneous data
                 moldata['E_mermin'].append(confdata['E_mermin'][()])
                 moldata['E_total'].append(confdata['E_total'][()])
                 moldata['HOMO'].append(confdata['HOMO'][()])
@@ -61,26 +59,26 @@ if __name__ == "__main__":
                 moldata['dipole_vector'].append(confdata['dipole_vector'][()])
                 moldata['epsilons'].append(confdata['epsilons'][()])
                 moldata['positions'].append(confdata['positions'][()])
-                ## Atomic numbers
+                # Atomic numbers
                 if moldata['atomic_numbers'] is None:
                     moldata['atomic_numbers'] = confdata['atomic_numbers'][()]
                 elif 0 in moldata['atomic_numbers']:
                     # Update positions in moldata if positions in confdata is valid
                     if 0 not in confdata['atomic_numbers'][()]:
                         moldata['atomic_numbers'] = confdata['atomic_numbers'][()]
-                ## Mulliken occupancies
+                # Mulliken occupancies
                 occ = confdata['Occ_mulliken_l']
-                ### Sort occupancies by the id of corresponding atom
+                # Sort occupancies by the id of corresponding atom
                 i_atoms = sorted(int(atoms.rsplit('_', 1)[-1]) for atoms in occ.keys())
                 atoms = tuple(f"atom_{i_atom}" for i_atom in i_atoms)
-                ### Pack Mulliken occupancies in an np.ndarray with shape (n_atoms, 3)
-                ### where 3 corresponds to s, p and d orbitals
+                # Pack Mulliken occupancies in an np.ndarray with shape (n_atoms, 3)
+                # where 3 corresponds to s, p and d orbitals
                 occdata = np.full((len(atoms), 3), fill_value=np.nan, dtype='float')
                 for i_atom, atom in enumerate(atoms):
                     n_orbitals = len(occ[atom])
                     occdata[i_atom, :n_orbitals] = occ[atom][()]
                 moldata['Occ_mulliken_l'].append(occdata)
-            ## Stack the data in each entry and write to file
+            # Stack the data in each entry and write to file
             g = des.create_group(mol)
             for entry, data in moldata.items():
                 if entry == 'atomic_numbers':
@@ -102,7 +100,7 @@ if __name__ == "__main__":
             g.create_dataset('fhi_aims_md.total_energy', data=moldata['E_total'])
             g.create_dataset('fhi_aims_md.homo_energy', data=moldata['HOMO'])
             g.create_dataset('fhi_aims_md.lumo_energy', data=moldata['LUMO'])
-            ## DFTBd energies
+            # DFTBd energies
             elec = moldata['Edftb_elec'][()]
             rep = moldata['Edftb_rep'][()]
             g.create_dataset('dftb.elec_mermin_energy', data=elec)
@@ -114,25 +112,25 @@ if __name__ == "__main__":
     # But we will re-compute energies with DFTB+ and clean the dataset later
     with File(ae_path, 'r') as src, File(aec_path, 'w') as des:
         for mol, moldata in src.items():
-            ## Create a mask to filter out NANs
+            # Create a mask to filter out NANs
             masks = [~np.isnan(data) for entry, data in moldata.items()
                      if entry not in ('atomic_numbers', 'coordinates')]
             mask = np.logical_and.reduce(masks)
-            ### Skip current molecule if none of its conformations is valid
+            # Skip current molecule if none of its conformations is valid
             if mask.sum() == 0:
                 continue
-            ## Copy valid conformations into Au_energy_clean
+            # Copy valid conformations into Au_energy_clean
             g = des.create_group(mol)
             for entry, data in moldata.items():
                 if entry == 'atomic_numbers':
                     g.create_dataset(entry, data=data)
                 elif entry == 'coordinates':
                     g.create_dataset(entry, data=data[mask, :, :])
-                else:  ### Energy entries are 1-D
+                else:  # Energy entries are 1-D
                     g.create_dataset(entry, data=data[mask])
 
     # Run DFTB+ on Au_energy_clean and integrate the results into Au_energy_clean_dispersion
-    ## Run DFTB+ and parse output
+    # Run DFTB+ and parse output
     from dftb_calc import dftb_calc
     from dftb_parse import dftb_parse
     from multiprocessing import cpu_count
@@ -155,7 +153,7 @@ if __name__ == "__main__":
         dftb_calc(opts)
         dftb_parse(opts)
 
-    ## Integrate results into Au_energy_clean_dispersion
+    # Integrate results into Au_energy_clean_dispersion
     with File(aec_path, 'r') as src, File(aed_path, 'w') as des:
         for mol in src.keys():
             src.copy(mol, des)
@@ -166,22 +164,22 @@ if __name__ == "__main__":
                 if 'energy' in entry:
                     g.create_dataset(entry, data=data)
 
-    ## Clean Au_energy_clean_dispersion
+    # Clean Au_energy_clean_dispersion
     with File(aed_path, 'r+') as des:
         invalid_mols = []
         for mol, moldata in des.items():
-            ## Create a mask to filter out NANs
+            # Create a mask to filter out NANs
             masks = [~np.isnan(data) for entry, data in moldata.items()
                      if entry not in ('atomic_numbers', 'coordinates')]
             # ## Filter out non-negative energies (?)
             # masks.extend([data[()] <= 0 for entry, data in moldata.items()
             #               if entry not in ('atomic_numbers', 'coordinates')])
             mask = np.logical_and.reduce(masks)
-            ### Skip current molecule if none of its conformations is valid
+            # Skip current molecule if none of its conformations is valid
             if mask.sum() == 0:
                 invalid_mols.append(mol)
                 continue
-            ## Filter out invalid conformations
+            # Filter out invalid conformations
             g = des[mol]
             for entry in g.keys():
                 if entry == 'atomic_numbers':

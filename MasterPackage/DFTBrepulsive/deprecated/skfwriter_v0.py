@@ -26,7 +26,7 @@ from typing import List, Dict
 
 Array = np.ndarray
 ATOM_NUMS = {1: 'H', 6: 'C', 8: 'O', 7: 'N', 79: 'Au'}
-REF_DIR = 'slakos/auorg-1-1'
+REF_DIR = '../slakos/auorg-1-1'
 
 
 def load_file_content(Z: tuple, ref_direc: str, atom_nums: Dict) -> List[List[str]]:
@@ -79,6 +79,7 @@ def compute_spline_repulsive(res_path: str, Zs: tuple) -> (Array, Array, float):
 
     rgrid = xydata[0]
     r_vals = xydata[1]
+    # WARNING: HARDCODED CUTOFF!
     cutoff = CUTOFFS['au_full'][_Zs][1]
     # cutoff = CUTOFFS[param_grid['rmax'][0]][_Zs][1]
 

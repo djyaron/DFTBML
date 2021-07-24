@@ -76,47 +76,47 @@ class Options:
                 opts_tmp[opt] = opt_val
         self.__dict__.update(opts_tmp)
         # Check the validity of parameters
-        ## Check xknots, nknots, dknots and cutoff
-        ## If xknots is not specified, check the validity of nknots and cutoff
+        # Check xknots, nknots, dknots and cutoff
+        # If xknots is not specified, check the validity of nknots and cutoff
         if self.xknots is None:
-            ### Check nknots
+            # Check nknots
             if self.nknots is None:
-                #### If nknots is not specified, check the validity of dknots
+                # If nknots is not specified, check the validity of dknots
                 if not isinstance(self.dknots, (float, dict)):
                     raise TypeError(f"dknots is invalid")
             elif not isinstance(self.nknots, (int, dict)):
                 raise TypeError(f"nknots is invalid")
-            ### Check cutoff
+            # Check cutoff
             if not isinstance(self.cutoff, (str, list, tuple, np.ndarray, dict)):
                 raise TypeError(f"cutoff is invalid")
             if isinstance(self.cutoff, str):
-                if not self.cutoff in CUTOFFS.keys():
+                if self.cutoff not in CUTOFFS.keys():
                     raise ValueError(f"cutoff is not recognized")
         else:
             if not isinstance(self.xknots, (list, tuple, np.ndarray, dict)):
                 raise TypeError("xknots is invalid")
-        ## Check other parameters
-        ### Check deg
+        # Check other parameters
+        # Check deg
         if not isinstance(self.deg, (int, dict)):
             raise TypeError(f"deg is invalid")
-        ### Check bconds
+        # Check bconds
         if not isinstance(self.bconds, (str, list, tuple, dict)):
             raise TypeError(f"bconds is invalid")
         if isinstance(self.bconds, str):
             if not self['bconds'] in BCONDS.keys():
                 raise ValueError(f"bconds is not recognized")
-        ### Check constr
+        # Check constr
         if not isinstance(self.constr, str):
             raise TypeError(f"constr is invalid")
-        ### Check solver
+        # Check solver
         if not isinstance(self.solver, str):
             raise TypeError(f"solver is invalid")
-        ### Determine der
+        # Determine der
         try:
             self.maxder = max([int(i) for i in re.findall(r'[0-9]', self.constr)])
         except ValueError:
             raise ValueError(f"constr is invalid")
-        ### Check ref
+        # Check ref
         if not isinstance(self.ref, str):
             raise TypeError(f"ref is invalid")
         if self.ref not in ('none', 'full', 'no_const'):
@@ -156,11 +156,15 @@ class Options:
                 res_opts['cutoff'] = padZ(self.cutoff, _Zs)
             if self.get('nknots') is None:
                 res_opts['dknots'] = padZ(self.dknots, _Zs)
-                res_opts['xknots'] = {Z: np.arange(res_opts['cutoff'][Z][0], res_opts['cutoff'][Z][-1], res_opts['dknots'][Z])
+                res_opts['xknots'] = {Z: np.arange(res_opts['cutoff'][Z][0],
+                                                   res_opts['cutoff'][Z][-1],
+                                                   res_opts['dknots'][Z])
                                       for Z in _Zs}
             else:
                 res_opts['nknots'] = padZ(self.nknots, _Zs)
-                res_opts['xknots'] = {Z: np.linspace(res_opts['cutoff'][Z][0], res_opts['cutoff'][Z][-1], res_opts['nknots'][Z])
+                res_opts['xknots'] = {Z: np.linspace(res_opts['cutoff'][Z][0],
+                                                     res_opts['cutoff'][Z][-1],
+                                                     res_opts['nknots'][Z])
                                       for Z in _Zs}
         else:
             res_opts['xknots'] = padZ(self.xknots, _Zs)
@@ -175,7 +179,7 @@ class Options:
         res_opts.update({opt: self[opt] for opt in ('constr', 'solver', 'maxder')})
         # Copy Zs and determine atypes
         res_opts['Zs'] = _Zs
-        res_opts['atypes'] = Z2A(res_opts) #FH POT. BUG: instead of res_opts, shouldn't you be passing in _Zs?
+        res_opts['atypes'] = Z2A(res_opts)
 
         return Options(res_opts)
 

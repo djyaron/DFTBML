@@ -225,7 +225,7 @@ def read_detailed_out(file_path: str) -> dict:
                 #Only care about Ha values
                 try:
                     curr_line = line.split()
-                    print(curr_line)
+                    # print(curr_line)
                     H_index = curr_line.index('h')
                     val_ind = H_index - 1
                     result_dict[name_mapping[start]] = float(curr_line[val_ind])

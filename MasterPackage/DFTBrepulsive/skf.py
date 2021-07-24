@@ -2,63 +2,72 @@ from __future__ import annotations
 
 import os
 import re
-from typing import ItemsView, KeysView, ValuesView, Iterable
+from typing import ItemsView, KeysView, ValuesView, Iterable, Tuple, Union, Dict
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from numpy.polynomial import Polynomial
-from scipy.interpolate import PPoly, interp1d
+from scipy.interpolate import PPoly, interp1d, CubicSpline
 
-from .consts import ANGSTROM2BOHR, ATOM2SYM, HARTREE, SYM2ATOM
+from .consts import ANGSTROM2BOHR, ATOM2SYM, SYM2ATOM
 from .util import formatZ, path_check, Z2A
 
-# WARNING: ANGSTROM2BOHR
+SKF_BLOCKS = {'header': ('comment', 'gridDist', 'nGridPoints', 'atomic_info', 'poly_info'),
+              'HS': ('H', 'S'),
+              'spline': ('nInt', 'cutoff', 'exp_coef', 'cub_coef', 'fif_coef'),
+              'doc': ('doc',)}
+
 
 class SKF:
     def __init__(self, skf_data: dict):
+        r"""Handler of single Slater-Koster file
+
+        Args:
+            skf_data: dict
+                SKF data dictionary, whose keys are the following class attributes
+
+        Notes:
+            Length unit: Bohr
+            Energy unit: Hartree
+        """
+        # Basic information
         self.homo = None
         self.extend = None
         self.Z = None
-        self.H_entries = None
-        self.S_entries = None
-        self.atomic_entries = None
-        self.poly_entries = None
-        self.exp_entries = None
-        self.cub_entries = None
-        self.fif_entries = None
+        # Header block
         self.comment = None
         self.gridDist = None
         self.nGridPoints = None
-        self.intGrid = None
         self.atomic_info = None
         self.poly_info = None
+        # Hamiltonian (H) and overlap integral (S) block
         self.H = None
         self.S = None
+        # Spline block
         self.nInt = None
         self.cutoff = None
-        self.splGrid = None
         self.exp_coef = None
         self.cub_coef = None
         self.fif_coef = None
+        # Documentation (doc) block
         self.doc = None
+        # Update class attributes with given SKF data
         self.__dict__.update(skf_data)
 
-    def __getitem__(self, item):
-        return self.__dict__[item]
-
-    def __setitem__(self, key, value):
-        self.__dict__.update({key, value})
-
-    def __delitem__(self, key):
-        del self.__dict__[key]
-
-    def __call__(self, entry: str, grid: np.ndarray = None) -> dict:
-        r"""Look up SKF data or evaluate H, S and R on a grid
+    def __getitem__(self, entry: str):
+        r"""Look up SKF data
 
         Args:
             entry: str
-                Acceptable entries:
+                Supported entries:
+                    SKF major blocks
+                        'header'
+                        'HS'
+                        'spline'
+                        'doc'
+                    Dense grids defined in the SKF
+                        'intGrid'
+                        'splGrid'
                     Atomic information
                         'E': On-site energies for angular momenta
                         'E?': E for a specific angular momentum, e.g. 'Es'
@@ -67,6 +76,72 @@ class SKF:
                         'U?': U for a specific angular momentum, e.g. 'Up'
                         'f': Occupations for angular momenta
                         'f?': Occupation for a specific angular momentum, e.g. 'fd'
+                        'mass': atomic mass
+                    Other entries
+                        'homo':
+                        'extend':
+                        'Z':
+                        'comment':
+                        'gridDist':
+                        'nGridPoints':
+                        'atomic_info':
+                        'poly_info':
+                        'H':
+                        'S':
+                        'nInt':
+                        'cutoff':
+                        'exp_coef':
+                        'cub_coef':
+                        'fif_coef':
+
+        Raises:
+            KeyError
+        """
+        # SKF major blocks (header, HS, spline and doc)
+        if entry in SKF_BLOCKS.keys():
+            return {e: self.__dict__[e] for e in SKF_BLOCKS[entry]}
+        # Dense grids defined in the SKF
+        elif entry == 'intGrid':
+            return {entry: self.intGrid()}
+        elif entry == 'splGrid':
+            return {entry: self.splGrid()}
+        else:
+            # Atomic information (energies, SPE, Hubbard U, orbital occupations and atomic mass)
+            try:
+                if re.match(r'^[EfU]$', entry):
+                    cols = [ent for ent in self.atomic_info.columns if re.match(r'^' + entry + r'[a-z]$', ent)]
+                    return self.atomic_info[cols]
+                elif re.match(r'^[EfU][a-z]$', entry):  # e.g. 'Es', 'fd', 'Up'
+                    return self.atomic_info[entry].value
+                elif entry == 'SPE':
+                    return self.atomic_info[entry].value
+                else:
+                    pass
+            except (AttributeError, TypeError):
+                raise KeyError(entry)
+            if entry == 'mass':
+                return self.poly_info[entry].value
+        return self.__dict__[entry]
+
+    def __setitem__(self, entry: str, value):
+        if entry in SKF_BLOCKS.keys():
+            self.__dict__.update(value)
+        else:
+            self.__dict__.update({entry: value})
+
+    def __delitem__(self, entry: str):
+        if entry in SKF_BLOCKS.keys():
+            for e in SKF_BLOCKS[entry]:
+                del self.__dict__[e]
+        else:
+            del self.__dict__[entry]
+
+    def __call__(self, entry: str, grid: np.ndarray = None) -> dict:
+        r"""Look up or evaluate H, S and R on a grid
+
+        Args:
+            entry: str
+                Supported entries:
                     Integral tables
                         NOTE: Interpolate using cubic spline if a grid is given
                         'H': Hamiltonian matrix elements
@@ -76,12 +151,6 @@ class SKF:
                     Repulsive potential
                         NOTE: Evaluate on a given grid (must be specified)
                         'R': Repulsive potential
-                    Other information:
-                        'comment': First-line comment in the original SKF
-                        'gridDist': Distance between the grid points of the integral table
-                        'nGridPoints': Number of points in the integral table
-                        'nInt': Number of (subsequent) intervals described by splines
-                        'cutoff': Cutoff of repulsive spline
 
             grid: np.ndarray
                 Evaluate repulsive potential on a grid
@@ -89,34 +158,26 @@ class SKF:
         Returns:
             res: dict
 
+        Raises:
+            ValueError: when requesting 'R' without specifying a dense grid
         """
         res = {}
-        # Atomic information
-        if re.match(r'^[EfU]$', entry):
-            cols = [ent for ent in self.atomic_entries if re.match(r'^' + entry + r'[a-z]$', ent)]
-            res.update({entry: self.atomic_info[cols]})
-        elif re.match(r'^[EfU][a-z]$', entry):  # e.g. 'Es', 'fd', 'Up'
-            res.update({entry: self.atomic_info[entry]})
-        elif re.match(r'^SPE$', entry):
-            res.update({entry: self.atomic_info[entry]})
-        elif re.match(r'^mass$', entry):
-            res.update({entry: self.poly_info[entry]})
         # Integral tables
-        elif re.match(r'^[HS]$', entry):
+        if re.match(r'^[HS]$', entry):
             if grid is None:
                 res.update({entry: self[entry]})
             else:
                 interpRes = {}
                 # Out-of-range grid points
-                int_start = self.intGrid[0]
-                int_end = self.intGrid[-1]
+                int_start = self.intGrid()[0]
+                int_end = self.intGrid()[-1]
                 interpGrid = grid[(int_start <= grid) & (grid <= int_end)]
                 underGrid = grid[grid < int_start]
                 overGrid = grid[grid > int_end]
                 underVal = np.empty_like(underGrid) * np.nan
                 overVal = np.empty_like(overGrid) * np.nan
                 for ent, val in self[entry].items():
-                    interpFunc = interp1d(x=self.intGrid, y=val, kind='cubic')
+                    interpFunc = interp1d(x=self.intGrid(), y=val, kind='cubic')
                     interpVal = np.concatenate([underVal, interpFunc(interpGrid), overVal])
                     interpRes.update({ent: interpVal})
                 res.update({entry: pd.DataFrame(interpRes)})
@@ -125,14 +186,14 @@ class SKF:
                 res.update({entry: self[entry[0]][entry]})  # e.g. 'Hpd1' -> self['H']['Hpd1']
             else:
                 # Out-of-range grid points
-                int_start = self.intGrid[0]
-                int_end = self.intGrid[-1]
+                int_start = self.intGrid()[0]
+                int_end = self.intGrid()[-1]
                 interpGrid = grid[(int_start <= grid) & (grid <= int_end)]
                 underGrid = grid[grid < int_start]
                 overGrid = grid[grid > int_end]
                 underVal = np.empty_like(underGrid) * np.nan
                 overVal = np.empty_like(overGrid) * np.nan
-                interpFunc = interp1d(x=self.intGrid, y=self[entry[0]][entry], kind='cubic')
+                interpFunc = interp1d(x=self.intGrid(), y=self[entry[0]][entry], kind='cubic')
                 interpVal = np.concatenate([underVal, interpFunc(interpGrid), overVal])
                 res.update({entry: interpVal})
         # Repulsive potentials
@@ -140,7 +201,7 @@ class SKF:
             if grid is None:
                 raise ValueError("Grid must be specified to evaluate repulsive potentials")
             # Use polynomial repulsive potential when spline is not defined
-            if self['splGrid'] is None:
+            if self.splGrid() is None:
                 # NOTE: In SKF:
                 #           rep = sum(c[i] (rcut - r)**i) for i in range(2, 10)
                 #       In numpy.polynomial.Polynomial:
@@ -160,8 +221,7 @@ class SKF:
                 a1 = self.exp_coef['a1'][0]
                 a2 = self.exp_coef['a2'][0]
                 a3 = self.exp_coef['a3'][0]
-                expFunc = lambda x: np.exp(-a1 * x + a2) + a3
-                expVal = expFunc(expGrid)
+                expVal = np.exp(-a1 * expGrid + a2) + a3
 
                 # Evaluate cubic spline
                 # x is the vector of breaking points (knots)
@@ -200,43 +260,56 @@ class SKF:
                 # Concatenate
                 res.update({entry: np.concatenate([underVal, expVal, cubVal, fifVal, overVal])})
 
-        # Others
-        else:
-            res.update({entry: self[entry]})
-
         return res
+
+    def intGrid(self):
+        return self.gridDist * np.arange(1, self.nGridPoints + 1)
+
+    def splGrid(self) -> Union[np.ndarray, None]:
+        for value in self['spline'].values():
+            if value is None:
+                return None
+        return np.array([*self.cub_coef['start'], self.fif_coef['end'].iloc[-1]])
 
     def range(self, entry: str) -> tuple:
         r"""Look up the range of a given entry
 
         Args:
             entry: str
+                Supported entries:
+                    'H'
+                    'H???'
+                    'S'
+                    'S???'
+                    'HS'
+                    'R'
+                    'exp...': case insensitive. E.g. 'exp', 'Exp', 'Exponential', etc.
+                    'cub...': case insensitive. E.g. 'cub', 'Cub', 'Cubic', etc.
+                    'fif...': case insensitive. E.g. 'fif', 'Fif', 'Fifth', etc.
+
 
         Returns:
             tuple
         """
-        if re.match(r'^[HS]$', entry) or re.match(r'^[HS][a-z]{2}\d$', entry):
-            return self.intGrid[0], self.intGrid[-1]
+        if entry in ('H', 'S', 'HS') or re.match(r'^[HS][a-z]{2}\d$', entry):
+            return self.intGrid()[0], self.intGrid()[-1]
         elif re.match(r'^R$', entry):
-            if self['splGrid'] is None:
+            if self.splGrid() is None:
                 return 0.0, self.poly_info['rcut'][0]
             else:
                 return 0.0, self.cutoff
-        elif re.match(r'(?i)^exp', entry):
-            if self['splGrid'] is None:
-                raise ValueError("Spline is not defined")
-            else:
-                return 0.0, self.cub_coef['start'][0]
-        elif re.match(r'(?i)^cub', entry):
-            if self['splGrid'] is None:
-                raise ValueError("Spline is not defined")
-            else:
-                return self.cub_coef['start'][0], self.fif_coef['start'][0]
-        elif re.match(r'(?i)^fif', entry):
-            if self['splGrid'] is None:
-                raise ValueError("Spline is not defined")
-            else:
-                return self.fif_coef['start'][0], self.fif_coef['end'][0]
+        else:
+            try:
+                if re.match(r'(?i)^exp', entry):
+                    return 0.0, self.cub_coef['start'][0]
+                elif re.match(r'(?i)^cub', entry):
+                    return self.cub_coef['start'][0], self.fif_coef['start'][0]
+                elif re.match(r'(?i)^fif', entry):
+                    return self.fif_coef['start'][0], self.fif_coef['end'][0]
+                else:
+                    raise KeyError("Spline is not defined")
+            except TypeError:
+                raise KeyError("Spline is not defined")
 
     def to_file(self, skf_path):
         writer = _SKFWriter()
@@ -252,13 +325,23 @@ class SKF:
         return reader.read_skf(skf_path)
 
 
-# TODO: access of all the entries in all skfs
 class SKFSet:
     def __init__(self, skfs: dict):
+        r"""SKF set handler with dictionary-like interface
+
+        Args:
+            skfs:
+        """
         self.skfs = skfs
 
-    def __getitem__(self, Z):
+    def __getitem__(self, Z: tuple) -> SKF:
         return self.skfs[Z]
+
+    def __setitem__(self, Z: tuple, skf: SKF):
+        self.skfs[Z] = skf
+
+    def __delitem__(self, Z: tuple):
+        del self.skfs[Z]
 
     def items(self) -> ItemsView:
         return self.skfs.items()
@@ -268,6 +351,24 @@ class SKFSet:
 
     def values(self) -> ValuesView[SKF]:
         return self.skfs.values()
+
+    def update(self, item: Dict[tuple, Union[SKF, dict]]):
+        r"""Update the SKFs in SKFSet
+
+        Args:
+            item: Dict[tuple, Union[SKF, dict]]
+                Keys are tuple of atom pairs (Z); values can be SKFs or
+                major SKF blocks (header, HS, spline and doc). In the
+                second case, the content in the SKFs will be updated by
+                the specified SKF blocks
+
+        """
+        for Z, content in item.items():
+            if isinstance(content, SKF):
+                self.skfs[Z] = content
+            else:
+                for entry, block in content.items():
+                    self.skfs[Z][entry] = block
 
     def atypes(self) -> tuple:
         return Z2A(self.Zs())
@@ -297,7 +398,28 @@ class SKFSet:
         return {Z: self[Z].range(entry) for Z in self.Zs(ordered)}
 
     @classmethod
-    def from_dir(cls, skfdir_path: str) -> SKFSet:
+    def from_data(cls, skfset_data: dict) -> SKFSet:
+        r"""Create a SKFSet using SKF data
+
+        Args:
+            skfset_data: dict
+
+        Returns: SKFSet
+        """
+        skfs = {Z: SKF.from_data(skf_data) for Z, skf_data in skfset_data.items()}
+        skfset = SKFSet(skfs)
+        return skfset
+
+    @classmethod
+    def from_dir(cls, skfdir_path: str, exclude_atypes: tuple = ()) -> SKFSet:
+        r"""Load a SKF set from directory
+
+        Args:
+            skfdir_path: str
+            exclude_atypes: tuple
+
+        Returns: SKFSet
+        """
         skfs = {}
         for dirpath, dirnames, filenames in os.walk(skfdir_path):
             for filename in filenames:
@@ -305,54 +427,183 @@ class SKFSet:
                     continue
                 skf_path = os.path.join(dirpath, filename)
                 skf = SKF.from_file(skf_path)
+                Z = skf.Z
+                try:
+                    for atype in Z:
+                        assert atype not in exclude_atypes
+                except AssertionError:
+                    continue
                 skfs[skf.Z] = skf
         skfset = SKFSet(skfs)
         return skfset
 
-    def to_dir(self, skfdir_path: str):
+    def to_file(self, skfdir_path: str):
         path_check(skfdir_path)
-        for skf in self.skfs:
+        for skf in self.skfs.values():
             filename = f"{ATOM2SYM[skf.Z[0]]}-{ATOM2SYM[skf.Z[1]]}.skf"
             skf_path = os.path.join(skfdir_path, filename)
             skf.to_file(skf_path)
 
 
-# SKF blocks from values
-# TODO: implementation
-class _SKFConstructor:
+class SKFBlockCreator:
     def __init__(self):
-        raise NotImplementedError
+        r"""Create SKF blocks from values"""
+        pass
 
     @staticmethod
-    def _construct_HS_block(model):
-        raise NotImplementedError
-
-    @staticmethod
-    def _construct_spline_block(spl_xydata: np.ndarray) -> dict:
-        r"""Construct a spline block from xydata
+    def create_header_HS_block(Z: tuple, header_HS_data: dict) -> dict:
+        r"""Create the header block and the HS block for a single SKF
 
         Args:
+            Z: tuple
+                Atom pair in tuple, e.g. (1, 6) for hydrogen-oxygen SKF
+            header_HS_data: dict
+                A dictionary of SKF data required for the header block and HS block
+                Structure
+                ===========================================================================
+                'comment': str
+                    The first line of a SKF in extended format, starting with '@'
+                    Will be set to '@\n' if not specified
+                'gridDist': float
+                    The distance between the grid points of the integral table
+                'atomic_info': dict
+                    Energies, SPE, Hubbard U and occupations in the ground state of an atom
+                    Required by homonuclear SKF and is omitted otherwise
+                    The keys in the dictionary should be
+                    --------------------------------------------------------
+                    Simple format:      Ed Ep Es SPE    Ud Up Us    fd fp fs
+                    Extended format: Ef Ed Ep Es SPE Uf Ud Up Us ff fd fp fs
+                    --------------------------------------------------------
+                'mass': float
+                    Atomic mass in atomic mass units
+                    Required by homonuclear SKF and is set to zero otherwise
+                'poly_coef': np.ndarray, shape = (8,)
+                    Polynomial coefficients in an array of length 8
+                    Required when splines are not defined and is set to zeros otherwise
+                'rcut': float
+                    Polynomial cutoff
+                    Required when splines are not defined and is set to zero otherwise
+                'HS': dict
+                    Hamiltonian and overlap integral matrix elements.
+                    Each value of the dictionary is an 1-D np.ndarray of matrix elements
+                    The keys of the dictionary will be
+                    ------------------------------------------------------------------
+                    Simple format:   Hdd0 Hdd1 Hdd2 Hpd0 Hpd1 Hpp0 Hpp1 Hsd0 Hsp0 Hss0
+                                     Sdd0 Sdd1 Sdd2 Spd0 Spd1 Spp0 Spp1 Ssd0 Ssp0 Sss0
+                    Extended format: Hff0 Hff1 Hff2 Hff3 Hdf0 Hdf1 Hdf2 Hdd0 Hdd1 Hdd2
+                                     Hpf0 Hpf1 Hpd0 Hpd1 Hpp0 Hpp1 Hsf0 Hsd0 Hsp0 Hss0
+                                     Sff0 Sff1 Sff2 Sff3 Sdf0 Sdf1 Sdf2 Sdd0 Sdd1 Sdd2
+                                     Spf0 Spf1 Spd0 Spd1 Spp0 Spp1 Ssf0 Ssd0 Ssp0 Sss0
+                    ------------------------------------------------------------------
+                ===========================================================================
+        Returns:
+            header_HS: dict
+                Packed header and HS block. Pass to SKF.__setitem__ to create an SKF
+                Structure:
+                    {'header': dict
+                     'HS': dict
+                     'homo': bool
+                     'extend': bool
+                     'Z': tuple}
+        """
+        data = header_HS_data
+        homo = Z[0] == Z[1]
+        extend = len(data['HS'].keys()) == 40
+
+        # Assemble the header block
+        comment = data.get('comment', '@\n') if extend else None
+        gridDist = data['gridDist']
+        nGridPoints = len(data['HS']['Hdd0'])
+        atomic_info = pd.DataFrame(data['atomic_info'], index=['value']) if homo else None
+        poly_entries = ('mass', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'rcut',
+                        'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10')
+        poly_data = np.concatenate([data['mass'] if homo else np.array([0.0]),
+                                    data.get('poly_coef', np.zeros(8, dtype=np.float64)),
+                                    data.get('rcut', 0.0),
+                                    np.zeros(10)])
+        poly_info = pd.DataFrame(dict(zip(poly_entries, poly_data)), index=['value'])
+        header = {'comment': comment,
+                  'gridDist': gridDist,
+                  'nGridPoints': nGridPoints,
+                  'atomic_info': atomic_info,
+                  'poly_info': poly_info}
+
+        # Assemble the HS block
+        if extend:
+            H_entries = ('Hff0', 'Hff1', 'Hff2', 'Hff3', 'Hdf0', 'Hdf1', 'Hdf2', 'Hdd0', 'Hdd1', 'Hdd2',
+                         'Hpf0', 'Hpf1', 'Hpd0', 'Hpd1', 'Hpp0', 'Hpp1', 'Hsf0', 'Hsd0', 'Hsp0', 'Hss0')
+            S_entries = ('Sff0', 'Sff1', 'Sff2', 'Sff3', 'Sdf0', 'Sdf1', 'Sdf2', 'Sdd0', 'Sdd1', 'Sdd2',
+                         'Spf0', 'Spf1', 'Spd0', 'Spd1', 'Spp0', 'Spp1', 'Ssf0', 'Ssd0', 'Ssp0', 'Sss0')
+        else:
+            H_entries = ('Hdd0', 'Hdd1', 'Hdd2', 'Hpd0', 'Hpd1', 'Hpp0', 'Hpp1', 'Hsd0', 'Hsp0', 'Hss0')
+            S_entries = ('Sdd0', 'Sdd1', 'Sdd2', 'Spd0', 'Spd1', 'Spp0', 'Spp1', 'Ssd0', 'Ssp0', 'Sss0')
+        H = pd.DataFrame({entry: data['HS'][entry] for entry in H_entries})
+        S = pd.DataFrame({entry: data['HS'][entry] for entry in S_entries})
+        HS = {'H': H,
+              'S': S}
+
+        # Assemble the output
+        header_HS = {'header': header,
+                     'HS': HS,
+                     'homo': homo,
+                     'extend': extend,
+                     'Z': Z}
+        return header_HS
+
+    @staticmethod
+    def create_spline_block(exp_coef: np.ndarray, spl_xydata: np.ndarray) -> dict:
+        r"""Create a spline block from xydata
+
+        Args:
+            exp_coef: np.ndarray
+                Coefficients of short-range exponential potential
             spl_xydata: np.ndarray
                 n_grid x 2 matrix, of which the 1st and 2nd column is
-                the grid points and the spline values evaluated on the grid,
-                respectively
+                the grid points (unit: Angstroms)
+                and the spline potential (unit: Hartrees) evaluated on the grid
 
         Returns:
             spline : dict
         """
-        spl_grid = spl_xydata[:, 0]
-        spl_vals = spl_xydata[:, 1]
+
+        splGrid = spl_xydata[:, 0] * ANGSTROM2BOHR
+        spl_val = spl_xydata[:, 1]
+        nInt = len(spl_xydata) - 1
+        cutoff = splGrid[-1]
+
+        # Create _exp_coef DataFrame
+        exp_entries = ('a1', 'a2', 'a3')
+        _exp_coef = pd.DataFrame(dict(zip(exp_entries, exp_coef)), index=['value'])
+
+        # Fit xydata to cubic spline and format the results
+        spl_coef = CubicSpline(splGrid, spl_val).c
+        spl_coef = spl_coef[::-1].T
+        spl_ints = np.array([splGrid[:-1], splGrid[1:]]).T
+        _cub_fif_coef = np.concatenate([spl_ints, spl_coef], axis=1)
+
+        # Create _cub_coef DataFrame
+        cub_entries = ('start', 'end', 'c0', 'c1', 'c2', 'c3')
+        _cub_coef = pd.DataFrame(_cub_fif_coef[:-1], columns=cub_entries)
+
+        # Create _fif_coef DataFrame
+        fif_entries = ('start', 'end', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5')
+        # Zero-pad cubic spline coefficients to 5-th order
+        _fif_coef = [*_cub_fif_coef[-1], 0, 0]
+        _fif_coef = pd.DataFrame(dict(zip(fif_entries, _fif_coef)), index=['value'])
 
         spline = {'nInt': nInt,
                   'cutoff': cutoff,
-                  'splGrid': splGrid,
-                  'exp_coef': exp_coef,
-                  'cub_coef': cub_coef,
-                  'fif_coef': fif_coef}
+                  'exp_coef': _exp_coef,
+                  'cub_coef': _cub_coef,
+                  'fif_coef': _fif_coef}
+
         return spline
 
+    @staticmethod
+    def create_doc_block(doc: list) -> list:
+        return doc
 
-# SKF data from file
+
 class _SKFReader:
     def read_skf(self, skf_path: str) -> SKF:
         r"""Create SKF from file
@@ -418,11 +669,12 @@ class _SKFReader:
         # Split SKF into blocks (header, integral table / HS, spline, documentation / doc
         blocks = self._split_blocks(skf_path)
         # Parse each block
-        header = self._parse_header(blocks, basic_info)
+        header, HS = self._parse_header_HS(blocks, basic_info)
         spline = self._parse_spline(blocks, basic_info)
         doc = self._parse_doc(blocks)
         # Create SKF object
-        res = SKF({**basic_info, **header, **spline, **doc})
+        res = SKF({**{entry: basic_info[entry] for entry in ('Z', 'homo', 'extend')},
+                   **header, **HS, **spline, **doc})
         return res
 
     @staticmethod
@@ -442,14 +694,14 @@ class _SKFReader:
         # Check if the SKF is in extended format (line 1)
         extend = open(skf_path, 'r').readline().startswith('@')
         # Determine available H and S entries
-        H_entries = ('Hff0', 'Hff1', 'Hff2', 'Hff3', 'Hdf0', 'Hdf1', 'Hdf2', 'Hdd0', 'Hdd1', 'Hdd2',
-                     'Hpf0', 'Hpf1', 'Hpd0', 'Hpd1', 'Hpp0', 'Hpp1', 'Hsf0', 'Hsd0', 'Hsp0', 'Hss0') \
-            if extend else \
-            ('Hdd0', 'Hdd1', 'Hdd2', 'Hpd0', 'Hpd1', 'Hpp0', 'Hpp1', 'Hsd0', 'Hsp0', 'Hss0')
-        S_entries = ('Sff0', 'Sff1', 'Sff2', 'Sff3', 'Sdf0', 'Sdf1', 'Sdf2', 'Sdd0', 'Sdd1', 'Sdd2',
-                     'Spf0', 'Spf1', 'Spd0', 'Spd1', 'Spp0', 'Spp1', 'Ssf0', 'Ssd0', 'Ssp0', 'Sss0') \
-            if extend else \
-            ('Sdd0', 'Sdd1', 'Sdd2', 'Spd0', 'Spd1', 'Spp0', 'Spp1', 'Ssd0', 'Ssp0', 'Sss0')
+        if extend:
+            H_entries = ('Hff0', 'Hff1', 'Hff2', 'Hff3', 'Hdf0', 'Hdf1', 'Hdf2', 'Hdd0', 'Hdd1', 'Hdd2',
+                         'Hpf0', 'Hpf1', 'Hpd0', 'Hpd1', 'Hpp0', 'Hpp1', 'Hsf0', 'Hsd0', 'Hsp0', 'Hss0')
+            S_entries = ('Sff0', 'Sff1', 'Sff2', 'Sff3', 'Sdf0', 'Sdf1', 'Sdf2', 'Sdd0', 'Sdd1', 'Sdd2',
+                         'Spf0', 'Spf1', 'Spd0', 'Spd1', 'Spp0', 'Spp1', 'Ssf0', 'Ssd0', 'Ssp0', 'Sss0')
+        else:
+            H_entries = ('Hdd0', 'Hdd1', 'Hdd2', 'Hpd0', 'Hpd1', 'Hpp0', 'Hpp1', 'Hsd0', 'Hsp0', 'Hss0')
+            S_entries = ('Sdd0', 'Sdd1', 'Sdd2', 'Spd0', 'Spd1', 'Spp0', 'Spp1', 'Ssd0', 'Ssp0', 'Sss0')
         # Determine atomic information entries (line 2)
         atomic_entries = None
         if homo:
@@ -495,7 +747,7 @@ class _SKFReader:
         # Determine the range of each block
         file_start = 0
         file_end = len(skf_raw)
-        ## Range of documentation block
+        # Range of documentation block
         doc_start = None
         doc_end = None
         p_doc = re.compile(r'<Documentation>')
@@ -505,7 +757,7 @@ class _SKFReader:
                 doc_end = file_end + 1
                 break
         doc_block = None if doc_start is None else skf_raw[doc_start:doc_end]
-        ## Range of spline block
+        # Range of spline block
         spline_start = None
         spline_end = None
         p_spline = re.compile(r'(?i)\bspline\b')
@@ -515,7 +767,7 @@ class _SKFReader:
                 spline_end = doc_start
                 break
         spline_block = None if spline_start is None else skf_raw[spline_start: spline_end]
-        ## Range of header block
+        # Range of header block
         header_start = file_start
         header_end = spline_start
         header_block = skf_raw[header_start:header_end]
@@ -526,8 +778,8 @@ class _SKFReader:
                   'doc_block': doc_block}
         return blocks
 
-    def _parse_header(self, blocks: dict, basic_info: dict) -> dict:
-        r"""Parse header block of SKF
+    def _parse_header_HS(self, blocks: dict, basic_info: dict) -> Tuple[dict, dict]:
+        r"""Parse the header and HS block of SKF
 
         Args:
             blocks: dict
@@ -546,45 +798,47 @@ class _SKFReader:
         header_block = blocks.get('header_block')
 
         # Process header block sequentially
-        ## Line 0: comment starting with '@'
+        # Line 0: comment starting with '@'
         line_num = 0
         if extend:
             comment = header_block[0]
             line_num += 1
         else:
             comment = None
-        ## Line 1: gridDist, nGridPoints and nShell (optional)
+
+        # Line 1: gridDist, nGridPoints and nShell (optional)
         gridDist, nGridPoints = self._parse_line(header_block[line_num])[:2]  # discard nShell
         nGridPoints = int(nGridPoints)
-        intGrid = gridDist * np.arange(1, nGridPoints+1)
         line_num += 1
-        ## Line 2: atomic information
+
+        # Line 2: atomic information
         if homo:
             atomic_info = dict(zip(atomic_entries, self._parse_line(header_block[line_num])))
             atomic_info = pd.DataFrame(atomic_info, index=['value'])
             line_num += 1
         else:
             atomic_info = None
-        ## Line 3: atomic mass and repulsive polynomial coefficients
+
+        # Line 3: atomic mass and repulsive polynomial coefficients
         poly_info = dict(zip(poly_entries, self._parse_line(header_block[line_num])))
         poly_info = pd.DataFrame(poly_info, index=['value'])
         line_num += 1
-        ## Last nGridPoints lines: integral table of Hamiltonian and overlap matrices
-        ## NOTE: Old SKFs have multiline placeholders before the integral table.
-        ##       Slicing lines from the end gets rid of these placeholders easily.
+
+        # Last nGridPoints lines: integral table of Hamiltonian and overlap matrices
+        # NOTE: Old SKFs have multiline placeholders before the integral table.
+        #       Slicing lines from the end gets rid of these placeholders easily.
         HS_block = header_block[-nGridPoints:]
-        HS = pd.DataFrame([self._parse_line(line) for line in HS_block], columns=HS_entries)
-        H, S = HS[list(H_entries)], HS[list(S_entries)]
+        HS_val = pd.DataFrame([self._parse_line(line) for line in HS_block], columns=HS_entries)
+        H, S = HS_val[list(H_entries)], HS_val[list(S_entries)]
 
         header = {'comment': comment,
                   'gridDist': gridDist,
                   'nGridPoints': nGridPoints,
-                  'intGrid': intGrid,
                   'atomic_info': atomic_info,
-                  'poly_info': poly_info,
-                  'H': H,
-                  'S': S}
-        return header
+                  'poly_info': poly_info}
+        HS = {'H': H,
+              'S': S}
+        return header, HS
 
     def _parse_spline(self, blocks: dict, basic_info: dict) -> dict:
         r"""Parse spline block
@@ -604,30 +858,26 @@ class _SKFReader:
         if spline_block is None:
             nInt = None
             cutoff = None
-            splGrid = None
             exp_coef = None
             cub_coef = None
             fif_coef = None
         else:
             # Parse spline block sequentially
-            ## nInt and cutoff
+            # nInt and cutoff
             nInt, cutoff = self._parse_line(spline_block[1])
             nInt = int(nInt)
-            ## Exponential coefficients
+            # Exponential coefficients
             exp_coef = dict(zip(exp_entries, self._parse_line(spline_block[2])))
             exp_coef = pd.DataFrame(exp_coef, index=['value'])
-            ## Cubic spline coefficients
+            # Cubic spline coefficients
             assert len(spline_block[3:-1]) == nInt - 1, "nInt does not match the number of intervals of cubic splines"
             cub_coef = pd.DataFrame([self._parse_line(line) for line in spline_block[3:-1]], columns=cub_entries)
-            ## 5-th order spline coefficients
+            # 5-th order spline coefficients
             fif_coef = dict(zip(fif_entries, self._parse_line(spline_block[-1])))
             fif_coef = pd.DataFrame(fif_coef, index=['value'])
-            ## Spline grid
-            splGrid = np.array([*cub_coef['start'], fif_coef['end'].iloc[-1]])
 
         spline = {'nInt': nInt,
                   'cutoff': cutoff,
-                  'splGrid': splGrid,
                   'exp_coef': exp_coef,
                   'cub_coef': cub_coef,
                   'fif_coef': fif_coef}
@@ -656,7 +906,7 @@ class _SKFReader:
         Returns:
             list
         """
-        segments = list(filter(None, re.split('\s|,', line)))  # split by space and comma
+        segments = list(filter(None, re.split(r'\s|,', line)))  # split by space and comma
         res = []
         for segment in segments:
             if '*' in segment:  # e.g. '9*0.0'
@@ -667,70 +917,126 @@ class _SKFReader:
         return res
 
 
-# SKF data to file
 class _SKFWriter:
     def __init__(self):
-        self.skf_text = None
+        r"""Write SKF objects to file"""
+        self.header = None
+        self.HS = None
+        self.spline = None
+        self.doc = None
 
-    def write_skf(self, skf: SKF, skf_path: str):
-        header = self._construct_header(skf)
-        spline = self._construct_spline(skf)
-        doc = self._construct_doc(skf)
-        self.skf_text = {'header': header,
-                         'spline': spline,
-                         'doc': doc}
-        with open(skf_path, 'w') as file:
-            for line in [*header, *spline, *doc]:
-                if line is not None:
-                    file.write(line)
+    def write_skf(self, skf: SKF, skf_path: str) -> None:
+        r"""Write an SKF object to an Slater-Koster file in plain text
+
+        Args:
+            skf: SKF
+            skf_path: str
+
+        """
+        self.header = self._construct_header(skf)
+        self.HS = self._construct_HS(skf)
+        self.spline = self._construct_spline(skf)
+        self.doc = self._construct_doc(skf)
+        path_check(skf_path)
+        with open(skf_path, 'w') as f:
+            f.writelines([*self.header, *self.HS, *self.spline, *self.doc])
 
     def _construct_header(self, skf) -> list:
-        header = [skf.comment,
-                  self._construct_line([skf.gridDist, skf.nGridPoints]),
-                  self._construct_line(skf.atomic_info.values),
-                  self._construct_line(skf.poly_info.values)]
-        HS_vals = pd.concat([skf.H, skf.S], axis=1).values
-        HS = [self._construct_line(HS_val) for HS_val in HS_vals]
+        # Line 0: comment if the SKF is in extended format
+        header = [skf.comment] if skf.extend else []
+        # Line 1
+        header.append(self._construct_line([skf.gridDist, skf.nGridPoints]))
+        # Line 2: atomic info if the SKF is homonuclear
+        if skf.homo:
+            header.append(self._construct_line(skf.atomic_info.values.flatten()))
+        # Line 3: atomic mass, cutoff and polynomial coefficients
+        header.append(self._construct_line(skf.poly_info.values.flatten()))
         return header
 
     def _construct_HS(self, skf) -> list:
-        HS = [self._construct_line()]
+        HS_vals = pd.concat([skf.H, skf.S], axis=1).values
+        HS = [self._construct_line(HS_val, indent=4, exp=True) for HS_val in HS_vals]
+        return HS
 
-    @staticmethod
-    def _construct_spline(skf) -> list:
-        raise NotImplementedError
+    def _construct_spline(self, skf) -> list:
+        spline = ['Spline\n',
+                  self._construct_line([skf.nInt, skf.cutoff]),
+                  self._construct_line(skf.exp_coef.values.flatten()),
+                  *[self._construct_line(cub_val) for cub_val in skf.cub_coef.values],
+                  self._construct_line(skf.fif_coef.values.flatten())]
+        return spline
 
     @staticmethod
     def _construct_doc(skf) -> list:
-        raise NotImplementedError
+        doc = skf.doc
+        return doc
 
     @staticmethod
-    def _construct_line(line: Iterable, sep=" ") -> str:
-        return sep.join([str(s) for s in line]) + '\n'
+    def _construct_line(num_array: Iterable, sep='    ', indent=0, exp=False) -> str:
+        r"""Convert an array of numbers to
+
+        Args:
+            num_array: Iterable
+                Array of numbers
+            sep: str
+                Separator. 4 spaces as default
+            indent: int
+                Number of spaces starting the line
+            exp: bool
+                Format number into exponentials
+
+        Returns:
+
+        """
+        if exp:
+            # np.float64 supports at most 15 decimal digits
+            line_content = [f"{num:.15e}" for num in num_array]
+        else:
+            line_content = []
+            for number in num_array:
+                if isinstance(number, float):
+                    # np.float64 supports at most 15 decimal digits
+                    line_content.append(f"{number:.15f}")
+                else:
+                    line_content.append(f"{number}")
+        line = f"{''.join([' '] * indent)}{sep.join(line_content)}\n"
+        return line
 
 
 if __name__ == '__main__':
-    # mioHH_path = './slakos/mio-0-1/H-H.skf'
-    # auAuH_path = './slakos/auorg-1-1/Au-H.skf'
-    #
-    # mioHH = SKF.from_file(mioHH_path)
-    # auAuH = SKF.from_file(auAuH_path)
-    #
-    # mio_path = './slakos/mio-0-1/'
-    # auorg_path = './slakos/auorg-1-1/'
-    #
-    # mio = SKFSet.from_dir(mio_path)
-    # auorg = SKFSet.from_dir(auorg_path)
-    #
-    # print(mio.range('R'))
-    # print(auorg.Zs(ordered=True))
+    mio_dirpath = './slakos/mio-1-1/'
+    mioOO_path = os.path.join(mio_dirpath, 'O-O.skf')
+    mioNO_path = os.path.join(mio_dirpath, 'N-O.skf')
 
-    skfset_path = '/export/home/hanqingh/Documents/DFTBrepulsive/SKF/au_full'
-    skfset = SKFSet.from_dir(skfset_path)
-    for Z, skf in skfset.items():
-        plt.plot(skf.splGrid * ANGSTROM2BOHR, skf('Hss0', None)['R'] * HARTREE)
-        plt.ylim(-2, 15)
-        plt.title(Z)
-        plt.xlabel(r"Distance ($\mathrm{\AA}$)")
-        plt.ylabel(r"Repulsive potential (kcal/mol)")
-        plt.savefig(os.path.join(skfset_path, f"{Z}.png"))
+    mioOO = SKF.from_file(mioOO_path)
+    mioNO = SKF.from_file(mioNO_path)
+    mio = SKFSet.from_dir(mio_dirpath)
+
+    """
+    Example of creating an SKF
+    ==========================
+    Z = (..., ...)
+    header_HS_data = {'gridDist': ...,
+                      'atomic_info': {'Es': ...,
+                                      ...},
+                      'mass': ...,
+                      'HS': {'Hss0': ...,
+                             ...}}
+    exp_coef = np.array([..., ..., ...])
+    spl_xydata = np.array([...])
+    doc = [...]
+    
+    creator = SKFBlockCreator()
+    header_HS_block = creator.create_header_HS_block(Z, header_HS_data)
+    spline_block = creator.create_spline_block(exp_coef, spl_xydata)
+    doc_block = creator.create_doc_block(doc)
+    
+    skf = SKF(skf_data={})
+    skf['homo'] = header_HS_block['homo']
+    skf['extend'] = header_HS_block['extend']
+    skf['Z'] = header_HS_block['Z']
+    skf['header'] = header_HS_block['header']
+    skf['HS'] = header_HS_block['HS']
+    skf['spline'] = spline_block
+    skf['doc'] = doc_block
+    """

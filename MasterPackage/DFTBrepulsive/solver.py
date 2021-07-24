@@ -5,8 +5,8 @@ from scipy.linalg import block_diag
 from .options import Options
 from .target import Constraint
 
-
 cvxopt.solvers.options['show_progress'] = False
+
 
 class Solver:
     def __init__(self, opts: Options):
@@ -40,15 +40,15 @@ class Solver:
             q = -beta
 
             # Construct inequality constraints (G and h)
-            ## Construct derivative matrix (D) of the bases
-            ### TODO: check the expressions. Currently the solver is complaining about
-            ###       ValueError: Rank(A) < p or Rank([P; A; G]) < n
+            # Construct derivative matrix (D) of the bases
+            # TODO: check the expressions. Currently the solver is complaining about
+            #       ValueError: Rank(A) < p or Rank([P; A; G]) < n
             D = [op * deriv[der] for der, op in self.constr.items()]
             D_ref = np.zeros((len(loc['ref']), len(loc['ref'])))
             D = block_diag(*D, D_ref)
-            ## Construct transformation matrix (T) of the coefficient vector to support multiple constraints
+            # Construct transformation matrix (T) of the coefficient vector to support multiple constraints
             T = self.Tmatrix(loc, repeat_spl=len(self.constr), ignore_ref=True)
-            ## Construct G and h
+            # Construct G and h
             G = -D.dot(T)
             h = np.zeros(G.shape[0])
 

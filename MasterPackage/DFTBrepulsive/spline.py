@@ -20,7 +20,7 @@ class BSpline:
     def __call__(self, grid: np.ndarray, bases_only: bool = False) -> List[np.ndarray]:
         # return the derivatives of the splines (up to order of self.max_der)
         _spl_dict = spline_linear_model(xknots=self.xknots, xeval=grid, xyfit=None,
-                                                 bconds=self.bconds, max_der=self.maxder, deg=self.deg)
+                                        bconds=self.bconds, max_der=self.maxder, deg=self.deg)
         # bases_only: returns the derivatives of the bases
         if bases_only:
             return _spl_dict['X']
@@ -44,13 +44,13 @@ class BSpline:
         else:
             xyfit = (x, y)
         _spl_dict = spline_linear_model(xknots=self.xknots, xeval=None, xyfit=xyfit,
-                                                 bconds=self.bconds, max_der=self.maxder, deg=self.deg)
+                                        bconds=self.bconds, max_der=self.maxder, deg=self.deg)
         self.coef = _spl_dict['coefs']
         return self.coef
 
     def plot(self, grid: np.ndarray, der: int = 0) -> None:
         _spl_dict = spline_linear_model(xknots=self.xknots, xeval=grid, xyfit=None,
-                                                 bconds=self.bconds, max_der=self.maxder, deg=self.deg)
+                                        bconds=self.bconds, max_der=self.maxder, deg=self.deg)
         x = grid
         y = spline_vals(_spl_dict, ider=der, coefs=self.coef)
         plt.plot(x, y)

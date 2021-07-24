@@ -8,7 +8,7 @@
 
 # SKF parameter interface:
 import os
-from skfinfo import SkfInfo
+from deprecated.skfinfo_v0 import SkfInfo
 
 PARAMPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mio-0-1/")
 

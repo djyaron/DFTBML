@@ -11,6 +11,8 @@ from typing import Optional, Iterable
 import matplotlib as mpl
 from h5py import File
 
+from .consts import ATOM2SYM
+
 
 class Timer:
 
@@ -76,54 +78,6 @@ def path_check(file_path: str) -> None:
         os.makedirs(dir_path)  #: Recursively create the parent directories of the file
 
 
-def get_dataset_type(dataset_path: str) -> str:
-    r"""Check the dataset type (HDF5 or pickle) and the validity of the dataset
-
-    Args:
-        dataset_path: Path to the dataset
-
-    Returns:
-        dataset_type: "h5" or "pkl"
-
-    Examples:
-        >>> from util import get_dataset_type
-        >>> dataset_path_1 = "DIR/valid_dataset.h5"
-        >>> get_dataset_type(dataset_path_1)
-        'h5'
-        >>> dataset_path_2 = "DIR/corrupted_dataset.pkl"
-        >>> get_dataset_type(dataset_path_2)
-        ValueError: DIR/corrupted_dataset.pkl is not a valid pickle dataset
-
-    Raises:
-        FileNotFoundError: if the dataset does not exist
-        ValueError: if dataset cannot be opened
-        NotImplementedError: if the extension of the dataset is not one of the following
-                             '.hdf', '.h4', '.hdf4', '.he2', '.h5', '.hdf5', '.he5',
-                             '.pkl', '.pickle', '.p'
-    """
-    if not os.path.exists(dataset_path):
-        raise FileNotFoundError(f"{dataset_path} not exists")
-
-    ext = os.path.splitext(dataset_path)[-1].lower()
-    if ext in ('.hdf', '.h4', '.hdf4', '.he2', '.h5', '.hdf5', '.he5'):
-        try:
-            with File(dataset_path, 'r'):
-                dataset_type = 'h5'
-        except OSError:
-            raise ValueError(f"{dataset_path} is not a valid HDF5 dataset")
-    elif ext in ('.pkl', '.pickle', '.p'):
-        try:
-            with open(dataset_path, 'rb') as f:
-                pkl.load(f)
-                dataset_type = 'pkl'
-        except UnpicklingError:
-            raise ValueError(f"{dataset_path} is not a valid pickle dataset")
-    else:
-        raise NotImplementedError(f"{dataset_path} is not a supported dataset")
-
-    return dataset_type
-
-
 def mpl_default_setting():
     mpl.rcParams['axes.labelsize'] = 'large'
     mpl.rcParams['figure.subplot.hspace'] = 0.3
@@ -151,7 +105,32 @@ def mpl_default_setting():
     mpl.rcParams['savefig.bbox'] = 'tight'
 
 
-def formatZ(Zs: Iterable, unique: bool = True, ordered: bool = False) -> tuple:
+def expandZ(item: dict) -> dict:
+    # formatZ will make sure item.keys() are Zs
+    Zs_expanded = formatZ(item.keys(), unique=True, ordered=True, expand=True)
+    res = {}
+    for Z in Zs_expanded:
+        try:
+            res[Z] = item[Z]
+        except KeyError:
+            try:
+                res[Z] = item[tuple(reversed(Z))]
+            except KeyError:
+                res[Z] = item[tuple(sorted(Z))]
+    return res
+
+
+def padZ(item, Zs: Iterable) -> dict:
+    Zs_initial = formatZ(Zs, unique=False, ordered=True, expand=False)
+    Zs_formatted = formatZ(Zs, unique=True, ordered=True, expand=False)
+    assert Zs_initial == Zs_formatted, "Zs must be unique"
+    if isinstance(item, dict):
+        if Zs_formatted == formatZ(item.keys(), unique=True, ordered=True, expand=False):
+            return item
+    return {Z: item for Z in Zs_formatted}
+
+
+def formatZ(Zs: Iterable, unique: bool = True, ordered: bool = False, expand: bool = False) -> tuple:
     r"""Convert Zs to a sorted tuple of tuples
 
     Args:
@@ -162,10 +141,14 @@ def formatZ(Zs: Iterable, unique: bool = True, ordered: bool = False) -> tuple:
             Sort each Z tuple when set to False.
             For integral tables: set to True
             For repulsive potentials: set to False
+        expand: bool
+            Only valid when ordered is set to True
+            Add atom pairs in reversed order if they do not exist
+            E.g. Input: ((1, 1), (1, 6), (1, 7))
+                 Output: ((1, 1), (1, 6), (1, 7), (6, 1), (7, 1))
 
     Returns:
-        tuple
-
+        res: tuple
     """
     if ordered:
         _Zs = tuple(tuple(Z) for Z in Zs)
@@ -173,7 +156,20 @@ def formatZ(Zs: Iterable, unique: bool = True, ordered: bool = False) -> tuple:
         _Zs = tuple(tuple(sorted(Z)) for Z in Zs)
     if unique:
         _Zs = tuple(set(Z for Z in _Zs))
-    return tuple(sorted(Z for Z in _Zs))
+    res = tuple(sorted(Z for Z in _Zs))
+    if expand and ordered:
+        _res = list(res)
+        for Z in res:
+            if Z[0] != Z[1]:
+                _res.append((Z[1], Z[0]))
+        res = formatZ(_res, unique, ordered)
+    # Sanity check
+    for Z in res:
+        assert len(Z) == 2
+        for atom in Z:
+            assert atom in ATOM2SYM.keys()
+    return res
+
 
 def Z2A(Zs: Iterable) -> tuple:
     r"""Determine atom types from Zs"""
@@ -182,15 +178,6 @@ def Z2A(Zs: Iterable) -> tuple:
         res.update(Z)
     return tuple(sorted(res))
 
-def A2Z(atom_types: Iterable) -> tuple:
-    return formatZ(combinations(atom_types, 2), unique=True, ordered=False)
-
-def padZ(item, Zs: Iterable) -> dict:
-    _Zs = formatZ(Zs)
-    if isinstance(item, dict):
-        if _Zs == formatZ(item.keys()):
-            return item
-    return {Z: item for Z in _Zs}
 
 def Zs_from_opts(opts: dict):
     Zs = opts['model_settings']['low_end_correction_dict'].keys()

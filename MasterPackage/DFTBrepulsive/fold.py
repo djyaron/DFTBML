@@ -1,16 +1,12 @@
 from __future__ import annotations
-from collections.abc import MutableMapping
-from .consts import *
-from h5py import File
-from random import Random
-from typing import Generator, ItemsView, Iterator, List, Union, Tuple
-from .util import get_dataset_type
 
 import copy
+from collections.abc import MutableMapping
+from random import Random
+from typing import ItemsView, Iterator, List, Union
+
 import h5py
 import numpy as np
-import pandas as pd
-import pickle as pkl
 
 
 class Fold(MutableMapping):
@@ -292,142 +288,3 @@ class Fold(MutableMapping):
         for fold in folds:
             new_fold += fold
         return new_fold
-
-
-class FoldCVGenerator:
-    def __init__(self, cv: int = 5, reverse: bool = False) -> None:
-        r"""Generate a list of train and test sets for cross-validation
-
-        Args:
-            cv (int): The number of splits
-            reverse (bool): Enable reversed cross-validation, i.e.
-                larger train set than test set
-        """
-        self.reverse = reverse
-        self.cv = cv
-
-    def split(self, fold: Fold) -> Generator[Tuple[Fold, Fold]]:
-        r"""Create a generator of pairs of train and test set
-
-        Args:
-            fold (Fold): Fold object to be splitted
-
-        Returns:
-            Generator[Tuple[Fold, Fold]]
-
-        Examples:
-            >>> from fold import Fold, FoldCVGenerator
-            >>> a = Fold({'H2': np.arange(2), 'N2': np.arange(3),\
-            ...           'O2': np.arange(4), 'F2': np.arange(5),\
-            ...           'Cl2': np.arange(6)})
-            >>> gen = FoldCVGenerator(cv=3, reverse=False)
-            >>> folds_cv = gen.split(a)
-            >>> for i, (train, test) in enumerate(gen.split(a)):
-            ...     print(f"Train {i}: {train}")
-            ...     print(f"Test {i}: {test}")
-            Train 0: Fold({'O2': array([0, 1, 2, 3]), 'F2': array([0, 1, 2, 3, 4]), 'Cl2': array([0, 1, 2, 3, 4, 5])})
-            Test 0: Fold({'H2': array([0, 1]), 'N2': array([0, 1, 2])})
-            Train 1: Fold({'H2': array([0, 1]), 'N2': array([0, 1, 2]), 'Cl2': array([0, 1, 2, 3, 4, 5])})
-            Test 1: Fold({'O2': array([0, 1, 2, 3]), 'F2': array([0, 1, 2, 3, 4])})
-            Train 2: Fold({'H2': array([0, 1]), 'N2': array([0, 1, 2]), 'O2': array([0, 1, 2, 3]), 'F2': array([0, 1, 2, 3, 4])})
-            Test 2: Fold({'Cl2': array([0, 1, 2, 3, 4, 5])})
-        """
-        folds = fold.split(self.cv)
-        for i_fold, fold in enumerate(folds):
-            folds_tmp = folds.copy()
-            if self.reverse:
-                train_fold = fold
-                folds_tmp.pop(i_fold)
-                test_fold = Fold.sum(*folds_tmp)
-            else:
-                test_fold = fold
-                folds_tmp.pop(i_fold)
-                train_fold = Fold.sum(*folds_tmp)
-            yield train_fold, test_fold
-
-
-def get_folds_cv(dataset_path: str, cv: int = 5,
-                 shuffle: Tuple[Union[int, None], Union[int, None]] = (False, False),
-                 reverse: bool = False) -> List[Tuple[Fold, Fold]]:
-    r"""Generate a list of train-test Fold pairs given the path of dataset
-
-    Args:
-        dataset_path (str): Path of the dataset, either HDF5 or pickle file
-        cv (int): Number of folds in cross-validation
-        shuffle (Tuple[Union[int, None], Union[int, None]]):
-            Random states for shuffling molecular formulas and conformation indices.
-            Refer to fold.Fold.shuffle for more details.
-        reverse (bool): Enable reversed cross validation.
-            Refer to fold.FoldCVGenerator for more details.
-
-    Returns:
-        List[Tuple[Fold, Fold]]: list of pairs of train and test Fold.
-
-    Examples:
-        >>> from fold import get_folds_cv
-        >>> dataset_path = "HDF5_OR_PKL_DATASET_PATH"
-        >>> folds_cv = get_folds_cv(dataset_path, cv=5, shuffle=(0, 0), reverse=True)
-        >>> for ifold, (train_fold, test_fold) in enumerate(folds_cv):
-        ...     print(f"Train {ifold}: {train_fold}")
-        ...     print(f"Test {ifold}: {test_fold}")
-    """
-    dataset_type = get_dataset_type(dataset_path)
-    if dataset_type == 'h5':
-        with File(dataset_path, 'r') as dataset:
-            total_set = Fold.from_dataset(dataset)
-    else:
-        with open(dataset_path, 'rb') as f:
-            dataset = pkl.load(f)
-            total_set = Fold.from_dataset(dataset)
-    total_set.shuffle(*shuffle)
-    folds_cv = list(FoldCVGenerator(cv, reverse).split(total_set))
-    return folds_cv
-
-
-def flatten_by_fold(dataset: h5py.File,
-                    fold: Fold, entries: List[str]) -> pd.DataFrame:
-    r"""Create a flattened dataset with selected entries and atom counts
-
-    Args:
-        dataset (h5py.File): HDF5 dataset handle
-        fold (Fold): Selection of molecular formulas and conformations
-        entries: Selection of entries (aliases) in the ANI-like dataset
-            Refer to consts.TARGETS for available entries (aliases)
-
-    Returns:
-        pd.DataFrame: The flattened dataset
-            The flattened dataset have columns of:
-            [count of atom_type_1, count of atom_type_2, ..., values of target_type_1, values of target_type_2, ...]
-
-    Examples:
-        >>> from fold import Fold, flatten_by_fold
-        >>> dataset_path = "HDF5_DATASET_PATH"
-        >>> with File(dataset_path, 'r') as dataset:
-        ...     fold = Fold.from_dataset(dataset)  #: use the entire dataset
-        ...     entries = ["cc", "wd", "pe"]
-        ...     fset = flatten_by_fold(dataset, fold, entries)
-        >>> print(fset.columns)
-    """
-    Xis = set()  #: types of atoms
-    for mol in fold.mols():
-        Xis.update(dataset[mol]['atomic_numbers'][()])
-    Xis = sorted(Xis)
-    # Flatten given fold
-    fset = list()
-    for mol, conf_arr in fold.mol_confs():
-        atomic_numbers = list(dataset[mol]['atomic_numbers'][()])
-        moldata = list()
-        # Count the number of atoms of each atom type
-        for atom in Xis:
-            atom_count = np.ones(len(conf_arr))
-            atom_count *= atomic_numbers.count(atom)
-            atom_count = pd.Series(atom_count, name=str(atom))
-            moldata.append(atom_count)
-        # Slice the values of given entries of selected conformations
-        for ent in entries:
-            target = pd.Series(dataset[mol][ALIAS2TARGET[ent]][conf_arr], name=ALIAS2TARGET[ent])
-            moldata.append(target)
-        moldata = pd.concat(moldata, axis=1)
-        fset.append(moldata)
-    fset = pd.concat(fset, axis=0)
-    return fset

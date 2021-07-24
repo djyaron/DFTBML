@@ -10,8 +10,7 @@ from h5py import File
 
 def dftb_parse(opts):
     res_dir = opts['res_dir']
-    save_path_h5 = opts['save_path_h5']
-    save_path_pkl = opts['save_path_pkl']
+    save_path = opts['save_path']
     n_worker = opts.get('n_worker', 1)
 
     # Parse in parallel
@@ -24,11 +23,10 @@ def dftb_parse(opts):
     # Collect parsed results in a DataFrame
     res = pd.DataFrame(out.get())
     res.sort_values(by=['mol', 'i_conf'], inplace=True)
-    res.to_pickle(save_path_pkl)
 
-    # Save the DataFrame to ANI-like dataset
+    # Structure the DataFrame into ANI-like hierarchical dataset
     mols = res['mol'].unique()
-    with File(save_path_h5, 'w') as des:
+    with File(save_path, 'w') as des:
         for mol in mols:
             g = des.create_group(mol)
             moldata = res.loc[res['mol'] == mol].iloc[:, 2:]

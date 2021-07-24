@@ -226,17 +226,17 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "skf_8020_100knot_new_repulsive_eachepochupdate/Split0/saved_models.p"
-    ref_filename = "sparse_skf/ref_params.p"
-    all_batches = pass_feeds_through(mod_filename, ref_filename, True)
+    mod_filename = "skf_8020_100knot_new_repulsive_internal_graddesc/Split0/saved_models.p"
+    ref_filename = "skf_8020_100knot_new_repulsive_internal_graddesc/ref_params.p"
+    all_batches = pass_feeds_through(mod_filename, ref_filename, False)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
     
-    exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    skf_dir = os.path.join(os.getcwd(), "sparse_skf")
+    # exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+    # skf_dir = os.path.join(os.getcwd(), "sparse_skf")
     
-    add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
+    # add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
     
-    with open("sparse_skf/sparse_skf_comp.p", "wb") as handle:
-        pickle.dump(all_mols, handle)
+    # with open("sparse_skf/sparse_skf_comp.p", "wb") as handle:
+    #     pickle.dump(all_mols, handle)
     
 

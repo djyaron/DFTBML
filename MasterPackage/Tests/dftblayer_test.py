@@ -38,7 +38,7 @@ from statistics import mean
 from DFTBpy import _Gamma12
 from DFTBPlus import add_dftb
 from InputParser import parse_input_dictionaries, collapse_to_master_settings
-import Auorg_1_1, MIO_0_1
+import Auorg_1_1, MIO_0_1, TestSKF
 
 
 #%% Code behind
@@ -74,6 +74,7 @@ def get_total_energy_from_output(output: Dict, feed: Dict, molec_energies: Dict)
         for i in range(len(curr_names)):
             key = (curr_names[i], curr_iconfigs[i])
             if key in molec_energies:
+                print("Early return")
                 return
             molec_energies[key] = [curr_Etots[i].item(), output['Eelec'][bsize][i].item(), output['Erep'][bsize][i].item()]
             
@@ -118,7 +119,11 @@ def test_agreement(s, tolerance: float, skf_dir: str, exec_path: str, ani1_path:
         if s.rep_setting == 'new':
             output['Erep'] = all_models['rep'].generate_repulsive_energies(feed, 'train')
         get_total_energy_from_output(output, feed, molec_energies)
-        
+    
+    assert(len(molec_energies) == len(dataset))
+    d_name_conf = [(mol['name'], mol['iconfig']) for mol in dataset]
+    assert(list(molec_energies.keys()) == d_name_conf)
+    
     #add results from real dftb
     add_dftb(dataset, skf_dir, exec_path, par_dict, do_our_dftb = True, do_dftbplus = True, fermi_temp = None)
     
@@ -311,12 +316,45 @@ def run_layer_tests():
     ani1_path = os.path.join(os.getcwd(), "test_files", "ANI-1ccx_clean_fullentry.h5")
     skf_path_au = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
     skf_path_mio = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
+    skf_path_home = os.path.join(os.getcwd(), "TestSKF", "skf_8020_100knot_new_repulsive_eachepochupdate")
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
     
     s_obj = parse_input_dictionaries(settings_filename, defaults_filename)
     s_obj = collapse_to_master_settings(s_obj)
     par_dict_au = Auorg_1_1.ParDict()
     par_dict_mio = MIO_0_1.ParDict()
+    par_dict_home = TestSKF.ParDict()
+    
+    # print("With Home skfs...")
+    
+    # passed_G ,mean_G_total = test_G_agreement(s_obj, tol_G, skf_path_home, ani1_path, par_dict_home)
+    # passed_G_diag, mean_G_diag = test_G_diag_agreement(s_obj, tol_G, skf_path_home, ani1_path, par_dict_home)
+    # passed, vals = test_agreement(s_obj, tol_Val, skf_path_home, exec_path, ani1_path, par_dict_home)
+    # our_dftb_vs_dftbplus, dftb_layer_vs_dftbplus, dftb_layer_vs_our_dftb, dftb_layer_elec_vs_our_dftb_elec, dftb_layer_rep_vs_our_dftb_rep = vals
+    
+    # print()
+    # print()
+    # print()
+    
+    # print(f"Average disagreement between our dftb and dftb+ on total energy (kcal/mol): {our_dftb_vs_dftbplus}")
+    # print(f"Average disagreement between dftb layer and dftb+ on total energy (kcal/mol): {dftb_layer_vs_dftbplus}")
+    # print(f"Average disagreement between dftb layer and our dftb on total energy (kcal/mol): {dftb_layer_vs_our_dftb}")
+    # print(f"Average disagreement between dftb layer and our dftb on electronic energy (kcal/mol): {dftb_layer_elec_vs_our_dftb_elec}")
+    # print(f"Average disagreement between dftb layer and our dftb on repulsive energy (kcal/mol): {dftb_layer_rep_vs_our_dftb_rep}")
+    
+    # print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule: {mean_G_total}")
+    
+    # print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule ALONG THE DIAGONAL: {mean_G_diag}")
+    
+
+    # assert(passed_G)
+    # print("Passed test_G_agreement")
+    # assert(passed_G_diag)
+    # print("Passed test_G_diag_agreement")
+    # assert(passed)
+    # print("Passed test_agreement")
+    
+    # print("Passed with Home SKFS")
     
     print("With Auorg skfs...")
     

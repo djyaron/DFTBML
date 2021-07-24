@@ -1,4 +1,6 @@
 import os
+import re
+import time
 from multiprocessing import cpu_count
 
 import numpy as np
@@ -10,112 +12,144 @@ from dftb_calc import dftb_calc
 from dftb_parse import dftb_parse
 from model import RepulsiveModel
 from options import Options
-from shifter import Shifter
-from skfwriter import main as skfwriter_main
-from util import Timer, path_check
-import pickle as pkl
+from skf import SKFSet, SKFBlockCreator
+from util import Timer
 
 n_cpu = cpu_count()
 os.environ['OMP_NUM_THREADS'] = '1'  # Single thread for each calculation
+timestamp = time.time()  # use a timestamp to create unique paths and filenames
+
+
+def compare_multiple_metrics(dset, target, pred):
+    # MAE
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='mae', scale=False)
+    print(f"Training MAE: {err * HARTREE:.3f} kcal/mol")
+    # MAE per heavy atom
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='mae', scale=True)
+    print(f"Training MAE per heavy atom: {err * HARTREE:.3f} kcal/mol")
+    # RMS
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='rms', scale=False)
+    print(f"Training RMS: {err * HARTREE:.3f} kcal/mol")
+    # RMS per heavy atom
+    err = Dataset.compare(dset, target,
+                          pred, 'prediction',
+                          metric='rms', scale=True)
+    print(f"Training RMS per heavy atoms: {err * HARTREE:.3f} kcal/mol")
+
+
+def Au_judge(h5set_path):
+    r"""Is this an Au dataset?"""
+    filename = os.path.splitext(os.path.split(h5set_path)[-1])[0]
+    if re.match(r'(?i)^au', filename):
+        return True
+    elif re.match(r'(?i)^ani', filename):
+        return False
+    elif filename.startswith('a'):
+        return True
+    elif filename.startswith('c'):
+        return False
+    else:
+        raise ValueError("Dataset type not recognized")
+
 
 if __name__ == '__main__':
 
     # Model training and testing
     h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/aed_1k.h5'
+    # h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/ccf_2k.h5'
     # h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/Au_energy_clean_dispersion.h5'
+    # h5set_path = '/export/home/hanqingh/Documents/DFTBrepulsive/Datasets/ANI-1ccx_clean_fullentry.h5'
 
-    target = 'fm-pf+pr'
+    Au = Au_judge(h5set_path)
+
+    target = 'fm-pf+pr' if Au else 'cc-de'  # WARNING: targets are hardcoded in "Examine DFTB+ results" section
 
     opts = Options({'nknots': 25,
-                    'cutoff': 'au_full',
+                    'cutoff': 'au_full' if Au else 'full',
                     'deg': 3,
                     'bconds': 'vanishing',
                     'constr': '+2',
                     'solver': 'cvxopt',
                     'ref': 'full'})
 
-    dset = Dataset(File(h5set_path, 'r'))
+    with File(h5set_path, 'r') as h5set:
+        dset = Dataset(h5set)
     mod = RepulsiveModel(opts.convert(dset.Zs()))
     with Timer('RepulsiveModel training'):
         mod.fit(dset, target=target, gammas=None, shift=True, n_worker=n_cpu)
     with Timer('RepulsiveModel predicting'):
         pred = mod.predict(dset, mod.gammas, n_worker=n_cpu)
-    # MAE
-    err = Dataset.compare(dset, target,
-                          pred, 'prediction',
-                          metric='mae', scale=False)
-    print(f"Training MAE by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
-    ## Error per heavy atom
-    err = Dataset.compare(dset, target,
-                          pred, 'prediction',
-                          metric='mae', scale=True)
-    print(f"Training MAE per heavy atom by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
-    # RMS
-    err = Dataset.compare(dset, target,
-                          pred, 'prediction',
-                          metric='rms', scale=False)
-    print(f"Training RMS by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
-    ## Error per heavy atom
-    err = Dataset.compare(dset, target,
-                          pred, 'prediction',
-                          metric='rms', scale=True)
-    print(f"Training RMS per heavy atom by RepulsiveModel: {err * HARTREE:.3f} kcal/mol")
 
-    # Plot splines and save spline values to generate SKFs
-    ngrid = 500
-    res_path = f"/export/home/hanqingh/Documents/DFTBrepulsive/xydata.pkl"
-    save_dir = f"/export/home/hanqingh/Documents/DFTBrepulsive/SKF/{opts['cutoff']}/"
-    path_check(save_dir)
+    # Print errors in multiple metrics
+    compare_multiple_metrics(dset, target, pred)
 
-    grid = {Z: np.linspace(c[0], c[1], ngrid) for Z, c in CUTOFFS[opts['cutoff']].items()}
-    res = mod.plot(grid)
-    # WARNING: outdated res structure for compatibility with skfwriter
-    res = {'all_xydata': {'sparse_xydata': [[[res]]]}}
-    assert isinstance(res['all_xydata']['sparse_xydata'][0][0][0], dict)
-    pkl.dump(res, open(res_path, 'wb'))
-    skfwriter_main(res_path, save_dir)
+    # Generate SKFs
+    skf_dir = f"/export/home/hanqingh/Documents/DFTBrepulsive/SKF/SKF_{opts['cutoff']}_{timestamp}/"
+    ref_skf_root = f'./slakos/'
+    ref_skf_set = 'auorg-1-1' if Au else 'mio-1-1'
+
+    # Create spline block
+    creator = SKFBlockCreator()
+    # Generate model xydata
+    spl_ngrid = 500
+    spl_grid = {Z: np.linspace(c[0], c[1], spl_ngrid) for Z, c in CUTOFFS[opts['cutoff']].items()}
+    xydata = mod.create_xydata(spl_grid, expand=True)
+
+    # Replace the spline block in auorg-1-1 or mio-1-1 but keep the exponential coefficients
+    skfset = SKFSet.from_dir(os.path.join(ref_skf_root, ref_skf_set))
+    for Z in skfset.Zs():
+        # Remove SKFs for interactions not included in xydata
+        if Z not in xydata.keys():
+            del skfset[Z]
+            continue
+        # Incorporate splines from xydata but keep the exponential coefficients
+        exp_coef = skfset[Z].exp_coef.values.flatten()
+        spline_block = creator.create_spline_block(exp_coef, xydata[Z])
+        skfset[Z]['spline'] = spline_block
+        # Remove the documentation
+        skfset[Z]['doc'] = {'doc': []}
+    # Save SKFSet to file
+    skfset.to_file(skf_dir)
 
     # Run DFTB+ with generated SKFs and parse the output
-    calc_opts = {'n_worker': n_cpu,
-                 'FermiTemp': 0.1,  # in electronvolts (0.1 eV ~ 1100 K)
-                 'ShellResolvedSCC': True,
-                 'dftb_dir': '/export/home/hanqingh/opt/dftb+/',
+    calc_opts = {'dftb_dir': '/export/home/hanqingh/opt/dftb+/',
+                 'skf_dir': skf_dir,
+                 'save_dir': f'/scratch/dftb+_res_{timestamp}/',
                  'dataset_path': h5set_path,
 
-                 # 'save_dir': '/scratch/dftb+_res/',
-                 'save_dir': '/scratch/dftb+_res_1K/',
+                 'FermiTemp': 0.1,  # in electronvolts (0.1 eV ~ 1100 K)
+                 'ShellResolvedSCC': True,
 
-                 'skf_dir': '/export/home/hanqingh/opt/dftb+/slakos/auorg-1-1/',
-                 # 'skf_dir': '/export/home/hanqingh/Documents/DFTBrepulsive/SKF/a1k/',
-                 }
-    parse_opts = {'n_worker': n_cpu,
-                  'res_dir': calc_opts['save_dir'],
-                  'save_path_h5': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_auorg.h5',
-                  # 'save_path_h5': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_+2.h5',
-                  'save_path_pkl': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_auorg.pkl',
-                  # 'save_path_h5': '/export/home/hanqingh/Documents/DFTBrepulsive/a1k_+2.pkl',
-                  }
+                 'n_worker': n_cpu}
+
+    parse_opts = {'res_dir': calc_opts['save_dir'],
+                  'save_path': f'/export/home/hanqingh/Documents/DFTBrepulsive/dftb+_res_{timestamp}.h5',
+
+                  'n_worker': n_cpu}
 
     with Timer("DFTB+ calculation"):
         dftb_calc(calc_opts)
     with Timer("DFTB+ parsing"):
         res = dftb_parse(parse_opts)
 
-    # Examine DFTB+ output
-    rset = Dataset(File(parse_opts['save_path_h5'], 'r'), conf_entry='dftb_plus.rep_energy', fixed_entry=())
-    tset = dset.extract('coordinates', entries=('atomic_numbers',))
-    rset = Dataset.merge(rset, tset)
+    # Examine DFTB+ results
+    # Load DFTB+ result dataset and integrate with corresponding atomic numbers and coordinates
+    with File(parse_opts['save_path'], 'r') as res_h5set:
+        rset = Dataset(res_h5set, conf_entry='dftb_plus.rep_energy', fixed_entry=())
+    rset = Dataset.merge(rset, dset.extract('coordinates', entries=('atomic_numbers',)))
     rset.conf_entry = 'coordinates'
     rset.fixed_entry = ('atomic_numbers',)
+    # Shift the result dataset with (linear) shifters trained to reference energies
+    rset = mod.ref_shift(rset, 'pf' if Au else 'pe+pr', mode='+')
 
-    _dset = mod.shifter.shift(dset, 'fm')
-    # WARNING: Hard-coded ref location (const may not exist)
-    ref_shifter = Shifter()
-    ref_shifter.shifter.coef_ = mod.coef[mod.loc['ref']][1:]
-    ref_shifter.shifter.intercept_ = mod.coef[mod.loc['const']]
-    ref_shifter.atypes = mod.atypes
-    _dset = ref_shifter.shift(_dset, 'fm')
-    mae = Dataset.compare(_dset, 'fm',
-                          rset, 'pf',
+    # Compared the shifted result dataset with the target
+    mae = Dataset.compare(dset, 'fm' if Au else 'cc',
+                          rset, 'pf' if Au else 'pe+pr',
                           metric='mae')
-    print(f"Training error by DFTB+: {mae * HARTREE:.3f} kcal/mol")
+    print(f"Training MAE by DFTB+: {mae * HARTREE:.3f} kcal/mol")

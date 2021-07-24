@@ -16,4 +16,5 @@ from .input_layer_pairwise_linear import Input_layer_pairwise_linear
 from .input_layer_value import Input_layer_value
 from .reference_energy import Reference_energy
 from .repulsive_new import repulsive_energy
-from .input_layer_repulsive import generate_gammas_input, DFTBRepulsiveModel
+from .input_layer_repulsive import generate_gammas_input, DFTBRepulsiveModel,\
+    combine_gammas_ctrackers

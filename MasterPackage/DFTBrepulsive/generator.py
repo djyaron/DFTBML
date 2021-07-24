@@ -49,16 +49,16 @@ class Generator:
         # Compute spline bases for each conformation
         for coords in moldata['coordinates']:
             _gammas_conf = np.zeros(nvars)
-            ## Compute intramolecular pairwise distances
+            # Compute intramolecular pairwise distances
             rs = self.pairwise_dist(coords, moldata['atomic_numbers'], self.opts.cutoff)
-            ## Compute spline bases for each pairwise interaction (Zs)
+            # Compute spline bases for each pairwise interaction (Zs)
             for Z in self.opts.Zs:
                 try:
                     spl = spline_linear_model(xknots=self.opts.xknots[Z], xeval=rs[Z], xyfit=None,
                                               bconds=self.opts.bconds[Z], deg=self.opts.deg[Z],
                                               max_der=self.opts.maxder)
                 except KeyError:
-                    ### Skip interactions not existing in current conformation
+                    # Skip interactions not existing in current conformation
                     continue
                 _gammas_conf[loc[Z]] = np.einsum('ij->j', spl['X'][0])
             _gammas_mol.append(_gammas_conf)
@@ -126,7 +126,7 @@ class Generator:
                 if self.opts.ref == 'full':
                     self._loc['const'] = np.array([idx_running])
                     idx_running += 1
-                ## Locations of atom counts
+                # Locations of atom counts
                 for i, atype in enumerate(self.opts.atypes):
                     self._loc[atype] = np.array([idx_running + i])
                 idx_running += len(self.opts.atypes)

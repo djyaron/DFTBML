@@ -105,37 +105,37 @@ def write_dftb_input(coords, atomic_numbers, i_mol_conf, opts, save_path):
     drv_block = ["Driver = {}"]
 
     # Hamiltonian block
-    ## Filling
+    # Filling
     fill = []
     if opts.get('FermiTemp'):
         fill = ["  Filling = Fermi {",
                 f"    Temperature [eV] = {opts.get('FermiTemp')}",
                 "  }"]
-    ## MaxAngularMomentum
+    # MaxAngularMomentum
     mmt = ["  MaxAngularMomentum = {",
            *get_max_angular_momentum(atomic_numbers),
            "  }"]
-    ## Mixer
+    # Mixer
     mixer = ["  Mixer = Broyden {",
-                 "    MixingParameter = 0.01",
-                 "    InverseJacobiWeight = 0.01",
-                 "    MinimalWeight = 1.0",
-                 "    MaximalWeight = 1e5",
-                 "    WeightFactor = 1e-2",
-                 " }"]
-    ## SCC
+             "    MixingParameter = 0.01",
+             "    InverseJacobiWeight = 0.01",
+             "    MinimalWeight = 1.0",
+             "    MaximalWeight = 1e5",
+             "    WeightFactor = 1e-2",
+             " }"]
+    # SCC
     scc = [f"  ShellResolvedSCC = {'YES' if opts.get('ShellResolvedSCC') else 'NO'}",
            "  SCC = YES",
            "  MaxSCCIterations = 200",
            "  SCCTolerance = 1e-05"]
-    ## SlaterKosterFiles
+    # SlaterKosterFiles
     skf = ["  SlaterKosterFiles = Type2FileNames{",
            f"    Prefix = {opts['skf_dir']}",
            '    Separator = "-"',
            '    Suffix = ".skf"',
            "    LowerCaseTypeName = No",
            "  }"]
-    ## Dispersion
+    # Dispersion
     disp = ["  Dispersion = {",
             "    MBD {",
             "      NOmegaGrid = 15",
@@ -145,11 +145,11 @@ def write_dftb_input(coords, atomic_numbers, i_mol_conf, opts, save_path):
             "      }",
             "    }",
             "  }"]
-    ## Solver
+    # Solver
     # solver = ["  Solver = ELPA{",
     #           "  }"]
     solver = []
-    ## Combine sub-blocks into a Hamiltonian block
+    # Combine sub-blocks into a Hamiltonian block
     h_block = ["Hamiltonian = DFTB{",
                *fill, *mmt, *mixer, *scc, *skf, *disp, *solver,
                "}"]

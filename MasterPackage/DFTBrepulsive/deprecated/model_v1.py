@@ -5,7 +5,7 @@ import scipy.special
 from elements import ELEMENTS
 from h5py import File
 from matplotlib import pyplot as plt
-from slakos.mio_0_1 import ParDict
+from deprecated.slakos_deprecated.mio_0_1 import ParDict
 from tfspline import spline_linear_model, Bcond, spline_new_xvals
 from util import get_dataset_type
 from consts import ALIAS2TARGET

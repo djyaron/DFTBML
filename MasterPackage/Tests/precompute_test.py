@@ -13,7 +13,7 @@ TODO: Incorporate gammas precompute into the precompute testing
 """
 #%% Imports, definittions 
 import os
-from FoldManager import generate_folds, save_folds, compute_graphs_from_folds, precompute_gammas
+from FoldManager import generate_folds, save_folds, compute_graphs_from_folds, precompute_gammas, precompute_gammas_per_fold
 from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
 import shutil
 
@@ -47,8 +47,10 @@ def run_precompute_test(clear_direc: bool = True):
     final_settings = collapse_to_master_settings(resulting_settings_obj)
     #Do the graph computation
     compute_graphs_from_folds(final_settings, "fold_molecs_internal", True)
-    #Now do the gammas computation
+    #Now do the gammas computation for the entire dataset
     precompute_gammas(opts, "fold_molecs_internal")
+    #Now do the gammas computation for each fold
+    precompute_gammas_per_fold(opts, "fold_molecs_internal")
     print("Precompute executed successfully.")
     #Delete the directory at the end. 
     if clear_direc:

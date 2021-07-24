@@ -35,19 +35,24 @@ class Shifter:
         self.intercept = self.shifter.intercept_
 
     # WARNING: Hardcoded output dataset entries: coordinates, atomic_numbers and the shifted entry
-    def shift(self, dset: Dataset, target: str, reverse=False) -> Dataset:
+    def shift(self, dset: Dataset, target: str, mode: str = '-') -> Dataset:
         r"""Shift a target using pre-fitted shifter
 
         Args:
             dset: Dataset
             target: str
-            reverse: bool
+            mode: str
+                '+': returns the target plus the prediction by the shifter
+                '-': returns the target minus the prediction by the shifter
 
         Returns:
             sset: Dataset
                 Shifted dataset
 
         """
+        # Sanity check
+        assert mode in ('+', '-'), "Unsupported mode"
+
         sset = {}
         _dset = dset.extract(target, entries=('atomic_numbers', 'coordinates'))
         for mol, moldata in _dset.items():
@@ -60,10 +65,7 @@ class Shifter:
             atom_counts = Counter(moldata['atomic_numbers'])
             atom_counts = np.reshape([atom_counts[_atype] for _atype in self.atypes], (1, -1))
             shifter_pred = self.shifter.predict(atom_counts).flatten()
-            if reverse:
-                data.update({target: moldata[target] + shifter_pred})
-            else:
-                data.update({target: moldata[target] - shifter_pred})
+            data.update({target: moldata[target] + shifter_pred * (+1 if mode == '+' else -1)})
             sset[mol] = data
         rset = Dataset(sset, dset.conf_entry, dset.fixed_entry)
         return rset
