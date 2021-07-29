@@ -166,6 +166,7 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
     print("Loaded in saved models")
     reference_parameters = pickle.load(open(reference_params_filename, 'rb'))
     print("Loaded in reference parameters")
+    print(reference_parameters)
     
     layer = DFTB_Layer(device = "cpu", dtype = torch.double, eig_method = "new", repulsive_method = s.rep_setting)
     print("DFTBLayer initialized")
@@ -195,12 +196,14 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
     all_feeds = validation_feeds + training_feeds
     all_batches = validation_batches + training_batches
     
+    val_limit = len(validation_feeds)
+    
     with torch.no_grad():
         for i, feed in enumerate(all_feeds):
             output = layer.forward(feed, saved_models)
             #Add in repulsive energies if the repulsive model is new
             if s.rep_setting == 'new':
-                output['Erep'] = saved_models['rep'].add_repulsive_eners(feed) #per heavy atom, Erep + Eref
+                output['Erep'] = saved_models['rep'].add_repulsive_eners(feed, 'valid' if i < val_limit else 'train') #per heavy atom, Erep + Eref
                 if comp_to_dplus:
                     correct_rep_eners(reference_parameters, output, feed) #per molecule, Erep only
                 else:
@@ -226,15 +229,21 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "skf_8020_100knot_new_repulsive_internal_graddesc/Split0/saved_models.p"
-    ref_filename = "skf_8020_100knot_new_repulsive_internal_graddesc/ref_params.p"
-    all_batches = pass_feeds_through(mod_filename, ref_filename, False)
+    mod_filename = "skf_8020_500knot_external_rep_10epochupdate/Split0/saved_models.p"
+    ref_filename = "skf_8020_500knot_external_rep_10epochupdate/ref_params.p"
+    all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
     
-    # exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    # skf_dir = os.path.join(os.getcwd(), "sparse_skf")
+    exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+    skf_dir = os.path.join(os.getcwd(), "skf_8020_500knot_external_rep_10epochupdate")
     
-    # add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
+    add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
+    
+    disagreements = []
+    for mol in all_mols:
+        disagreements.append(abs(mol['pzero']['t'] - mol['predictions']['Etot']['Etot']))
+        
+    print(f"MAE error in Ha: {sum(disagreements) / len(disagreements)}")
     
     # with open("sparse_skf/sparse_skf_comp.p", "wb") as handle:
     #     pickle.dump(all_mols, handle)
