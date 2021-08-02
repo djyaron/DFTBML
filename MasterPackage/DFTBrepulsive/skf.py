@@ -7,7 +7,7 @@ from typing import ItemsView, KeysView, ValuesView, Iterable, Tuple, Union, Dict
 import numpy as np
 import pandas as pd
 from numpy.polynomial import Polynomial
-from scipy.interpolate import PPoly, interp1d, CubicSpline
+from scipy.interpolate import PPoly, interp1d, CubicSpline, InterpolatedUnivariateSpline
 
 from .consts import ANGSTROM2BOHR, ATOM2SYM, SYM2ATOM
 from .util import formatZ, path_check, Z2A
@@ -177,7 +177,7 @@ class SKF:
                 underVal = np.empty_like(underGrid) * np.nan
                 overVal = np.empty_like(overGrid) * np.nan
                 for ent, val in self[entry].items():
-                    interpFunc = interp1d(x=self.intGrid(), y=val, kind='cubic')
+                    interpFunc = InterpolatedUnivariateSpline(x=self.intGrid(), y=val, k=5, ext='raise')
                     interpVal = np.concatenate([underVal, interpFunc(interpGrid), overVal])
                     interpRes.update({ent: interpVal})
                 res.update({entry: pd.DataFrame(interpRes)})
@@ -193,7 +193,7 @@ class SKF:
                 overGrid = grid[grid > int_end]
                 underVal = np.empty_like(underGrid) * np.nan
                 overVal = np.empty_like(overGrid) * np.nan
-                interpFunc = interp1d(x=self.intGrid(), y=self[entry[0]][entry], kind='cubic')
+                interpFunc = InterpolatedUnivariateSpline(x=self.intGrid(), y=self[entry[0]][entry], k=5, ext='raise')
                 interpVal = np.concatenate([underVal, interpFunc(interpGrid), overVal])
                 res.update({entry: interpVal})
         # Repulsive potentials
@@ -517,10 +517,10 @@ class SKFBlockCreator:
         atomic_info = pd.DataFrame(data['atomic_info'], index=['value']) if homo else None
         poly_entries = ('mass', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'rcut',
                         'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10')
-        poly_data = np.concatenate([data['mass'] if homo else np.array([0.0]),
-                                    data.get('poly_coef', np.zeros(8, dtype=np.float64)),
-                                    data.get('rcut', 0.0),
-                                    np.zeros(10)])
+        poly_data = np.array([data['mass'] if homo else 0.0,
+                              *data.get('poly_coef', np.zeros(8, dtype=np.float64)),
+                              data.get('rcut', 0.0),
+                              *np.zeros(10)])
         poly_info = pd.DataFrame(dict(zip(poly_entries, poly_data)), index=['value'])
         header = {'comment': comment,
                   'gridDist': gridDist,
@@ -600,8 +600,9 @@ class SKFBlockCreator:
         return spline
 
     @staticmethod
-    def create_doc_block(doc: list) -> list:
-        return doc
+    def create_doc_block(doc: list) -> dict:
+        doc_block = {'doc': doc}
+        return doc_block
 
 
 class _SKFReader:
@@ -824,10 +825,8 @@ class _SKFReader:
         poly_info = pd.DataFrame(poly_info, index=['value'])
         line_num += 1
 
-        # Last nGridPoints lines: integral table of Hamiltonian and overlap matrices
-        # NOTE: Old SKFs have multiline placeholders before the integral table.
-        #       Slicing lines from the end gets rid of these placeholders easily.
-        HS_block = header_block[-nGridPoints:]
+        # Line 4 ~ Line nGridPoints+3: integral table of Hamiltonian and overlap matrices
+        HS_block = header_block[line_num: line_num + nGridPoints]
         HS_val = pd.DataFrame([self._parse_line(line) for line in HS_block], columns=HS_entries)
         H, S = HS_val[list(H_entries)], HS_val[list(S_entries)]
 

@@ -193,14 +193,14 @@ def precompute_gammas(opts: Dict, top_level_molec_path: str) -> None:
     
     gammas_path = opts['repulsive_settings']['gammas_path']
     gpath_splt = gammas_path.split("/")
-    #path safety check to ensure gammas are stored with the dataset that it is
-    #   precomputed for. 
-    assert(gpath_splt[-2] == top_level_molec_path)
     
-    compute_gammas(gammas_input, opts)
+    gammas = compute_gammas(gammas_input, opts, True)
     
     with open(os.path.join(top_level_molec_path, "config_tracker.p"), "wb") as handle:
         pickle.dump(config_tracker, handle)
+    
+    with open(os.path.join(top_level_molec_path, "gammas.p"), "wb") as handle:
+        pickle.dump(gammas, handle)
     
     print("Gammas and config tracker have been saved")
 

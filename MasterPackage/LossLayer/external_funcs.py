@@ -13,6 +13,8 @@ from MasterConstants import Model, Bcond
 Array = np.ndarray
 import torch
 Tensor = torch.Tensor
+import matplotlib.pyplot as plt
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
 #%% Code behind
 
@@ -49,10 +51,12 @@ def compute_mod_vals_derivs(all_models: Dict, par_dict: Dict, ngrid: int = 200,
             # THE TRY AND EXCEPT IS EXCLUDING THE G MODELS
             if (model.oper not in op_ignore) and (len(model.Zs) == 2):
                 pairwise_lin = all_models[model]
+                #UNCOMMENT THIS LATER!
                 r_low, r_high = pairwise_lin.pairwise_linear_model.r_range()
+                # r_low, r_high = 0, 10.0 #double assignment to exclude the G models
                 rgrid = np.linspace(r_low, r_high, ngrid) 
                 ygrid = get_dftb_vals(model, par_dict, rgrid)
-                model_spline_dict[model] = spline_linear_model(rgrid, None, (rgrid, ygrid), bcond)
+                model_spline_dict[model] = (spline_linear_model(rgrid, None, (rgrid, ygrid), bcond), rgrid, ygrid)
         except:
             pass
     return model_spline_dict
@@ -66,7 +70,7 @@ def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
     Returns:
         concavity_dict (Dict[Model, bool]): A dictionary mapping each 
             model spec to its concavity. If the model should be concave down,
-            then set to True; otherwise, set to False
+            then set to True; otherwise, set to False (concave up)
     
     Notes: The concavity of the model is deteremined by the sign of the
         average value of the predictions of the second derivative. If the 
@@ -76,7 +80,8 @@ def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
     """
     concavity_dict = dict()
     for model_spec in model_spline_dict:
-        mod_dict = model_spline_dict[model_spec]
+        mod_dict = model_spline_dict[model_spec][0]
+        original_rgrid, original_ygrid = model_spline_dict[model_spec][1], model_spline_dict[model_spec][2]
         y_vals_deriv1 = np.dot(mod_dict['X'][1], mod_dict['coefs']) + mod_dict['const'][1]
         y_vals_deriv0 = np.dot(mod_dict['X'][0], mod_dict['coefs']) + mod_dict['const'][0]
         #Assume also that the mean will take care of it, and that the mean should not be 0
@@ -97,10 +102,18 @@ def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
             print(f"Concavity mismatch for {model_spec}")
             # print(concavity_deriv1, concavity_deriv0)
         # xs = [i for i in range(len(y_vals_deriv0))]
-        # fig, axs = plt.subplots()
-        # axs.scatter(xs, y_vals_deriv0)
-        # axs.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}, {concavity_deriv1}, {concavity_deriv0}, {True if (concavity_deriv1 == 1 and concavity_deriv0 == -1) else False}")
-        # plt.show()
+        fig, axs = plt.subplots()
+        axs.scatter(original_rgrid, y_vals_deriv0, label = "interpolated")
+        axs.scatter(original_rgrid, original_ygrid, label = "SKFInfo pulled")
+        axs.legend()
+        axs.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}, {concavity_deriv1}, {concavity_deriv0}, {True if (concavity_deriv1 == 1 and concavity_deriv0 == -1) else False}, {(original_rgrid[0], original_rgrid[-1])}")
+        #In plotting these graphs, the distance along the x-axis is
+        #   going to be important for figuring out spline
+        #   differences. y-axis vlaues
+        axs.yaxis.set_minor_locator(AutoMinorLocator())
+        axs.xaxis.set_major_locator(MultipleLocator(1))
+        axs.xaxis.set_minor_locator(MultipleLocator(0.1))
+        plt.show()
     return concavity_dict
 
 def compute_charges(dQs: Union[Array, Tensor], ids: Union[Array, Tensor]) -> List[Tensor]:

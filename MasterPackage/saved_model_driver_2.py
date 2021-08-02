@@ -229,13 +229,13 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "skf_8020_500knot_external_rep_10epochupdate/Split0/saved_models.p"
-    ref_filename = "skf_8020_500knot_external_rep_10epochupdate/ref_params.p"
+    mod_filename = "single_epoch_skf_test/Split0/saved_models.p"
+    ref_filename = "single_epoch_skf_test/ref_params.p"
     all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
     
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    skf_dir = os.path.join(os.getcwd(), "skf_8020_500knot_external_rep_10epochupdate")
+    skf_dir = os.path.join(os.getcwd(), "single_epoch_skf_test")
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
     

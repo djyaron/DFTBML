@@ -1053,8 +1053,11 @@ def model_range_correction(model_range_dict: Dict, correction_dict: Dict, univer
         xlow, xhigh = dist_range
         Zs, Zs_rev = mod.Zs, (mod.Zs[1], mod.Zs[0])
         if Zs in correction_dict:
+            #Safeguard to ensure that low-end distances are a valid correction
+            assert(xlow > correction_dict[Zs])
             xlow = correction_dict[Zs]
         elif Zs_rev in correction_dict:
+            assert(xlow > correction_dict[Zs_rev])
             xlow = correction_dict[Zs_rev]
         new_dict[mod] = (xlow, xhigh if universal_high is None else universal_high)
     return new_dict

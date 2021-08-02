@@ -119,7 +119,8 @@ def load_au(au_type, max_mol, max_config, include_au2):
     return dataset
 
 def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, do_our_dftb: bool = True, 
-             do_dftbplus: bool = True, fermi_temp: float = None, parse: str = 'dftb') -> None:
+             do_dftbplus: bool = True, fermi_temp: float = None, parse: str = 'dftb',
+             dispersion: bool = False) -> None:
     r"""Runs and parses out the DFTB+ results and adds them to the molecule
         dictionaries for a given dataset. 
     
@@ -138,6 +139,8 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
         parse (str): Which file to parse. One of 'dftb' or 'detailed'. If 'detailed' 
             is chosen, then a breakdown of total energy into electronic and
             repulsive contributions is obtainable.
+        dispersion (bool): Whether or not to include the dispersion block
+            in the DFTB in file.
     
     Returns:
         None
@@ -211,7 +214,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                 dftb_outfile = os.path.join(scratch_dir,'dftb.out')
             elif parse == 'detailed':
                 dftb_outfile = os.path.join(scratch_dir,'detailed.out')
-            write_dftb_infile(Zs, rcart, dftb_infile, skf_dir, DFTBoptions)
+            write_dftb_infile(Zs, rcart, dftb_infile, skf_dir, dispersion, DFTBoptions)
             start_time = time()
             with open(dftb_outfile,'w') as f:
                 res2 = dict()
@@ -224,14 +227,11 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                         dftb_res = read_detailed_out(dftb_outfile)
                         res2['t'] = dftb_res['t']
                         #Should always be guaranteed the total energy
-                        try:
-                            res2['e'] = dftb_res['e']
-                        except:
-                            pass
-                        try:
-                            res2['r'] = dftb_res['r']
-                        except:
-                            pass
+                        for key in ['e', 'r', 'disp']:
+                            try:
+                                res2[key] = dftb_res[key]
+                            except:
+                                pass
                     res2['conv'] = True
                     if fermi_temp is None:
                         dftb_savefile = os.path.join(savefile_dir_path,

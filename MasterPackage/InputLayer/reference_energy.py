@@ -5,11 +5,12 @@ Created on Mon Jun  7 19:03:43 2021
 @author: fhu14
 """
 #%% Imports, definitions
-from typing import List
+from typing import List, Dict
 import numpy as np
 Array = np.ndarray
 import torch
 Tensor = torch.Tensor
+from copy import deepcopy
 
 #%% Code behind
 
@@ -61,6 +62,7 @@ class Reference_energy:
         self.dtype, self.device = dtype, device
         self.allowed_Zs = np.sort(np.array(allowed_Zs))
         self.values = np.zeros(self.allowed_Zs.shape)
+        # Add in the constant term
         self.values = np.append(self.values, np.array([0]))
         if (not (prev_values is None)) and  len(prev_values) > 0:
             #Load previous values if they are given
@@ -83,3 +85,34 @@ class Reference_energy:
         Notes: None
         """
         return self.variables
+    
+    def get_ref_ener_info(self) -> Dict:
+        r"""Returns the reference energy information from the model as a 
+            dictionary
+        
+        Arguments:
+            None
+        
+        Returns: 
+            ref_dict (Dict): A dictionary that contains the coefficients,
+                intercept, and atype ordering.
+        
+        Notes: The return type of this function should have the same structure as 
+            the dictionary returned by the new repulsive model. The dictionary 
+            should have the following keys:
+                'coef' : Coefficients for the atoms
+                'intercept' : The constant term
+                'atype_ordering' : The ordering of the atomic numbers (should be sorted)
+        """
+        assert(len(self.variables) == len(self.allowed_Zs) + 1)
+        numpy_variables = deepcopy(self.variables.detach().numpy())
+        coeffs = numpy_variables[:len(self.allowed_Zs)]
+        intercept = np.array([numpy_variables[len(self.allowed_Zs)]])
+        atype_ordering = tuple(self.allowed_Zs)
+        ref_dict = {
+            'coef' : coeffs,
+            'intercept' : intercept,
+            'atype_ordering' : atype_ordering
+            }
+        return ref_dict
+        

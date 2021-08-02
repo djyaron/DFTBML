@@ -43,8 +43,34 @@ def named_re(name: str, respec: str,
 
     return res
 
+def write_dispersion_block(use_UFF_params: bool = True, dispersion_mode: str = "LJ") -> str:
+    r"""Writes out the dispersion block according to the DFTB+ manual's
+        specification for the input
+    
+    Arguments:
+        use_UFF_params (bool): Whether to use the parameters specific by the
+            universal force field (UFF). Defaults to True for consistency
+            with the DFTB_Layer code.
+        dispersion_mode (str): The form of the dispersion to use. Defaults to 
+            "LJ" for LennardJones. 
+    
+    Returns:
+        dispersion_block (str): The dispersion block ready to be written to the 
+            input files.
+    
+    Notes: The DFTB+ manual indicates that you can specify the set of 
+        parameters to use, but for convenience, only going to use the default UFF
+        parameters
+    """
+    dispersion_block = ""
+    line1 = "   Dispersion = LennardJones{\n"
+    line2 = "      Parameters = UFFParameters{}\n"
+    line3 = "   }\n"
+    dispersion_block = line1 + line2 + line3
+    return dispersion_block
+
 def write_dftb_infile(Zs: List[int], rcart_angstroms: Array, 
-                      file_path: str, skf_dir: str,
+                      file_path: str, skf_dir: str, dispersion: bool = False,
                       DFTBparams_overrides: dict = {}):
     r"""
     Write DFTB HSD input file (dftb_hsd.in) for single point calculation.
@@ -55,6 +81,8 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
           in anstroms
         file_path (str): path to the output file (e.g. 'scratch/dftb_in.hsd')
         skf_dir (str): directory with the SKF files (should not end in / or \)
+        dispersion (bool): Whether to include the dispersion block. Defaults to 
+            False.
         DFTBparams_overrides (dict): dict to override these default params
            'ShellResolvedSCC' : True 
                  If True, s,p,d.. have separate Hubbard parameters
@@ -136,6 +164,11 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
                 r'       Temperature[K] = ' + str(DFTBparams['FermiTemp']) + '\n' +
                 r'       }' + '\n'
             )
+        
+        #Need to add in Dispersion block to the Hamiltonian block
+        if dispersion:
+            dispersion_block = write_dispersion_block()
+            dftbfile.write(dispersion_block)
 
         dftbfile.write(
             r'}' + '\n' +
@@ -211,7 +244,8 @@ def read_detailed_out(file_path: str) -> dict:
     name_mapping = {
         'total energy:' : 't',
         'total electronic energy:' : 'e',
-        'repulsive energy:' : 'r'
+        'repulsive energy:' : 'r',
+        'dispersion energy' : 'disp'
         }
     result_dict = dict()
     triggered = False

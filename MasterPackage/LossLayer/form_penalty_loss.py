@@ -86,7 +86,9 @@ class FormPenaltyLoss(LossModel):
                     final_dict[model_spec] = (current_model, concavity_dict[model_spec], FormPenaltyLoss.seen_dgrid_dict[model_spec][0],
                                               FormPenaltyLoss.seen_dgrid_dict[model_spec][1])
                 else:
+                    #UNCOMMENT THIS LATER!!!
                     rlow, rhigh = current_model.pairwise_linear_model.r_range()
+                    # rlow, rhigh = 0, 10.0
                     xgrid = np.linspace(rlow, rhigh, self.density)
                     #We only need the first and second derivative for the dgrids
                     #Including the constants, especially important for the joined splines!

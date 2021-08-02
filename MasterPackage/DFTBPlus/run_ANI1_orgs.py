@@ -18,7 +18,8 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
                  rep_setting: str, dftbrep_ref_params: Dict = None, num_to_use: int = None,
                  do_dftbpy: bool = True, do_dftbplus: bool = True, fermi_temp: float = None,
                  error_metric: str = "MAE", filter_test: bool = False,
-                 filter_dir: str = None, parse: str = 'dftb') -> float:
+                 filter_dir: str = None, parse: str = 'dftb',
+                 dispersion: bool = False) -> float:
     r"""Computes the error from running DFTB+ using a set of skf files, with 
         error_metric as the method of computing the error. Error is
         computed on total energy.
@@ -61,6 +62,8 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
         parse (str): Indicates which file to parse to get DFTB+ results. Defaults 
             to 'dftb' in which case read_dftb_out() is used, but can be set to
             'detailed' for read_detailed_out()
+        dispersion (bool): Whether or not to include the dispersion block in 
+            the DFTB+ in file.
     
     Returns:
         error_Ha (float): The error computed between the true target value and
@@ -95,7 +98,7 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
     if not (num_to_use is None): 
         dataset = dataset[:num_to_use]
     print(f"Parser used is {parse}")
-    add_dftb(dataset, skf_dir, exec_path, pardict, do_dftbpy, do_dftbplus, fermi_temp, parse)
+    add_dftb(dataset, skf_dir, exec_path, pardict, do_dftbpy, do_dftbplus, fermi_temp, parse, dispersion)
     #Case based on what kind of repulsive model is being used
     if rep_setting == 'old':
         error = compute_results_torch(dataset, target, allowed_Zs, error_metric)

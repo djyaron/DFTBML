@@ -71,7 +71,12 @@ class Input_layer_pairwise_linear:
         rgrid = np.linspace(rlow,rhigh,ngrid) #This is in angstroms
         ygrid = get_dftb_vals(model, par_dict, rgrid)
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
-        model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) #Model vars fit based on angstrom x-axis
+        model_vars, A, b = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) #Model vars fit based on angstrom x-axis
+        
+        ypred = np.dot(A, model_vars) + b
+        y_diff = np.abs(ypred - ygrid)
+        print(f"Maximum absolute difference (kcal/mol): {np.max(y_diff) * 627}")
+        print(f"MAE difference (kcal/mol): {np.mean(y_diff) * 627}")
         
         ### TESTING CODE, REMOVE THIS CONDITIONAL LATER! INITIALIZING REPULSIVE
         ### VARIABLES TO A VECTOR OF 0'S

@@ -754,9 +754,9 @@ def assemble_final_header_dict(H_block: Array, S_block: Array, header_block: Lis
         
         'gridDist' : grid_dist,
         'atomic_info' : atom_info_dict,
-        'mass' : np.array([mass]),
+        'mass' : mass,
         'poly_coef' : poly_coef,
-        'rcut' : np.array([rcut]),
+        'rcut' : rcut,
         'HS' : HS_dict
         
         }
@@ -837,6 +837,36 @@ def get_spl_xydata(all_models: Dict, rep_mode: str, all_elems: List[tuple], spl_
         return xy_data
     else:
         raise ValueError("Unrecognized repulsive method!")
+        
+def write_ref_information(all_models: Dict, rep_mode: str, dest: str) -> None:
+    r"""Writes out the reference information for the model to a file called
+        ref_params.p using pickle
+    
+    Arguments:
+        all_models (Dict): The dictionary containing all the trained models
+        rep_mode (str): The repulsive mode to use
+        dest (str): Where to save the reference infomration
+        
+    Returns:
+        None
+    
+    Notes: Reference parameters should be dictionaries that contain the following 
+        keys:
+            'coef' : Coefficients for the atoms
+            'intercept' : The constant term
+            'atype_ordering' : The ordering of the atomic numbers (should be sorted)
+    """
+    if rep_mode == 'new':
+        curr_mod = all_models['rep']
+        ref_info = curr_mod.get_ref_ener_info(False)
+    elif rep_mode == 'old':
+        curr_mod = all_models['Eref']
+        ref_info = curr_mod.get_ref_ener_info()
+    
+    with open(os.path.join(dest, "ref_params.p"), 'wb') as handle:
+        pickle.dump(ref_info, handle)
+    
+    print("Reference parameters saved")
 
 def write_skfs(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: bool, 
                ref_direc: str, rep_mode: str, dest: str = None, spl_ngrid: int = 500) -> None:
@@ -898,6 +928,7 @@ def write_skfs(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_b
         # print(header_HS_data['mass'])
         header_HS_block = creator.create_header_HS_block(Zs, header_HS_data)
         spline_block = creator.create_spline_block(exp_coef, spl_xydata)
+        doc_block = creator.create_doc_block([]) #No need for documentation right now
         skf = SKF(skf_data = {})
         skf['homo'] = header_HS_block['homo']
         skf['extend'] = header_HS_block['extend']
@@ -905,11 +936,14 @@ def write_skfs(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_b
         skf['header'] = header_HS_block['header']
         skf['HS'] = header_HS_block['HS']
         skf['spline'] = spline_block
-        skf['doc'] = {'doc' : []} #Leave the documentation block as empty for now
+        skf['doc'] = doc_block
         elem1, elem2 = Zs
         atom1, atom2 = atom_nums[elem1], atom_nums[elem2]
         save_file_name = f"{atom1}-{atom2}.skf" if dest is None else os.path.join(dest, f"{atom1}-{atom2}.skf")
         skf.to_file(save_file_name)
+    
+    #Write the reference energy information
+    write_ref_information(all_models, rep_mode, dest)
     
     print("All SKFs written!")
 
