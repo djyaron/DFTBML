@@ -117,7 +117,8 @@ def precompute_folds(s, opts: Dict, top_level_molec_path: str, copy_molecs: bool
     print("Fold precomputation done")
 
 def precompute_main(settings_filename: str, defaults_filename: str, lower_limit: int, 
-                   num_folds: int, num_folds_lower: int, randomize: bool, copy_molecs: bool) -> None:
+                   num_folds: int, num_folds_lower: int, randomize: bool, copy_molecs: bool,
+                   generate_folds: bool = True) -> None:
     r"""Main method that generates a dataset of the form necessary for passing through 
         the model
     
@@ -133,6 +134,8 @@ def precompute_main(settings_filename: str, defaults_filename: str, lower_limit:
             folds are not separated based on nheavy
         copy_molecs (bool): Whether or not to duplicate the raw molecule pickle files
             in the directories with the saved h5 files 
+        generate_folds (bool): Whether or not to generate the folds (pickle files of 
+             molecule dictionaries). Defaults to True.
     
     Returns:
         None
@@ -154,9 +157,10 @@ def precompute_main(settings_filename: str, defaults_filename: str, lower_limit:
     opts = inflate_to_dict(resulting_settings_obj)
     s = collapse_to_master_settings(resulting_settings_obj)
     #Generate and save the folds
-    generate_save_folds(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, 
-                        s.data_path, s.exclude, lower_limit, num_folds, num_folds_lower, s.top_level_fold_path, 
-                        randomize)
+    if generate_folds:
+        generate_save_folds(s.allowed_Zs, s.heavy_atoms, s.max_config, s.target, 
+                            s.data_path, s.exclude, lower_limit, num_folds, num_folds_lower, s.top_level_fold_path, 
+                            randomize)
     #Do the precompute
     precompute_folds(s, opts, s.top_level_fold_path, copy_molecs)
     print("Precompute workflow complete")
@@ -170,9 +174,10 @@ if __name__ == '__main__':
     num_folds_lower = 3
     randomize = True
     copy_molecs = True
+    gen_folds = False
     
     precompute_main(settings_filename, defaults_filename, lower_limit, num_folds,
-                    num_folds_lower, randomize, copy_molecs)
+                    num_folds_lower, randomize, copy_molecs, gen_folds)
     
     
 

@@ -50,9 +50,9 @@ def run_all_tests():
     
     # print()
     
-    print("Testing dispersion...")
-    run_dispersion_tests()
-    print("Dispersion tests passed.")
+    # print("Testing dispersion...")
+    # run_dispersion_tests()
+    # print("Dispersion tests passed.")
     
     # print()
     
@@ -62,9 +62,9 @@ def run_all_tests():
     
     # print()
     
-    # print("Testing DFTB Layer...")
-    # run_layer_tests()
-    # print("DFTB Layer tests passed")
+    print("Testing DFTB Layer...")
+    run_layer_tests()
+    print("DFTB Layer tests passed")
     
     # print()
     

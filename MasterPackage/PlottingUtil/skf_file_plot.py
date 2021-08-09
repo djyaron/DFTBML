@@ -5,16 +5,25 @@ Created on Sun Jul 25 23:58:42 2021
 @author: fhu14
 
 Methods for plotting SKF files for a directory of SKFs
+
+We are generally more interested in the functional form of the functions 
+than the values attained. For this reason, the x-axis is plotted with
+more granular information than the y-axis. 
+
+This code is pretty messy, might want to consider a redesign/rewrite of
+the software.
 """
 #%% Imports, definitions
 import pickle, os
 from DFTBrepulsive import SKFSet
 from MasterConstants import ANGSTROM2BOHR, Model
 import matplotlib.pyplot as plt
-from typing import Dict
+from typing import Dict, List
 from Spline import get_dftb_vals
 import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+from .util import get_dist_distribution
+import numpy as np
 
 nums = { #Switch this out with MasterConstants later
         'H' : 1,
@@ -81,13 +90,20 @@ def empty_int(int_series) -> bool:
     """
     return int_series.max() == int_series.min() == 0
 
-def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str) -> None:
+def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
+                        x_major: int = 1, x_minor: float = 0.1) -> None:
     r"""Plots all the integrals of a single skf set
     
     Arguments:
         skf_set (SKFSet): The set of SKF files that need to be plotted
-        dest (str): The destination to save the plots to
+        dest (str): The destination to save the plots to. If the value of 
+            dest is set to None, then the figures are not saved. Useful for just 
+            debugging.
         mode (str): plotting mode, either 'scatter' or 'plot'
+        x_major (int): The argument used for major multiple locator (increments
+             for major tick marks)
+        x_minor (float): the argument used for minor multiple locator (increments
+             for minor tick marks)
     
     Returns:
         None
@@ -101,19 +117,24 @@ def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str) -> None:
                     title = f"{elem_pair}, {op}, {int_name}"
                     axs.set_title(title)
                     axs.set_xlabel("Angstroms")
-                    axs.set_ylabel("Hartrees")
+                    if op == 'H':
+                        axs.set_ylabel("Hartrees")
+                    elif op == 'S':
+                        axs.set_ylabel("A.U.")
                     plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode)
                     #In plotting these graphs, the distance along the x-axis is
                     #   going to be important for figuring out spline
                     #   differences. y-axis vlaues
                     axs.yaxis.set_minor_locator(AutoMinorLocator())
-                    axs.xaxis.set_major_locator(MultipleLocator(1))
-                    axs.xaxis.set_minor_locator(MultipleLocator(0.1))
-                    fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                    axs.xaxis.set_major_locator(MultipleLocator(x_major))
+                    axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+                    if (dest is not None):
+                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
                     plt.show()
 
 def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
-                          set_1_label: str, set_2_label: str, dest: str, mode: str) -> None:
+                          set_1_label: str, set_2_label: str, dest: str, mode: str,
+                          x_major: int = 1, x_minor: float = 0.1) -> None:
     r"""Plots all integrals of two SKF sets and overlays them.
     
     Arguments:
@@ -121,8 +142,13 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
         set_2 (SKFSet): Second SKFSet object
         set_1_label (str): Label for data plotted for set 1
         set_2_label (str): label for data plotted for set 2
-        dest (str): Where to save the figures
+        dest (str): Where to save the figures. If dest is set to None,
+            the figures are not saved (useful for debugging).
         mode (str): plotting mode, either 'scatter' or 'plot'
+        x_major (int): The argument used for major multiple locator (increments
+             for major tick marks)
+        x_minor (float): the argument used for minor multiple locator (increments
+             for minor tick marks)
     
     Returns:
         None
@@ -145,7 +171,10 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
                     title = f"{elem_pair}, {op}, {int_name}"
                     axs.set_title(title)
                     axs.set_xlabel("Angstroms")
-                    axs.set_ylabel("Hartrees")
+                    if op == 'H':
+                        axs.set_ylabel("Hartrees")
+                    elif op == 'S':
+                        axs.set_ylabel("A.U.")
                     plot_skf_int(elem_pair, op, int_name, set_1, axs, label = set_1_label, mode = mode)
                     plot_skf_int(elem_pair, op, int_name, set_2, axs, label = set_2_label, mode = mode)
                     axs.legend()
@@ -153,9 +182,10 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
                     #   going to be important for figuring out spline
                     #   differences. y-axis vlaues
                     axs.yaxis.set_minor_locator(AutoMinorLocator())
-                    axs.xaxis.set_major_locator(MultipleLocator(1))
-                    axs.xaxis.set_minor_locator(MultipleLocator(0.1))
-                    fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                    axs.xaxis.set_major_locator(MultipleLocator(x_major))
+                    axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+                    if (dest is not None):
+                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
                     plt.show()
                     
 def correct_elem_key(key: str) -> tuple:
@@ -164,7 +194,8 @@ def correct_elem_key(key: str) -> tuple:
     return (int(elem_1), int(elem_2))
                     
 def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict, 
-                           data_1_label: str, data_2_label: str, dest: str) -> None:
+                           data_1_label: str, data_2_label: str, dest: str,
+                           x_major: int = 1, x_minor: float = 0.1) -> None:
     r"""Extracts and plots the repulsive blocks of a set of SKFs in an overlay format
     
     Arguments:
@@ -172,7 +203,12 @@ def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict,
         pardict_2 (Dict): The dictionary with SKFInfo for the second SKF set
         data_1_label (str): The label for the plots of the first data
         data_2_label (str): The label for the plots of the second set of data
-        dest (str): Where to save the plots
+        dest (str): Where to save the plots. If dest is set to None,
+            the figures are not saved (useful for debugging).
+        x_major (int): The argument used for major multiple locator (increments
+             for major tick marks)
+        x_minor (float): the argument used for minor multiple locator (increments
+             for minor tick marks)
     
     Returns:
         None
@@ -205,10 +241,82 @@ def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict,
         #   going to be important for figuring out spline
         #   differences. y-axis vlaues
         axs.yaxis.set_minor_locator(AutoMinorLocator())
-        axs.xaxis.set_major_locator(MultipleLocator(1))
-        axs.xaxis.set_minor_locator(MultipleLocator(0.1))
-        fig.savefig(os.path.join(dest, f"{title}.png"))
+        axs.xaxis.set_major_locator(MultipleLocator(x_major))
+        axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+        if (dest is not None):
+            fig.savefig(os.path.join(dest, f"{title}.png"))
         plt.show()
+
+def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict],
+                          x_major: int = 1, x_minor: float = 0.1) -> None:
+    r"""Plots an SKF set with the distance distribution overlayed. 
+    
+    Arguments:
+        skf_set (SKFSet): The SKF set to be plotted
+        dest (str): Where to save plots. If the dest is set as None, plots will
+            not be saved
+        mode (str): The mode to be used for plotting ('scatter' or 'plot')
+        dset (List[Dict]): The dataset whose distance distribution will be 
+            plotted underneath. Fed in as a list of molecule dictionaries
+        x_major (int): The argument used for major multiple locator (increments
+             for major tick marks)
+        x_minor (float): the argument used for minor multiple locator (increments
+             for minor tick marks)
+    
+    Returns:
+        None
+    
+    Notes: The distance distribution histogram will be based on the incrementation
+        defined by x_major and x_minor. The bin width will be set to x_minor, and 
+        bin spacing is taken from this question:
+            
+        https://stackoverflow.com/questions/6986986/bin-size-in-matplotlib-histogram
+        
+        For overlaying plots with different axes, we use twinx(), as described
+        here: https://matplotlib.org/stable/gallery/subplots_axes_and_figures/two_scales.html#sphx-glr-gallery-subplots-axes-and-figures-two-scales-py
+    """
+    d_distr = get_dist_distribution(dset)
+    
+    all_ops = ['H', 'S'] #Hamiltonian and overlap operators
+    for elem_pair in skf_set.keys():
+        for op in all_ops:
+            for int_name in getattr(skf_set[elem_pair], op).keys():
+                if (not empty_int(getattr(skf_set[elem_pair], op)[int_name]) ):
+                    fig, axs = plt.subplots()
+                    title = f"{elem_pair}, {op}, {int_name}"
+                    axs.set_title(title)
+                    axs.set_xlabel("Angstroms")
+                    if op == 'H':
+                        axs.set_ylabel("Hartrees")
+                    elif op == 'S':
+                        axs.set_ylabel("A.U.")
+                        
+                    #Now plot out the histogram of distances
+                    elem_rev = (elem_pair[-1], elem_pair[0])
+                    curr_dist_data = d_distr[elem_pair] if elem_pair in d_distr else d_distr[elem_rev]
+                    bins = np.arange( min(curr_dist_data), max(curr_dist_data) + x_minor, x_minor)
+                    print( min(curr_dist_data), max(curr_dist_data) )
+                    axs2 = axs.twinx()
+                    axs2.hist(curr_dist_data, bins = bins, color = 'red', alpha = 0.3)
+                    axs2.set_ylabel("Frequency")
+                    
+                    #Plot the spline second
+                    plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode)
+                    #In plotting these graphs, the distance along the x-axis is
+                    #   going to be important for figuring out spline
+                    #   differences. y-axis vlaues
+                    axs.yaxis.set_minor_locator(AutoMinorLocator())
+                    axs.xaxis.set_major_locator(MultipleLocator(x_major))
+                    axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+                    if (dest is not None):
+                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                    plt.show()
+    
+    
+    
+    
+    
+    
         
         
         

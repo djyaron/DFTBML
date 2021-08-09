@@ -45,11 +45,11 @@ all_losses = {
     "charges" : ChargeLoss()
     
     }
-all_losses['convex'].clear_class_dicts()
+# all_losses['convex'].clear_class_dicts()
 losses = {
     
     "Etot" : 6270,
-    "convex" : 1000,
+    "convex" : 100,
     "dipole" : 100,
     "charges" : 100
 
@@ -229,13 +229,13 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "single_epoch_skf_test/Split0/saved_models.p"
-    ref_filename = "single_epoch_skf_test/ref_params.p"
+    mod_filename = "lower_convex_penalty/Split0/saved_models.p"
+    ref_filename = "lower_convex_penalty/ref_params.p"
     all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
     
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    skf_dir = os.path.join(os.getcwd(), "single_epoch_skf_test")
+    skf_dir = os.path.join(os.getcwd(), "lower_convex_penalty")
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, parse = 'detailed')
     
@@ -245,7 +245,7 @@ if __name__ == "__main__":
         
     print(f"MAE error in Ha: {sum(disagreements) / len(disagreements)}")
     
-    # with open("sparse_skf/sparse_skf_comp.p", "wb") as handle:
-    #     pickle.dump(all_mols, handle)
+    with open("lower_convex_penalty/saved_model_driver_result.p", "wb") as handle:
+        pickle.dump(all_mols, handle)
     
 

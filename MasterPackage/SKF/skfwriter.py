@@ -905,6 +905,7 @@ def write_skfs(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_b
         else:
             print("Extracting S block")
             s_block = extract_S_content(Zs, content, ngrid)
+            s_block = s_block.astype('float64') #Convert to floating point numbers if extracting
         h_block = compute_H(Zs, all_models, grid_dist, ngrid)
         HS_header = construct_header(Zs, all_models, atom_masses, grid_dist, ngrid, content)
         header_dict = assemble_final_header_dict(h_block, s_block, HS_header, Zs[0] == Zs[1])

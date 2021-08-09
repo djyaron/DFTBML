@@ -536,10 +536,10 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, device: torch.d
             curr_H = np_Hs[i]
             curr_G = np_Gs[i] if np_Gs is not None else None
             curr_S = np_Ss[i] if np_Ss is not None else None
-            if (curr_G is None):
-                print("G is not included in charge update")
-            if (curr_S is None):
-                print("S is not included in charge update")
+            # if (curr_G is None):
+            #     print("G is not included in charge update")
+            # if (curr_S is None):
+            #     print("S is not included in charge update")
             newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G, newS = curr_S) #Modelling both S and G
             newQ, occ_rho_mask_upd = torch.tensor(newQ, dtype = dtype, device = device).unsqueeze(1), torch.tensor(occ_rho_mask_upd, dtype = dtype, device = device)
             feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead

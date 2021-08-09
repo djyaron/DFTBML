@@ -11,11 +11,14 @@ import pickle
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-from matplotlib.ticker import AutoMinorLocator
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+from typing import Union
 
 #%% Code behind
 
-def visualize_loss_tracker(lt_filename: str, dest_dir: str) -> None:
+def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot', 
+                           scale: str = 'normal', y_major: Union[int, float] = 1,
+                           y_minor: Union[int, float] = 0.1) -> None:
     r"""Reads in a loss tracker from a pickle file and generates graphs of
         the losses
         
@@ -23,6 +26,17 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str) -> None:
         lt_filename (str): The filename/path of the loss tracker
         dest_dir (str): The path to the destination directory where the 
             plots are saved.
+        mode (str): The mode to use when plotting out the losses. One of 'plot'
+            or 'scatter' for plotting a line plot or plotting a scatter plot, 
+            respectively. Defaults to 'plot'.
+        scale (str): The scaling to use for the y-axis of the loss. One of
+            'normal' or 'log', where 'normal' does not transform the values in
+            any way but 'log' transforms the values by taking the base 10 logarithm
+            of the loss. Defaults to 'normal'
+        y_major (Union[int, float]): The incrementation for the major tick marks
+            on the y-axis. Defaults to 1.
+        y_minor (Union[int, float]): The incrementation for the minor tick marks
+            on the y-axis. Defaults to 0.1.
     
     Returns:
         None
@@ -37,12 +51,19 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str) -> None:
         fig, axs = plt.subplots()
         validation_loss = loss_tracker[loss][0]
         training_loss = loss_tracker[loss][1]
+        if scale == 'log':
+            validation_loss = np.log10(validation_loss)
+            training_loss = np.log10(training_loss)
         axs.plot(validation_loss, label = "Validation loss")
         axs.plot(training_loss, label = "Training loss")
         axs.set_title(f"{loss} loss")
-        axs.set_ylabel("Average Epoch Loss (unitless)")
+        if scale == 'normal':
+            axs.set_ylabel("Average Epoch Loss (unitless)")
+        elif scale == 'log':
+            axs.set_ylabel("Log average epoch loss (unitless)")
         axs.set_xlabel("Epoch")
-        axs.yaxis.set_minor_locator(AutoMinorLocator())
+        axs.yaxis.set_minor_locator(MultipleLocator(y_minor))
+        axs.yaxis.set_major_locator(MultipleLocator(y_major))
         axs.xaxis.set_minor_locator(AutoMinorLocator())
         axs.legend()
         fig.savefig(os.path.join(dest_dir, f"{loss}_loss.png"))
