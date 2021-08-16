@@ -24,6 +24,8 @@ import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from .util import get_dist_distribution
 import numpy as np
+from .pardict_gen import generate_pardict
+from functools import reduce
 
 nums = { #Switch this out with MasterConstants later
         'H' : 1,
@@ -311,16 +313,131 @@ def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict
                     if (dest is not None):
                         fig.savefig(os.path.join(dest, f"{title}_skf.png"))
                     plt.show()
-    
-    
-    
-    
-    
-    
-        
-        
-        
 
+def infer_elements(elems: List[tuple]) -> List[int]:
+    r"""Given a list of element tuples, infers all the unique elements
+        within the list elems.
     
+    Arguments:
+        elems (List[tuple]): The pairwise list of elements that are 
+            involved in the SKF files.
+        
+    Returns:
+        elem_nums (List[int]): The list of atomic numbers corresponding to 
+            each of those unique elements.
+    
+    Example:
+        elems = [(1,1), (1,6), (6,7), (7,7)]
+        res = infer_elements(elems)
+        res == [1, 6, 7]
+    """
+    l_iter = map(lambda x : list(x), elems)
+    f_iter = reduce(lambda x, y : x + y, l_iter)
+    elem_nums = sorted(set(f_iter))
+    return elem_nums
+
+def extract_orb(integral_name: str) -> str:
+    r"""Given an integral label, extracts the involved orbitals from the 
+        interaction.
+        
+    Arguments: 
+        integral_name (str): The name of the integral
+    
+    Returns:
+        orb (str): The orbital type
+    
+    Example:
+        name = "Spp0"
+        orb = extract_elem(name)
+        orb == "pp_sigma"
+    """
+    assert(len(integral_name) == 4)
+    op, orb, orb_num = integral_name[0], integral_name[1:-1], int(integral_name[-1])
+    ind_shell = ['pp']
+    if orb in ind_shell:
+        orb = orb + "_sigma" if orb_num == 0 else orb + "_pi"
+    return orb
+
+def skf_interpolation_plot(skf_dir: str, mode: str, dest: str = None) -> None:
+    r"""Reads in a set of SKF files and plots an overlay of the SKF
+        integral table and the form of the interpolated spline generated
+        by dftbpy
+        
+    Arguments:
+        skf_dir (str): The path to the directory containing the SKF files
+        mode (str): The mode to use for plotting. One of 'scatter' or 'plot'
+        dest (str): The destination to save the plots to. Defaults to None,
+            in which case the plots are not saved.
+    
+    Returns:
+        None
+    
+    Notes: This function is written for debugging. The goal is to see the 
+        discrepancies between the spline in the SKF (as represented as a series of values
+        on an integral table) and the spline that is interpolated from that SKF 
+        table. The hypothesis is that there is more of a discrepancy when splines are
+        read in than when written out. 
+        
+        This makes sense because interpolation involves a smooth function,
+        so if the values on the integral table encode a kinked functional 
+        form, the interpolation error on reading in would lead to discrepancies.
+        
+        This problem does not involve the repulsive splines and only involves
+        the quantum electronic Hamiltonian. 
+    
+    Example:
+        skf_dir = "zero_epoch_run"
+        mode = "plot"
+        dest = None
+        skf_interpolation_plot(skf_dir, mode, dest)
+        #Splines should overlay exactly for zero_epoch_run
+    """
+    skfset = SKFSet.from_dir(skf_dir)
+    elem_pairs = list(skfset.keys())
+    elem_nums = infer_elements(elem_pairs)
+    
+    par_dict = generate_pardict(skf_dir, elem_nums)
+    assert(len(par_dict.keys()) == len(skfset.keys()))
+    
+    #Now to actually plot everything together.
+    all_ops = ['H', 'S']
+    for elem_pair in skfset.keys():
+        curr_skf = skfset[elem_pair]
+        for op in all_ops:
+            for int_name in getattr(curr_skf, op).keys():
+                if not (empty_int(getattr(curr_skf, op)[int_name])):
+                    fig, axs = plt.subplots()
+                    title = f"{elem_pair}, {op}, {int_name}"
+                    axs.set_title(title)
+                    axs.set_xlabel("Angstroms")
+                    if op == 'S':
+                        axs.set_ylabel("A.U.")
+                    elif op == 'H':
+                        axs.set_ylabel("Hartrees")
+                    plot_skf_int(elem_pair, op, int_name, skfset, axs, label = "skf_table",
+                                 mode = mode)
+                    #Now to plot the values from the parameter dictionary
+                    rgrid = (curr_skf.intGrid() / ANGSTROM2BOHR)  #rgrid in angstroms
+                    orb = extract_orb(int_name)
+                    model = Model(op, elem_pair, orb)
+                    ygrid = get_dftb_vals(model, par_dict, rgrid)
+                    if mode == 'scatter':
+                        axs.scatter(rgrid, ygrid, label = "interpolated spline")
+                    elif mode == 'plot':
+                        axs.plot(rgrid, ygrid, label = "interpolated spline")
+                    axs.legend()
+                    if (dest is not None):
+                        fig.savefig(os.path.join(os.getcwd(), dest, f"{title}_skf.png"))
+                    plt.show()
+                    #Also do a comparison of the ygrid values to the values 
+                    #   read in from the SKF files:
+                    numpy_skf = getattr(curr_skf, op)[int_name].to_numpy()
+                    MAE = np.mean(np.abs(numpy_skf - ygrid))
+                    print(f"MAE difference in values is {MAE}")
+                    #Of course this comparison is going to be nearly exact!
+                    #   the SKFInfo backend uses an InterpolatedUnivariateSpline
+                    #   whose points are the grid points of the SKF integrl table.
+                    #   if rgrid was not the same as the set of SKF grid points,
+                    #   I'm sure a greater difference would emerge. 
 
 

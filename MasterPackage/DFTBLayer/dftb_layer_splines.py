@@ -35,6 +35,7 @@ from .batch import create_batch, create_dataset, DFTBList
 from MasterConstants import Model
 
 from Spline import SplineModel, JoinedSplineModel
+from DFTBpy import _Gamma12
 
 from typing import List, Dict
 Tensor = torch.Tensor
@@ -325,7 +326,7 @@ class DFTB_Layer:
         self.method = eig_method
         self.repulsive_method = repulsive_method
     
-    def forward(self, data_input: Dict, all_models: Dict) -> Dict:
+    def forward(self, data_input: Dict, all_models: Dict, mode: str = 'train') -> Dict:
         r"""Forward pass through the DFTB layer to generate molecular properties
         
         Arguments: 
@@ -333,6 +334,9 @@ class DFTB_Layer:
                 through the network
             all_models (Dict): The dictionary containing references to all the spline 
                 model objects being used to predict operator elements
+            mode (str): The mode being used with the layer. One of 'train' and 
+                'eval', where 'train' means the model is being trained and 'eval'
+                means the model is being evaluated.
         
         Returns:
             calc (Dict): A dictionary contianing the molecular properties predicted from the 
@@ -343,11 +347,49 @@ class DFTB_Layer:
         Notes: The DFTB layer operations are separated into 5 stages: forming the initial input layer,
             performing Slater-Koster rotations, assembling values into operators, constructing the fock operators, and
             solving the generalized eigenvalue problem for the the fock operator. 
+            
+            The mode argument is necessary because when training the models, there is a 
+            cutoff that is used when invoking the get_values() method of the spline
+            models in all_models. However, when evaluating the model, we want 
+            the predictions to be generated accurately for the entire distance 
+            range, not only for those values of r < cutoff.
         """
         model_vals = list()
+        mod_val_disagreements = []
         #Maybe won't need additional filtering here if going off feed['models']
-        for model_spec in data_input['models']: 
-            model_vals.append( all_models[model_spec].get_values(data_input[model_spec]) )
+        if mode == 'train':
+            for model_spec in data_input['models']: 
+                model_vals.append( all_models[model_spec].get_values(data_input[model_spec]) )
+        elif mode == 'eval':
+            for model_spec in data_input['models']:
+                curr_model = all_models[model_spec]
+                if hasattr(curr_model, "pairwise_linear_model"):
+                    curr_mod_raw = data_input['mod_raw'][model_spec]
+                    distances = np.array([elem.rdist for elem in curr_mod_raw])
+                    dgrids_consts = curr_model.pairwise_linear_model.linear_model(distances, 0)
+                    A, b = dgrids_consts
+                    A = torch.tensor(A, dtype = self.dtype, device = self.device)
+                    b = torch.tensor(b, dtype = self.dtype, device = self.device)
+                    variables = curr_model.get_variables()
+                    predictions = torch.matmul(A, variables) + b
+                    model_vals.append(predictions)
+                elif (model_spec.oper == 'G') and (len(model_spec.Zs) == 1) and (len(model_spec.orb) == 2)\
+                    and (model_spec.orb[0] != model_spec.orb[1]):
+                    #Specifically singling out the cases such as Model(oper = 'G', Zs = (7,), orb = 'ps')
+                    #This is only for debugging. Also need to isolate the 
+                    #Model("G", (1, ), 'ss') because there is no Model("G", (1, ), 's')
+                    curr_mod_raw = data_input['mod_raw'][model_spec]
+                    hub1_mod = Model("G", model_spec.Zs, model_spec.orb[0] * 2)
+                    hub2_mod = Model("G", model_spec.Zs, model_spec.orb[1] * 2)
+                    hub1 = all_models[hub1_mod].get_variables()[0].detach().item()
+                    hub2 = all_models[hub2_mod].get_variables()[0].detach().item()
+                    result = np.repeat(_Gamma12(0.0, hub1, hub2), len(curr_mod_raw))
+                    result = torch.tensor(result, dtype = self.dtype, device = self.device)
+                    model_vals.append(result)
+                else:
+                    model_vals.append(curr_model.get_values(data_input[model_spec]))
+        else:
+            raise ValueError("Unrecognized mode for method forward()")
         net_vals = torch.cat(model_vals)
         calc = OrderedDict() 
         ## SLATER-KOSTER ROTATIONS ##

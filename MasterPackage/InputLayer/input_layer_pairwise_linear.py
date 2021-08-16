@@ -12,6 +12,8 @@ Array = np.ndarray
 from Spline import SplineModel, get_dftb_vals, fit_linear_model
 import torch
 Tensor = torch.Tensor
+import matplotlib.pyplot as plt #For debugging purposes
+from matplotlib.ticker import MultipleLocator
 
 #%% Code behind
 
@@ -62,7 +64,7 @@ class Input_layer_pairwise_linear:
             their gradients are initialized to allow training.
         """
         self.model = model
-        self.pairwise_linear_model= pairwise_linear_model
+        self.pairwise_linear_model = pairwise_linear_model
         self.cutoff = cutoff
         self.dtype = dtype
         self.device = device
@@ -77,6 +79,13 @@ class Input_layer_pairwise_linear:
         y_diff = np.abs(ypred - ygrid)
         print(f"Maximum absolute difference (kcal/mol): {np.max(y_diff) * 627}")
         print(f"MAE difference (kcal/mol): {np.mean(y_diff) * 627}")
+        
+        fig, axs = plt.subplots()
+        axs.plot(rgrid, ygrid, label = "SKF integral table")
+        axs.plot(rgrid, ypred, label = "Interpolated integral table")
+        axs.xaxis.set_minor_locator(MultipleLocator(0.1))
+        axs.legend()
+        plt.show()
         
         ### TESTING CODE, REMOVE THIS CONDITIONAL LATER! INITIALIZING REPULSIVE
         ### VARIABLES TO A VECTOR OF 0'S

@@ -316,7 +316,7 @@ def run_layer_tests():
     ani1_path = os.path.join(os.getcwd(), "test_files", "ANI-1ccx_clean_fullentry.h5")
     skf_path_au = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
     skf_path_mio = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
-    skf_path_home = os.path.join(os.getcwd(), "TestSKF", "skf_8020_100knot_new_repulsive_eachepochupdate")
+    skf_path_home = os.path.join(os.getcwd(), "TestSKF", "skf_8020_no_trained_S")
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
     
     s_obj = parse_input_dictionaries(settings_filename, defaults_filename)
@@ -325,36 +325,36 @@ def run_layer_tests():
     par_dict_mio = MIO_0_1.ParDict()
     par_dict_home = TestSKF.ParDict()
     
-    # print("With Home skfs...")
+    print("With Home skfs...")
     
-    # passed_G ,mean_G_total = test_G_agreement(s_obj, tol_G, skf_path_home, ani1_path, par_dict_home)
-    # passed_G_diag, mean_G_diag = test_G_diag_agreement(s_obj, tol_G, skf_path_home, ani1_path, par_dict_home)
-    # passed, vals = test_agreement(s_obj, tol_Val, skf_path_home, exec_path, ani1_path, par_dict_home)
-    # our_dftb_vs_dftbplus, dftb_layer_vs_dftbplus, dftb_layer_vs_our_dftb, dftb_layer_elec_vs_our_dftb_elec, dftb_layer_rep_vs_our_dftb_rep = vals
+    passed_G ,mean_G_total = test_G_agreement(s_obj, tol_G, skf_path_home, ani1_path, par_dict_home)
+    passed_G_diag, mean_G_diag = test_G_diag_agreement(s_obj, tol_G, skf_path_home, ani1_path, par_dict_home)
+    passed, vals = test_agreement(s_obj, tol_Val, skf_path_home, exec_path, ani1_path, par_dict_home)
+    our_dftb_vs_dftbplus, dftb_layer_vs_dftbplus, dftb_layer_vs_our_dftb, dftb_layer_elec_vs_our_dftb_elec, dftb_layer_rep_vs_our_dftb_rep = vals
     
-    # print()
-    # print()
-    # print()
+    print()
+    print()
+    print()
     
-    # print(f"Average disagreement between our dftb and dftb+ on total energy (kcal/mol): {our_dftb_vs_dftbplus}")
-    # print(f"Average disagreement between dftb layer and dftb+ on total energy (kcal/mol): {dftb_layer_vs_dftbplus}")
-    # print(f"Average disagreement between dftb layer and our dftb on total energy (kcal/mol): {dftb_layer_vs_our_dftb}")
-    # print(f"Average disagreement between dftb layer and our dftb on electronic energy (kcal/mol): {dftb_layer_elec_vs_our_dftb_elec}")
-    # print(f"Average disagreement between dftb layer and our dftb on repulsive energy (kcal/mol): {dftb_layer_rep_vs_our_dftb_rep}")
+    print(f"Average disagreement between our dftb and dftb+ on total energy (kcal/mol): {our_dftb_vs_dftbplus}")
+    print(f"Average disagreement between dftb layer and dftb+ on total energy (kcal/mol): {dftb_layer_vs_dftbplus}")
+    print(f"Average disagreement between dftb layer and our dftb on total energy (kcal/mol): {dftb_layer_vs_our_dftb}")
+    print(f"Average disagreement between dftb layer and our dftb on electronic energy (kcal/mol): {dftb_layer_elec_vs_our_dftb_elec}")
+    print(f"Average disagreement between dftb layer and our dftb on repulsive energy (kcal/mol): {dftb_layer_rep_vs_our_dftb_rep}")
     
-    # print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule: {mean_G_total}")
+    print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule: {mean_G_total}")
     
-    # print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule ALONG THE DIAGONAL: {mean_G_diag}")
+    print(f"Average disagreement between dftb layer gamma and our dftb gamma, average sum of elemment-wise differences per molecule ALONG THE DIAGONAL: {mean_G_diag}")
     
 
-    # assert(passed_G)
-    # print("Passed test_G_agreement")
-    # assert(passed_G_diag)
-    # print("Passed test_G_diag_agreement")
-    # assert(passed)
-    # print("Passed test_agreement")
+    assert(passed_G)
+    print("Passed test_G_agreement")
+    assert(passed_G_diag)
+    print("Passed test_G_diag_agreement")
+    assert(passed)
+    print("Passed test_agreement")
     
-    # print("Passed with Home SKFS")
+    print("Passed with Home SKFS")
     
     print("With Auorg skfs...")
     
