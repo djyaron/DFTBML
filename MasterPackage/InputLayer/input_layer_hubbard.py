@@ -46,10 +46,21 @@ class Input_layer_hubbard:
             
             Because the OffDiagModel uses the same variables as the diagonal models,
             it will not have its variables added to the model_variables dictionary.
+            
+            There is a wrinkle with the models pertaining to single elements but
+            involving orbital mixing for the element, e.g. Model(G, (6,), 'ps').
+            Even though this model only contains one element, it requires the use of 
+            two separate models for generating the value, one model for the 
+            p orbital on the carbon atom and one model for the s orbital on the carbon 
+            atom. The only models that are not handled by input_layer_hubbard are
+            models like Model(G, (6,), 'ss') where len(model.Zs) == 1 and model.orb[0] == model.orb[1].
         """
-        if len(model.Zs) < 2: 
-            return
-        elem1, elem2 = model.Zs
+        if (len(model.Zs) == 1) and (model.orb[0] == model.orb[1]): 
+            return #These models should be handled by input_layer_value
+        if len(model.Zs) == 2:
+            elem1, elem2 = model.Zs
+        elif len(model.Zs) == 1:
+            elem1, elem2 = model.Zs[0], model.Zs[0]
         orb1, orb2 = model.orb[0], model.orb[1]
         oper = model.oper
         if oper == 'G':

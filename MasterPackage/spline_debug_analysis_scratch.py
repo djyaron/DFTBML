@@ -27,14 +27,14 @@ mols0 = pickle.load(open("fold_molecs_test_8020/Fold0_molecs.p", "rb"))
 mols1 = pickle.load(open("fold_molecs_test_8020/Fold1_molecs.p","rb"))
 dset = mols0 + mols1
 
-skf_path = "skf_full_pairwise_linear"
+skf_path = "super_sparse_knots_run"
 dest = skf_path + "/skf_plots"
 if (not os.path.isdir(dest)):
     os.mkdir(dest)
 
 skfset = read_skf_set(skf_path)
 
-plot_skf_dist_overlay(skfset, dest = None, mode = 'plot', dset = dset)
+plot_skf_dist_overlay(skfset, dest = dest, mode = 'plot', dset = dset)
 
 ##############################################################################
 
@@ -730,11 +730,15 @@ for feed in all_feeds:
                 if d > cutoff:
                     num_greater += 1
 
+##############################################################################
+#%% Comparing differences between low cutoff and long cutoff corrected
+from PlottingUtil import compare_differences
 
-            
-    
+set1_name = "corrected_model_architecture_run"
+set2_name = "higher_cutoff_run"
+dest = "cmar_v_hcr_diff_plots"
 
-
+compare_differences(set1_name, set2_name, dest, "scatter", units = 'kcal')
 
 
 

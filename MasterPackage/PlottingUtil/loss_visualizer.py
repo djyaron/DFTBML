@@ -9,12 +9,33 @@ Module for visualizing information stored in the loss tracker framework
 #%% Imports, definitions
 import pickle 
 import numpy as np
+Array = np.ndarray
 import os
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from typing import Union
 
 #%% Code behind
+def exceeds_tick_limit(loss: Array, increment: Union[int, float], limit: int = 1000) -> bool:
+    r"""Checks that using the proposed minor axis incrementation, the 
+        number of tick marks does not exceed a certain limit.
+    
+    Arguments:
+        loss (Array): The array of loss values
+        increment (Uniont[int, float]): The incrementation for the minor axis
+        limit (int): The limit for an acceptable number of tick marks. Defaults
+            to 1000
+    
+    Returns:
+        bool: Whether the proposed number of ticks exceeds the tick limit
+    
+    Notes:
+        It is recommended to do this calculation based on the 
+            minor axis incrementation.
+    """
+    max_val, min_val = max(loss), min(loss)
+    diff = max_val - min_val
+    return diff / increment > limit
 
 def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot', 
                            scale: str = 'normal', y_major: Union[int, float] = 1,
@@ -25,7 +46,7 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
     Arguments:
         lt_filename (str): The filename/path of the loss tracker
         dest_dir (str): The path to the destination directory where the 
-            plots are saved.
+            plots are saved. If set to None, then the plots are not saved.
         mode (str): The mode to use when plotting out the losses. One of 'plot'
             or 'scatter' for plotting a line plot or plotting a scatter plot, 
             respectively. Defaults to 'plot'.
@@ -41,7 +62,7 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
     Returns:
         None
     """
-    if (not os.path.isdir(dest_dir)):
+    if (dest_dir is not None) and (not os.path.isdir(dest_dir)):
         os.mkdir(dest_dir)
     
     with open(lt_filename, 'rb') as handle:
@@ -62,11 +83,19 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
         elif scale == 'log':
             axs.set_ylabel("Log average epoch loss (unitless)")
         axs.set_xlabel("Epoch")
-        axs.yaxis.set_minor_locator(MultipleLocator(y_minor))
-        axs.yaxis.set_major_locator(MultipleLocator(y_major))
+        if exceeds_tick_limit(validation_loss, y_minor) or\
+            exceeds_tick_limit(training_loss, y_minor):
+                y_minor_temp = y_minor * 10
+                y_major_temp = y_major * 10
+                axs.yaxis.set_minor_locator(MultipleLocator(y_minor_temp))
+                axs.yaxis.set_major_locator(MultipleLocator(y_major_temp))
+        else:
+            axs.yaxis.set_minor_locator(MultipleLocator(y_minor))
+            axs.yaxis.set_major_locator(MultipleLocator(y_major))
         axs.xaxis.set_minor_locator(AutoMinorLocator())
         axs.legend()
-        fig.savefig(os.path.join(dest_dir, f"{loss}_loss.png"))
+        if dest_dir is not None:
+            fig.savefig(os.path.join(dest_dir, f"{loss}_loss.png"))
         plt.show()
     
     total_val_loss = np.zeros(len(loss_tracker['Etot'][0]))
@@ -84,10 +113,12 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
     axs.yaxis.set_minor_locator(AutoMinorLocator())
     axs.xaxis.set_minor_locator(AutoMinorLocator())
     axs.legend()
-    fig.savefig(os.path.join(dest_dir, "Total_loss.png"))
+    if dest_dir is not None:
+        fig.savefig(os.path.join(dest_dir, "Total_loss.png"))
     plt.show()
     
-    print("All loss graphs saved")
+    if dest_dir is not None:
+        print("All loss graphs saved")
 
 
     

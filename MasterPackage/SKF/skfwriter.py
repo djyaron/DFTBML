@@ -123,20 +123,30 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
         the H and S operators, this is fine.
     """
     spline_model = all_models[model_spec]
-    dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
+    cutoff_val = spline_model.cutoff
+    inonzero = np.where(rgrid <= cutoff_val)[0]
+    izero = np.where(rgrid > cutoff_val)[0]
+    assert(len(inonzero) + len(izero) == len(rgrid))
+    xnonzero = rgrid[inonzero]
+    A, b = spline_model.pairwise_linear_model.linear_model(xnonzero)
+    
+    # dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
     model_variables = spline_model.get_variables().detach().cpu().numpy()
     if hasattr(spline_model, "joined"):
         fixed_coefs = spline_model.get_fixed().detach().cpu().numpy()
         model_variables = np.concatenate((model_variables, fixed_coefs))
-    y_vals = np.dot(dgrids_consts[0], model_variables) + dgrids_consts[1]
+    y_vals = np.dot(A, model_variables) + b
     # Instead of 0's, pad the front dummy values with the first non-zero 
     # values to allow for smoother spline interpolation
+    #Does this cause issues??
     ind = 0
     for index, elem in enumerate(y_vals):
         if elem != 0:
             ind = index
             break
     y_vals[:ind] = y_vals[ind]
+    y_vals = np.hstack((y_vals, np.zeros(len(izero)))) #Add on the zeros
+    assert(len(y_vals) == len(rgrid))
     # Plot the values as a scatter to see what's being written to the skf
     # files as a debugging step
     # fig, ax = plt.subplots()

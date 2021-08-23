@@ -82,7 +82,7 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
         model_variables = established_variables
     
     #Perform range correction
-    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, universal_high = s.universal_high)
+    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, s.cutoff_dictionary, s.joined_cutoff)
     
     #Generate feeds and perform type conversions
     feed_generation(training_feeds, training_batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg,

@@ -413,9 +413,9 @@ def compute_results_torch(dataset: List[Dict], target: str, allowed_Zs: List[int
         true_target = np.array([molec['predictions'][target] for molec in dataset])
     diff = true_target - predicted_target
     if error_metric == "RMS":
-        return np.sqrt(np.mean(np.square(diff))) 
+        return diff, np.sqrt(np.mean(np.square(diff))) 
     elif error_metric == "MAE":
-        return np.mean(np.abs(diff))
+        return diff, np.mean(np.abs(diff))
 
 def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: List[int], 
                                  atypes: tuple, coefs: Array, intercept: float, error_metric: str = "MAE") -> float:
@@ -440,6 +440,6 @@ def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: L
     predicted_target = predicted_dt + (np.dot(XX, coefs) + intercept)
     true_target = np.array([molec['targets'][target] for molec in dataset])
     if error_metric == "RMS":
-        return np.sqrt(np.mean(np.square(true_target - predicted_target)))
+        return true_target - predicted_target, np.sqrt(np.mean(np.square(true_target - predicted_target)))
     elif error_metric == "MAE":
-        return np.mean(np.abs(true_target - predicted_target))
+        return true_target - predicted_target, np.mean(np.abs(true_target - predicted_target))

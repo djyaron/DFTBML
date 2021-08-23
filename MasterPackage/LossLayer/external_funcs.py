@@ -43,6 +43,8 @@ def compute_mod_vals_derivs(all_models: Dict, par_dict: Dict, ngrid: int = 200,
         
         This computation is based on what the models should look like from the dftb slater-koster parameters
         alone. This is necessary to determine the correct concavity and curvature later on.
+        
+        The boundary conditions here are natural, i.e. second derivative goes to zero at both end points.
     """
     model_spline_dict = dict()
     for model in all_models:

@@ -70,7 +70,7 @@ def single_fold_precompute(s, molecs: List[Dict], par_dict: Dict) -> (List[Dict]
                                                                                s.allowed_Zs, losses, s.tensor_device, s.tensor_dtype, ref_ener_start = s.reference_energy_starting_point)
     
     print("Performing model range correction")
-    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, universal_high = s.universal_high)
+    model_range_dict = model_range_correction(model_range_dict, s.low_end_correction_dict, s.cutoff_dictionary, s.joined_cutoff)
     
     feed_generation(feeds, batches, all_losses, all_models, model_variables, model_range_dict, par_dict, s.spline_mode, s.spline_deg, 
                     s.tensor_device, s.tensor_dtype, s.debug, False, 

@@ -15,6 +15,10 @@ from Precompute import precompute_stage
 from Training import training_loop, exclude_R_backprop, write_output_skf, \
     write_output_lossinfo, check_split_mapping_disjoint, sort_gammas_ctracks
 import time, pickle
+from MasterConstants import Model #For debugging
+from Spline import get_dftb_vals #For debugging
+import torch #For debugging
+from InputLayer import Input_layer_pairwise_linear
 
 #%% Code behind
 def run_training(settings_filename: str, defaults_filename: str, skf_method: str = 'old'):
@@ -42,6 +46,55 @@ def run_training(settings_filename: str, defaults_filename: str, skf_method: str
     for i in range(num_splits):
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
+        
+        ### Debugging code for testing out proper formulation of the on-atom G models ( e.g. Model("G", (7,), 'ps') )
+        g_mods = [mod for mod in all_models if (not isinstance(mod, str)) and (len(mod.Zs) == 1) and (mod.oper == "G")]
+        match = [mod for mod in g_mods if mod.orb[0] == mod.orb[1]]
+        non_match = [mod for mod in g_mods if mod.orb[0] != mod.orb[1]]
+        assert(len(match) + len(non_match) == len(g_mods))
+        assert(len(g_mods) == 10 and len(match) == 7)
+        for mod_spec in match:
+            assert(mod_spec in model_variables)
+            assert(mod_spec in all_models)
+        for mod_spec in non_match:
+            assert(mod_spec not in model_variables)
+            assert(mod_spec in all_models)
+        for mod_spec in non_match:
+            orb1, orb2 = mod_spec.orb[0], mod_spec.orb[1]
+            orb1, orb2 = orb1 * 2, orb2 * 2
+            m1 = Model("G", mod_spec.Zs, orb1)
+            m2 = Model("G", mod_spec.Zs, orb2)
+            variables = all_models[mod_spec].get_variables()
+            assert(variables[0] is model_variables[m1])
+            assert(variables[1] is model_variables[m2])
+        
+        tst_feed_dict = {
+            "zero_indices" : torch.tensor([0,1]),
+            "nonzero_indices" : torch.tensor([]),
+            "nonzero_distances" : torch.tensor([])
+            }
+        for mod_spec in non_match:
+            mod_pred_value = all_models[mod_spec].get_values(tst_feed_dict)[0].item()
+            dftb_val = get_dftb_vals(mod_spec, s_obj.par_dict_name)[0]
+            assert(mod_pred_value == dftb_val)
+        
+        all_models_keys = set(all_models.keys())
+        model_variables_keys = set(model_variables.keys())
+        for elem in all_models_keys - model_variables_keys:
+            assert(elem.oper == "G" and (len(elem.Zs) == 2 or (elem.orb[0] != elem.orb[-1])))
+        for elem in model_variables_keys - all_models_keys:
+            assert(elem.oper == "S" and 'inflect' in elem.orb)
+        assert(len(all_models_keys - model_variables_keys) == 31)
+        assert(len(model_variables_keys - all_models_keys) == 34)
+        
+        for model in all_models:
+            if isinstance(all_models[model], Input_layer_pairwise_linear):
+                if model.oper == "R":
+                    assert(all_models[model].cutoff == 2.2)
+                    assert(all_models[model].pairwise_linear_model.xknots[-1] == 2.2)
+                else:
+                    assert(all_models[model].cutoff == 4.5)
+                    assert(all_models[model].pairwise_linear_model.xknots[-1] == 4.5)
         
         train_gammas, train_c_trackers, valid_gammas, valid_c_trackers = None, None, None, None
         #Exclude the R models if new rep setting

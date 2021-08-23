@@ -101,15 +101,15 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
     add_dftb(dataset, skf_dir, exec_path, pardict, do_dftbpy, do_dftbplus, fermi_temp, parse, dispersion)
     #Case based on what kind of repulsive model is being used
     if rep_setting == 'old':
-        error = compute_results_torch(dataset, target, allowed_Zs, error_metric)
+        diffs, error = compute_results_torch(dataset, target, allowed_Zs, error_metric)
     elif rep_setting == 'new':
         coefs, intercept, atypes = dftbrep_ref_params['coef'], dftbrep_ref_params['intercept'], \
             dftbrep_ref_params['atype_ordering']
-        error = compute_results_torch_newrep(dataset, target, allowed_Zs, atypes, coefs, intercept, error_metric)
+        diffs, error = compute_results_torch_newrep(dataset, target, allowed_Zs, atypes, coefs, intercept, error_metric)
     error_Ha, error_Kcal = error, error * 627
     print(f"Using error metric {error_metric}, the error is:")
     print(f"{error_Ha} in Hartrees")
     print(f"{error_Kcal} in Kcal/mol")
-    return error_Ha, error_Kcal
+    return error_Ha, error_Kcal, diffs
 
 

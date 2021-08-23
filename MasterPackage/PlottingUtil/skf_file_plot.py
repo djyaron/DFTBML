@@ -18,7 +18,7 @@ import pickle, os
 from DFTBrepulsive import SKFSet
 from MasterConstants import ANGSTROM2BOHR, Model
 import matplotlib.pyplot as plt
-from typing import Dict, List
+from typing import Dict, List, Union
 from Spline import get_dftb_vals
 import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
@@ -154,6 +154,8 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
     
     Returns:
         None
+        
+    TODO: Fix safety issue in determining which set to iterate over
     """
     all_ops = ['H', 'S']
     if len(set_1.keys()) < len(set_2.keys()):
@@ -440,4 +442,101 @@ def skf_interpolation_plot(skf_dir: str, mode: str, dest: str = None) -> None:
                     #   if rgrid was not the same as the set of SKF grid points,
                     #   I'm sure a greater difference would emerge. 
 
+def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
+                        mode: str, x_major: Union[int, float] = 1,
+                        x_minor: Union[int, float] = 0.1, units: str = "Ha") -> None:
+    r"""Plots the differences of two spline plots with the ability to specify
+        the units of the plot.
+    
+    Arguments:
+        skset_1_name (str): First SKFSet directory path
+        skset_2_name (str): Second SKFSet directory path
+        dest (str): The destination to save the plots; plots are not saved
+            if the dest is set to None
+        mode (str): The mode for the plots, one of 'plot' and 'scatter'
+        units (str): The units to use for plotting. Defaults to 'Ha', which
+            is the atomic unit of energy. Can also specify 'kcal' for Kcal/mol.
+    
+    Returns:
+        None
+    
+    Notes: The energy unit only matters for splines representing matrix elements of the 
+        Hamiltonian operator; otherwise, the overlap operators have arbitrary units.
+        
+        The conversion from Ha to kcal/mol is multiplcation by 627.5.
+        
+        For each skf set, the corresponding SKFs (e.g. C-C.skf in set 1 and C-C.skf in set 2)
+        must have been evaluated over the same grid. 
+    """
+    # raise NotImplementedError()
+    all_ops = ['H', 'S']
+    skset_1 = read_skf_set(skset_1_name)
+    skset_2 = read_skf_set(skset_2_name)
+    min_set = None
+    max_set = None
+    if len(skset_1.keys()) < len(skset_2.keys()):
+        assert( set(skset_1.keys()).issubset(set(skset_2.keys())) )
+        min_set = skset_1
+        max_set = skset_2
+    elif len(skset_1.keys()) > len(skset_2.keys()):
+        assert( set(skset_2.keys()).issubset(set(skset_1.keys())) )
+        min_set = skset_2
+        max_set = skset_1
+    else:
+        assert( set(skset_1.keys()) == set(skset_2.keys()) )
+        min_set = skset_1
+        max_set = skset_2
+    
+    for elem_pair in min_set.keys():
+        for op in all_ops:
+            for int_name in getattr(min_set[elem_pair], op).keys():
+                series1 = getattr(min_set[elem_pair], op)[int_name]
+                series2 = getattr(max_set[elem_pair], op)[int_name]
+                if (not empty_int(series1)) and (not empty_int(series2)):
+                    skf1 = min_set[elem_pair]
+                    skf2 = max_set[elem_pair]
+                    rgrid1 = skf1.intGrid() / ANGSTROM2BOHR
+                    rgrid2 = skf2.intGrid() / ANGSTROM2BOHR
+                    assert(all(rgrid1 == rgrid2)) #rgrids must be the same.
+                    int_table1 = getattr(skf1, op)
+                    int_table2 = getattr(skf2, op)
+                    data_1 = int_table1[int_name].to_numpy()
+                    data_2 = int_table2[int_name].to_numpy()
+                    diff = np.abs(data_2 - data_1)
+                    if (op == 'H') and (units == 'kcal'):
+                        diff = diff * 627.5
+                    #Now to plot the differences over the rgrid
+                    fig, axs = plt.subplots()
+                    title = f"{elem_pair}, {op}, {int_name}"
+                    axs.set_title(title)
+                    axs.set_xlabel("Angstroms")
+                    if op == 'H':
+                        if units == 'kcal':
+                            axs.set_ylabel("Absolute difference in kcal/mol")
+                        elif units == 'Ha':
+                            axs.set_ylabel("Absolute difference in Ha")
+                    elif op == 'S':
+                        axs.set_ylabel("Absolute difference")
+                    if mode == 'scatter':
+                        axs.scatter(rgrid1, diff)
+                    else:
+                        axs.plot(rgrid1, diff)
+                    axs.yaxis.set_minor_locator(AutoMinorLocator())
+                    axs.xaxis.set_major_locator(MultipleLocator(x_major))
+                    axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+                    if (dest is not None):
+                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                    plt.show()
+    
+    if (dest is not None):
+        note_path = os.path.join(dest, "info.txt")
+        with open(note_path, 'w+') as handle:
+            msg = f"Absolute differences plotted for electronic splines between sets {skset_1_name} and {skset_2_name}"
+            handle.write(msg + "\n")
+            handle.close()
+        
+        print("Plots generated and saved")
+    
+    print("Plots generated")
+    pass
 

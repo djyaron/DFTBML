@@ -16,11 +16,12 @@ from DFTBPlus import add_dftb
 from DataManager import load_combined_fold
 from LossLayer import ChargeLoss, DipoleLoss, FormPenaltyLoss, TotalEnergyLoss
 from typing import List, Dict
-# from Auorg_1_1 import ParDict
-from TestSKF import ParDict #Right now should be using no_convex_run as skf dir
+from Auorg_1_1 import ParDict
+# from TestSKF import ParDict #Right now should be using no_convex_run as skf dir
 from functools import reduce
 import collections
 import numpy as np
+from Training import charge_update_subroutine
 Array = np.ndarray
 
 #%% Constants
@@ -36,26 +37,29 @@ s.run_check = False
 s.rep_setting = "new"
 s.train_ener_per_heavy = False
 s.type_conversion_ignore_keys = ["glabels", "basis_sizes", "charges", "dipole_mat", "iconfigs"]
+s.opers_to_model = ["H", "R", "G", "S"]
 top_level_fold_path = "fold_molecs_test_8020"
 fold_mapping = {0 : [[0],[1]]}
 all_losses = {
     
     "Etot" : TotalEnergyLoss(),
-    # "convex" : FormPenaltyLoss("convex"),
+    "convex" : FormPenaltyLoss("convex"),
     "dipole" : DipoleLoss(),
     "charges" : ChargeLoss()
     
     }
-# all_losses['convex'].clear_class_dicts()
+all_losses['convex'].clear_class_dicts()
 losses = {
     
     "Etot" : 6270,
-    # "convex" : 100,
+    "convex" : 1000,
     "dipole" : 100,
-    "charges" : 1000
+    "charges" : 100
 
     }
 par_dict = ParDict()
+s.tensor_device = "cpu"
+s.tensor_dtype = torch.double
 
 #%% Code behind
 
@@ -196,12 +200,17 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
     #Now do the pass through on all feeds and all batches together
     all_feeds = validation_feeds + training_feeds
     all_batches = validation_batches + training_batches
+    all_dftblsts = validation_dftblsts + training_dftblsts
     
     val_limit = len(validation_feeds)
     
+    #Do an initial charge update to bring things into alignment.
+    #With this charge udpate, we should get agreement regardless of which pardict is used
+    charge_update_subroutine(s, all_feeds, all_dftblsts, [], [], saved_models)
+    
     with torch.no_grad():
         for i, feed in enumerate(all_feeds):
-            output = layer.forward(feed, saved_models, mode = 'eval')
+            output = layer.forward(feed, saved_models, mode = 'train')
             #Add in repulsive energies if the repulsive model is new
             if s.rep_setting == 'new':
                 output['Erep'] = saved_models['rep'].add_repulsive_eners(feed, 'valid' if i < val_limit else 'train') #per heavy atom, Erep + Eref
@@ -230,13 +239,13 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "no_convex_run/Split0/saved_models.p"
-    ref_filename = "no_convex_run/ref_params.p"
+    mod_filename = "higher_cutoff_run/Split0/saved_models.p"
+    ref_filename = "higher_cutoff_run/ref_params.p"
     all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
     
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
-    skf_dir = os.path.join(os.getcwd(), "no_convex_run")
+    skf_dir = os.path.join(os.getcwd(), "higher_cutoff_run")
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, do_our_dftb = True, do_dftbplus = True, parse = 'detailed')
     
@@ -246,7 +255,7 @@ if __name__ == "__main__":
         
     print(f"MAE error in Ha: {sum(disagreements) / len(disagreements)}")
     
-    with open("no_convex_run/saved_model_driver_result_dlayer_corrected.p", "wb") as handle:
+    with open("higher_cutoff_run/saved_model_driver_result_charge_update_corrected.p", "wb") as handle:
         pickle.dump(all_mols, handle)
     
 

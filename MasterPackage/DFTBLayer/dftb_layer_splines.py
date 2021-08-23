@@ -37,7 +37,7 @@ from MasterConstants import Model
 from Spline import SplineModel, JoinedSplineModel
 from DFTBpy import _Gamma12
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
 Tensor = torch.Tensor
 Array = np.ndarray
 
@@ -50,7 +50,7 @@ from InputLayer import Input_layer_DFTB, Input_layer_DFTB_val, Input_layer_hubba
 
 from .util import apx_equal, torch_segment_sum, recursive_type_conversion
 
-def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int], par_dict: Dict) -> (Dict, DFTBList):
+def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int], par_dict: Dict) -> Tuple[Dict, DFTBList]:
     r"""Takes in a list of geomtries and creates the graph and feed dictionaries for the batch
     
     Arguments:
@@ -136,7 +136,7 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
                              joined_cutoff: float = 3.0, cutoff_dict: Dict = None,
                              spline_mode: str = 'joined', spline_deg: int = 3,
                              off_diag_opers: List[str] = ["G"],
-                             include_inflect: bool = True) -> (Input_layer_pairwise_linear_joined, str):
+                             include_inflect: bool = True) -> Tuple[Input_layer_pairwise_linear_joined, str]:
     r"""Generates a joined spline model for the given model_spec
     
     Arguments:
@@ -186,44 +186,57 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             (oper, (elem1, elem2)) : cutoff
         
         This way, all the models using the given oper and elems will have the same cutoff
+        
+        TODO: Constrain the knots to be between 0 and cutoff, anything past that is 0. Need to apply 
+            this fix for everyting spline-related (inflection point, form penalty, etc.)
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
         if spline_mode != 'debugging':
-            model = Input_layer_value(model_spec, device, dtype)
-            model.initialize_to_dftb(par_dict, noise_magnitude)
-            
+            if (model_spec.oper not in off_diag_opers) or ( (len(model_spec.orb) == 2) and (model_spec.orb[0] == model_spec.orb[1]) ):
+                print(f"Input to value layer: {model_spec}")
+                model = Input_layer_value(model_spec, device, dtype)
+                model.initialize_to_dftb(par_dict, noise_magnitude)
+            else:
+                print(f"Input to hubbard layer: {model_spec}")
+                model = Input_layer_hubbard(model_spec, model_variables, device, dtype)
             #REMOVE THIS LINE LATER
             # model = Input_layer_DFTB_val(model_spec)
         else:
             print("Using a debugging model for on-diagonal elements")
             model = Input_layer_DFTB_val(model_spec)
-        return (model, 'vol')
+        return (model, 'val')
     elif len(model_spec.Zs) == 2:
         if model_spec.oper not in off_diag_opers:
             minimum_value, maximum_value = spline_dict[model_spec]
             minimum_value -= buffer
             maximum_value += buffer
-            xknots = np.linspace(minimum_value, maximum_value, num = num_knots)
+            xknots = np.linspace(minimum_value, maximum_value, num = num_knots) #Set maximum_value to cutoff, not 10 angstroms
             print(f"number of knots: {len(xknots)}")
+            print(f"first knot: {xknots[0]}, second knot: {xknots[-1]}")
             
             #Get the correct cutoff for the model
-            if cutoff_dict is not None:
-                Zs, Zs_rev = model_spec.Zs, (model_spec.Zs[1], model_spec.Zs[0])
-                oper = model_spec.oper
-                if (oper, Zs) in cutoff_dict:
-                    model_cutoff = cutoff_dict[(oper, Zs)]
-                elif (oper, Zs_rev) in cutoff_dict:
-                    model_cutoff = cutoff_dict[(oper, Zs_rev)]
-                else:
-                    model_cutoff = joined_cutoff
-            else:
-                model_cutoff = joined_cutoff
+            # if cutoff_dict is not None:
+            #     Zs, Zs_rev = model_spec.Zs, (model_spec.Zs[1], model_spec.Zs[0])
+            #     oper = model_spec.oper
+            #     if (oper, Zs) in cutoff_dict:
+            #         model_cutoff = cutoff_dict[(oper, Zs)]
+            #     elif (oper, Zs_rev) in cutoff_dict:
+            #         model_cutoff = cutoff_dict[(oper, Zs_rev)]
+            #     else:
+            #         model_cutoff = joined_cutoff
+            # else:
+            #     model_cutoff = joined_cutoff
+            
+            #model_cutoff is now the position of the last knot (i.e. maximum_value)
+            model_cutoff = maximum_value
+            print(f"model_cutoff: {model_cutoff}")
+            assert(model_cutoff == xknots[-1])
             
             config = {'xknots' : xknots,
                       'equal_knots' : False,
                       'cutoff' : model_cutoff,
-                      'bconds' : 'natural',
+                      'bconds' : 'natural', #Not sure what kind of boundary condition we should be using here???
                       'deg' : spline_deg}
             if spline_mode == 'joined':
                 spline = JoinedSplineModel(config)
@@ -353,9 +366,9 @@ class DFTB_Layer:
             models in all_models. However, when evaluating the model, we want 
             the predictions to be generated accurately for the entire distance 
             range, not only for those values of r < cutoff.
+            
         """
         model_vals = list()
-        mod_val_disagreements = []
         #Maybe won't need additional filtering here if going off feed['models']
         if mode == 'train':
             for model_spec in data_input['models']: 
@@ -623,7 +636,7 @@ def load_data(train_molec_file: str, train_batch_file: str,
                        valid_molec_file: str, valid_batch_file: str,
                        ref_train_data: str, ref_valid_data: str,
                        train_dftblsts: str, valid_dftblsts: str, 
-                       ragged_dipole: bool = True, run_check: bool = True) -> (List[Dict], List[Dict], List[DFTBList], List[DFTBList]):
+                       ragged_dipole: bool = True, run_check: bool = True) -> Tuple[List[Dict], List[Dict], List[DFTBList], List[DFTBList]]:
     r"""Loads the trainng and validation data saved in h5 files
     
     Arguments:
@@ -667,7 +680,7 @@ def load_data(train_molec_file: str, train_batch_file: str,
     return training_feeds, validation_feeds, training_dftblsts, validation_dftblsts
 
 def dataset_sorting(dataset: List[Dict], prop_train: float, transfer_training: bool = False, transfer_train_params: Dict = None,
-                    train_ener_per_heavy: bool = True) -> (List[Dict], List[Dict]):
+                    train_ener_per_heavy: bool = True) -> Tuple[List[Dict], List[Dict]]:
     r"""Generates the training and validation sets of molecules
     
     Arguments:
@@ -796,7 +809,7 @@ def generate_cv_folds(dataset: List[Dict], num_folds: int, shuffle: bool = True)
     return folds
 
 def graph_generation(molecules: List[Dict], config: Dict, allowed_Zs: List[int], 
-                     par_dict: Dict, num_per_batch: int = 10) -> (List[Dict], List[DFTBList], List[List[Dict]]):
+                     par_dict: Dict, num_per_batch: int = 10) -> Tuple[List[Dict], List[DFTBList], List[List[Dict]]]:
     r"""Generates the initial feed dictionaries for the given set of molecules
     
     Arguments:
@@ -910,6 +923,41 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
             loss_tracker['charges'] = [list(), list(), 0]
     
     return all_models, model_variables, loss_tracker, all_losses, model_range_dict
+
+def model_sort(model_specs: List[Model]) -> List[Model]:
+    r"""Sorts models so that earlier models that later models depend on are
+        passed through first.
+    
+    Arguments:
+        model_specs (list[Model]): The list of models that needs to be sorted.
+    
+    Returns:
+        sorted_mods (List[Model]): The sorted list of models.
+    
+    Notes: Ensuring no dependency issues means that models that depend on 
+        earlier models are sorted to later in the list of models 
+        passed through get_model_value_spline() and the models that are
+        independent are sorted to the front. This is only necessary for the 
+        "G" models of the form Model(G, (6,), 'ps') which depends on the earlier 
+        models Model(G, (6, ), 'ss') and Model(G, (6,), 'pp'). Since the order 
+        of the other models does not matter, we are only interested in sorting G
+        single element models.
+        The order thus goes:
+            1) G, single element, same orbital (e.g. Model(G, (6,), 'ss'))
+            2) G, single element, different orbital (e.g. Model(G, (6,), 'ps'))
+            3) G, double element (e.g. Model(G, (6, 7), 'ss'))
+    """
+    single_g_mods, all_other_mods = [], []
+    for mod in model_specs:
+        if (mod.oper == "G") and (len(mod.Zs) == 1):
+            single_g_mods.append(mod)
+        else:
+            all_other_mods.append(mod)
+    #The key here prioritizes the same orbital over different orbitals, 
+    #   but without differentiating between different 
+    sorted_g_single = sorted(single_g_mods, key = lambda x : 0 if x.orb[0] == x.orb[1] else 1)
+    sorted_mods = sorted_g_single + all_other_mods
+    return sorted_mods
     
 def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losses: Dict, 
                     all_models: Dict, model_variables: Dict, model_range_dict: Dict,
@@ -967,7 +1015,9 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
         This way, all the models using the given oper and elems will have the same cutoff
     """
     for ibatch,feed in enumerate(feeds):
-        for model_spec in feed['models']:
+        #Need to do an intermediate step of sorting the models
+        sorted_mods = model_sort(feed['models'])
+        for model_spec in sorted_mods:
             # print(model_spec)
             if (model_spec not in all_models):
                 print(model_spec)
@@ -1070,18 +1120,60 @@ def total_type_conversion(training_feeds: List[Dict], validation_feeds: List[Dic
     for feed in validation_feeds:
         recursive_type_conversion(feed, ignore_keys, device, dtype)
 
-def model_range_correction(model_range_dict: Dict, correction_dict: Dict, universal_high: float = None) -> Dict:
+
+
+
+
+
+# Old version of function
+# def model_range_correction(model_range_dict: Dict, correction_dict: Dict, universal_high: float = None) -> Dict:
+#     r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict
+    
+#     Arguments:
+#         model_range_dict (Dict): Dictionary mapping model_specs to their ranges in angstroms as tuples of the form
+#             (rlow, rhigh)
+#         correction_dict (Dict): Dictionary mapping model_specs to their new low ends in angstroms. Here,
+#             The keys are element tuples (elem1, elem2) and the values are the new low ends.
+#             All models modelling the interactions between elements (a, b) will have the
+#             same low end
+#         universal_high (float): The maximum distance bound for all spline models.
+#             Defaults to None
+    
+#     Returns:
+#         new_dict (Dict): The corrected model range dictionary
+    
+#     Notes: If a models' element pair does not appear in the correction_dict, its range
+#         is left unchanged, i.e. it is determined by the Modraw values of the 
+#         used data.
+#     """
+#     new_dict = dict()
+#     for mod, dist_range in model_range_dict.items():
+#         xlow, xhigh = dist_range
+#         Zs, Zs_rev = mod.Zs, (mod.Zs[1], mod.Zs[0])
+#         if Zs in correction_dict:
+#             #Safeguard to ensure that low-end distances are a valid correction
+#             assert(xlow > correction_dict[Zs])
+#             xlow = correction_dict[Zs]
+#         elif Zs_rev in correction_dict:
+#             assert(xlow > correction_dict[Zs_rev])
+#             xlow = correction_dict[Zs_rev]
+#         new_dict[mod] = (xlow, xhigh if universal_high is None else universal_high)
+#     return new_dict
+
+def model_range_correction(model_range_dict: Dict, low_correction_dict: Dict, cutoff_dictionary: Dict, joined_cutoff: float) -> Dict:
     r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict
     
     Arguments:
         model_range_dict (Dict): Dictionary mapping model_specs to their ranges in angstroms as tuples of the form
             (rlow, rhigh)
-        correction_dict (Dict): Dictionary mapping model_specs to their new low ends in angstroms. Here,
+        low_correction_dict (Dict): Dictionary mapping model_specs to their new low ends in angstroms. Here,
             The keys are element tuples (elem1, elem2) and the values are the new low ends.
             All models modelling the interactions between elements (a, b) will have the
             same low end
-        universal_high (float): The maximum distance bound for all spline models.
-            Defaults to None
+        cutoff_dictionary (Dict): Dictionary mapping model_specs to their cutoff distances if specified. 
+            For values beyond the cutoff, the value returned by the model returns 0.
+        joined_cutoff (float): The maximum cutoff bound for all models and is used if the model is 
+            not found in cutoff dictionary.
     
     Returns:
         new_dict (Dict): The corrected model range dictionary
@@ -1089,20 +1181,45 @@ def model_range_correction(model_range_dict: Dict, correction_dict: Dict, univer
     Notes: If a models' element pair does not appear in the correction_dict, its range
         is left unchanged, i.e. it is determined by the Modraw values of the 
         used data.
+        
+        All spline models are going to span the distance from 0 -> rcut, where 
+        the value predicted for r > rcut is set to 0.
     """
     new_dict = dict()
     for mod, dist_range in model_range_dict.items():
         xlow, xhigh = dist_range
-        Zs, Zs_rev = mod.Zs, (mod.Zs[1], mod.Zs[0])
-        if Zs in correction_dict:
+        Zs, Zs_rev = mod.Zs, (mod.Zs[-1], mod.Zs[0])
+        #Query the low end correction dictionary with the element pairs
+        if Zs in low_correction_dict:
             #Safeguard to ensure that low-end distances are a valid correction
-            assert(xlow > correction_dict[Zs])
-            xlow = correction_dict[Zs]
-        elif Zs_rev in correction_dict:
-            assert(xlow > correction_dict[Zs_rev])
-            xlow = correction_dict[Zs_rev]
-        new_dict[mod] = (xlow, xhigh if universal_high is None else universal_high)
+            assert(xlow > low_correction_dict[Zs])
+            xlow = low_correction_dict[Zs]
+        elif Zs_rev in low_correction_dict:
+            assert(xlow > low_correction_dict[Zs_rev])
+            xlow = low_correction_dict[Zs_rev]
+        
+        if cutoff_dictionary is not None:
+            #Query the cutoff dictionary with the correct tuple format
+            q_forward, q_rev = (mod.oper, Zs), (mod.oper, Zs_rev)
+            if q_forward in cutoff_dictionary:
+                xhigh = cutoff_dictionary[q_forward]
+            elif q_rev in cutoff_dictionary:
+                xhigh = cutoff_dictionary[q_rev]
+            else: #The case where the model's cutoff is not specified so the joined cutoff is used
+                xhigh = joined_cutoff
+            new_dict[mod] = (xlow, xhigh)
+        else:
+            new_dict[mod] = (xlow, joined_cutoff)
+            
     return new_dict
+
+
+
+
+
+
+
+
 
 def energy_correction(molec: Dict) -> None:
     r"""Performs in-place total energy correction for the given molecule by dividing Etot/nheavy
