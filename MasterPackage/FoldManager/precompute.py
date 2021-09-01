@@ -6,7 +6,7 @@ Created on Wed Jun  9 13:08:28 2021
 
 """
 #%% Imports, definitions
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from DFTBLayer import DFTBList, graph_generation, model_loss_initialization,\
     model_range_correction, feed_generation
 from DFTBrepulsive import compute_gammas
@@ -17,6 +17,7 @@ import os
 import re
 import pickle
 import random
+import multiprocessing
 
 #%% Code behind
 
@@ -85,6 +86,44 @@ def single_fold_precompute(s, molecs: List[Dict], par_dict: Dict) -> (List[Dict]
     
     return feeds, dftb_lsts, all_models, model_variables, losses, all_losses, loss_tracker, batches
 
+def graph_computation(input_elem) -> None:
+    r"""Logic extracted from compute_graphs_from_folds() to allow for
+        multiprocessing parallelism
+    
+    Arguments:
+        input_elem (tuple): The tuple containing the arguments required for 
+            the graph computation. It will the contain tbe followin elements 
+            in the following order:
+                1) top_level_molec_path (str): The relative path to the directory
+                    containing the molecule fold pickle files.
+                2) name (str): The name of the molecule fold pickle files
+                3) s (Settings): Settings object that contains top level 
+                    hyperparameter settings
+                4) par_dict (Dict): The dictionary containing the interpolated
+                    SKF parameter values.
+                5) copy_molecs (bool): Whether or not to copy the molecules
+                    into the fold directory.
+    
+    Returns:
+        None
+
+    """
+    # print("Got to graph_computation() call")
+    top_level_molec_path, name, s, par_dict, copy_molecs = input_elem
+    total_path = os.path.join(top_level_molec_path, name)
+    fold_num = name.split('_')[0][4:]
+    with open(total_path, 'rb') as handle:
+        molecs = pickle.load(handle)
+        random.shuffle(molecs)
+        if s.train_ener_per_heavy: #Only perform the energy correction if training per heavy atom
+            for elem in molecs:
+                energy_correction(elem)
+        feeds, dftb_lsts, _, _, _, _, _, batches = single_fold_precompute(s, molecs, par_dict)
+        destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
+        save_feed_h5(feeds, dftb_lsts, molecs, destination, batches, duplicate_data = copy_molecs)
+        print(f"Data successfully saved for {name} molecules")
+    
+
 def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -> None:
     r"""Computes and saves the feed dictionaries for all the molecules in each fold
     
@@ -144,19 +183,25 @@ def compute_graphs_from_folds(s, top_level_molec_path: str, copy_molecs: bool) -
     par_dict = s.par_dict_name
     
     #Now cycle through each fold and do the precompute on it
-    for name in fold_file_names:
-        total_path = os.path.join(top_level_molec_path, name)
-        fold_num = name.split('_')[0][4:]
-        with open(total_path, 'rb') as handle:
-            molecs = pickle.load(handle)
-            random.shuffle(molecs)
-            if s.train_ener_per_heavy: #Only perform the energy correction if training per heavy atom
-                for elem in molecs:
-                    energy_correction(elem)
-            feeds, dftb_lsts, _, _, _, _, _, batches = single_fold_precompute(s, molecs, par_dict)
-            destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
-            save_feed_h5(feeds, dftb_lsts, molecs, destination, batches, duplicate_data = copy_molecs)
-            print(f"Data successfully saved for {name} molecules")
+    #Old version of the code.
+    # for name in fold_file_names:
+    #     total_path = os.path.join(top_level_molec_path, name)
+    #     fold_num = name.split('_')[0][4:]
+    #     with open(total_path, 'rb') as handle:
+    #         molecs = pickle.load(handle)
+    #         random.shuffle(molecs)
+    #         if s.train_ener_per_heavy: #Only perform the energy correction if training per heavy atom
+    #             for elem in molecs:
+    #                 energy_correction(elem)
+    #         feeds, dftb_lsts, _, _, _, _, _, batches = single_fold_precompute(s, molecs, par_dict)
+    #         destination = os.path.join(top_level_molec_path, f"Fold{fold_num}")
+    #         save_feed_h5(feeds, dftb_lsts, molecs, destination, batches, duplicate_data = copy_molecs)
+    #         print(f"Data successfully saved for {name} molecules")
+    
+    #New multiprocess precompute code
+    collated_input = [(top_level_molec_path, name, s, par_dict, copy_molecs) for name in fold_file_names]
+    with multiprocessing.Pool(multiprocessing.cpu_count()) as p:
+        p.map(graph_computation, collated_input)
             
     print(f"All data successfully saved for molecules in {top_level_molec_path}")
 
@@ -203,6 +248,36 @@ def precompute_gammas(opts: Dict, top_level_molec_path: str) -> None:
         pickle.dump(gammas, handle)
     
     print("Gammas and config tracker have been saved")
+    
+def gammas_computation(input_elem: Tuple) -> None:
+    r"""Allows the gamma computation to be run in parallel through 
+        the python multiprocessing module.
+    
+    Arguments:
+        
+    
+    Returns:
+        None
+    """
+    top_level_molec_path, name, opts = input_elem
+    
+    full_name = os.path.join(top_level_molec_path, name)
+    molecs = pickle.load(open(full_name, 'rb'))
+    #The input to generate_gammas_input has to be a 2D list due to internal operations,
+    #   so wrap the 1D list in another list
+    gammas_input, config_tracker = generate_gammas_input([molecs])
+    gammas = compute_gammas(gammas_input, opts, return_gammas = True)
+    fold_name = name.split("_")[0]
+    gammas_name = os.path.join(top_level_molec_path,  f"{fold_name}_gammas.p")
+    config_name = os.path.join(top_level_molec_path, f"{fold_name}_config_tracker.p")
+    
+    with open(gammas_name, 'wb') as handle:
+        pickle.dump(gammas, handle)
+    
+    with open(config_name, 'wb') as handle:
+        pickle.dump(config_tracker, handle)
+    
+    print(f"Gammas and config_tracker saved for {name}")
 
 def precompute_gammas_per_fold(opts: Dict, top_level_molec_path: str) -> None:
     r"""Similar functionality as precompute_gammas but the gammas are 
@@ -213,6 +288,7 @@ def precompute_gammas_per_fold(opts: Dict, top_level_molec_path: str) -> None:
     pattern = r"Fold[0-9]+_molecs.p"
     fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
     
+    #Old sequential code
     for name in fold_file_names:
         full_name = os.path.join(top_level_molec_path, name)
         molecs = pickle.load(open(full_name, 'rb'))
@@ -231,4 +307,9 @@ def precompute_gammas_per_fold(opts: Dict, top_level_molec_path: str) -> None:
             pickle.dump(config_tracker, handle)
         
         print(f"Gammas and config_tracker saved for {name}")
+    
+    #New parallelized code
+    # collated_input = [(top_level_molec_path, name, opts) for name in fold_file_names]
+    # with multiprocessing.Pool(multiprocessing.cpu_count()) as p:
+    #     p.map(gammas_computation, collated_input)
     
