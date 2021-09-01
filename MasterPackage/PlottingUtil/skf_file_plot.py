@@ -519,7 +519,7 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
                         axs.set_ylabel("Absolute difference")
                     if mode == 'scatter':
                         axs.scatter(rgrid1, diff)
-                    else:
+                    elif mode == 'plot':
                         axs.plot(rgrid1, diff)
                     axs.yaxis.set_minor_locator(AutoMinorLocator())
                     axs.xaxis.set_major_locator(MultipleLocator(x_major))
