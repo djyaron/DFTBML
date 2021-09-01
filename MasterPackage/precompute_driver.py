@@ -21,6 +21,7 @@ from FoldManager import generate_folds, save_folds, compute_graphs_from_folds,\
 from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
 import pickle
 from typing import List, Dict
+import time
 
 #%% Code behind
 
@@ -176,8 +177,11 @@ if __name__ == '__main__':
     copy_molecs = True
     gen_folds = False
     
+    start = time.time()
     precompute_main(settings_filename, defaults_filename, lower_limit, num_folds,
                     num_folds_lower, randomize, copy_molecs, gen_folds)
+    end = time.time()
+    print(f"time elapsed is {end - start} for sequential")
     
     
 

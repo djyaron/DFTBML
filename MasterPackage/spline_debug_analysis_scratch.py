@@ -27,7 +27,7 @@ mols0 = pickle.load(open("fold_molecs_test_8020/Fold0_molecs.p", "rb"))
 mols1 = pickle.load(open("fold_molecs_test_8020/Fold1_molecs.p","rb"))
 dset = mols0 + mols1
 
-skf_path = "super_sparse_knots_run"
+skf_path = "higher_cutoff_run"
 dest = skf_path + "/skf_plots"
 if (not os.path.isdir(dest)):
     os.mkdir(dest)
@@ -735,8 +735,8 @@ for feed in all_feeds:
 from PlottingUtil import compare_differences
 
 set1_name = "corrected_model_architecture_run"
-set2_name = "higher_cutoff_run"
-dest = "cmar_v_hcr_diff_plots"
+set2_name = "higher_cutoff_run_vanishing"
+dest = "cmar_v_hcrv_diff_plots"
 
 compare_differences(set1_name, set2_name, dest, "scatter", units = 'kcal')
 
