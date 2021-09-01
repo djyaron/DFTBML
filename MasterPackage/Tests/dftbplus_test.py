@@ -89,7 +89,7 @@ def test_dftbplus_organics():
     
     for i, skf_dir_name in enumerate(skf_names):
         #Non-specified argument default values are good for testing.
-        error_Ha, error_Kcal = run_organics(data_path, max_config, maxheavy, 
+        error_Ha, error_Kcal, _ = run_organics(data_path, max_config, maxheavy, 
                                             allowed_Zs, target, skf_dir_name, 
                                             exec_path, pardict, 'old')
         assert(apx_equal(error_Kcal, accepted_vals_kcal[i]))

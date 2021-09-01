@@ -11,6 +11,7 @@ import numpy as np
 import os
 from DataManager import total_feed_combinator
 import Geometry.geometry
+import re
 
 #%% Code behind
 
@@ -133,3 +134,30 @@ def run_h5handler_tests():
     reference_filename = os.path.join(os.getcwd(), "test_files", "Fold0", "reference_data.p")
     reconstituted_feeds = total_feed_combinator.create_all_feeds(batch_filename, molec_filename, True)
     compare_feeds(reference_filename, reconstituted_feeds)
+    
+def run_safety_check(top_level_fold_path: str, fold_nums: List[int]) -> None:
+    r"""Runs a generic safety check for a set of precomputed data. The location
+        of the data can be specified by giving top_level_fold_path for 
+        maximal flexibility.
+    
+    Arguments:
+        top_level_fold_path (str): The location containing the data that the 
+            safety check should be run on
+        fold_nums (List[int]): The fold numbers that the safety check should
+            run on (e.g. [0, 1, 2, ...])
+    
+    Returns:
+        None
+    
+    Notes: 
+        The safety check is a series of asserts so if the data fails the 
+        safety check, an assertion error will be raised.
+    """
+    for num in fold_nums:
+        print(f"Conducting safety check for fold {num} of {top_level_fold_path}")
+        batch_filename = os.path.join(os.getcwd(), top_level_fold_path, f'Fold{num}', 'batches.h5')
+        molec_info_name = os.path.join(os.getcwd(), top_level_fold_path, f'Fold{num}', 'molecs.h5')
+        reference_filename = os.path.join(os.getcwd(), top_level_fold_path, f'Fold{num}', 'reference_data.p')
+        feeds = total_feed_combinator.create_all_feeds(batch_filename, molec_info_name, True) #Dipoles always ragged, organized by bsize not num atom
+        compare_feeds(reference_filename, feeds)
+    print("All safety checks passed for folds!")

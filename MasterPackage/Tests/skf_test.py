@@ -54,8 +54,8 @@ def test_new_SKF_framework(clear_direc: bool):
     """
     print("Testing new SKF framework...")
     tol = 1E-6
-    skf_8020_benchmark = 4.36884195335689
-    refacted_benchmark = 4.30573249547126
+    skf_8020_benchmark = 4.318332359222469
+    refacted_benchmark = 4.290744984048831
     
     #Parameters for writing SKFs
     model_path = "test_files/skf_8020_100knot/Split0/saved_models.p"
@@ -82,7 +82,7 @@ def test_new_SKF_framework(clear_direc: bool):
     pardict = Auorg_1_1.ParDict()
     rep_setting = "old"
     
-    err_Ha, err_kcal = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
+    err_Ha, err_kcal, _ = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
                                     exec_path, pardict, rep_setting)
     
     print(f"Error in Hartrees: {err_Ha}")
@@ -105,7 +105,7 @@ def test_new_SKF_framework(clear_direc: bool):
     #Now run them throughn DFTB+ with the proper settings from run_organics
     skf_dir = os.path.join(os.getcwd(), "test_files", "refacted_joined_spline_run_deriv_delete")
     
-    err_Ha, err_kcal = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
+    err_Ha, err_kcal, _ = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
                                     exec_path, pardict, rep_setting)
     
     print(f"Error in Hartrees: {err_Ha}")

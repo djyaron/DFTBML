@@ -19,6 +19,7 @@ def test_gammas_combination():
     """
     split_mapping = {0 : [[0],[1]]}
     path = "test_files/gam_con_files"
+    # path = "multiprocess_compute_test"
     
     gam_lst = load_gammas_per_fold(path)
     conf_lst = load_config_tracker_per_fold(path)
