@@ -1192,6 +1192,7 @@ def model_range_correction(model_range_dict: Dict, low_correction_dict: Dict, cu
         #Query the low end correction dictionary with the element pairs
         if Zs in low_correction_dict:
             #Safeguard to ensure that low-end distances are a valid correction
+            print(Zs, xlow)
             assert(xlow > low_correction_dict[Zs])
             xlow = low_correction_dict[Zs]
         elif Zs_rev in low_correction_dict:

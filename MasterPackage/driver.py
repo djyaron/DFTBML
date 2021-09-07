@@ -47,6 +47,9 @@ def run_training(settings_filename: str, defaults_filename: str, skf_method: str
         #Do the precompute stage
         all_models, model_variables, training_feeds, validation_feeds, training_dftblsts, validation_dftblsts, losses, all_losses, loss_tracker, training_batches, validation_batches = precompute_stage(s_obj, s_obj.par_dict_name, i, s_obj.split_mapping, model_save, variable_save)
         
+        print(f"Number of training feeds: {len(training_feeds)}")
+        print(f"Number of validation feeds: {len(validation_feeds)}")
+        
         ### Debugging code for testing out proper formulation of the on-atom G models ( e.g. Model("G", (7,), 'ps') )
         g_mods = [mod for mod in all_models if (not isinstance(mod, str)) and (len(mod.Zs) == 1) and (mod.oper == "G")]
         match = [mod for mod in g_mods if mod.orb[0] == mod.orb[1]]
