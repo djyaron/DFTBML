@@ -225,7 +225,7 @@ class SplineModel(PairwiseLinearModel):
                 self.bconds = []
             elif bconds == 'last_only':
                 #Zero value and derivative at the end point only
-                self.beconds = [Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0)]
+                self.bconds = [Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0)]
         else:
             # Natural boundary conditions
             self.bconds = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)]

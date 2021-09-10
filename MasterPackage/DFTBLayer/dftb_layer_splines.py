@@ -236,7 +236,7 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             config = {'xknots' : xknots,
                       'equal_knots' : False,
                       'cutoff' : model_cutoff,
-                      'bconds' : 'vanishing', #Going to use vanishing boundary conditions at the ends
+                      'bconds' : 'last_only', #last_only applies boundary conditions on the final knot only
                       'deg' : spline_deg}
             if spline_mode == 'joined':
                 spline = JoinedSplineModel(config)
