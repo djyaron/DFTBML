@@ -76,6 +76,14 @@ def get_dist_distribution(dset: List[Dict]) -> Dict:
     
     Returns:
         dist_dict (Dict): The total distance dictionary.
+    
+    Notes: This code works without having to exclude reverse cases (e.g. (6, 1) vs (1, 6)) in
+        the set of keys because for each molecule dictionary, the atomic numbers are sorted 
+        in a specific way. Because we are using ANI-1ccx_clean_fullentry.h5 as the datset, it 
+        seems that every molecule dictionary within that dataset has the atomic numbers ordered
+        such that they go 6, 1, 7, 8. The ordering appears invariant to the ordering of any
+        of the parameters inputted. But, this should be checked more carefully with a 
+        formalized test.
     """
     mol_dicts = list(map(lambda x : generate_molec_dist_dict(x), dset))
     dist_dict = reduce(lambda x, y : fuse_dicts(x, y), mol_dicts)

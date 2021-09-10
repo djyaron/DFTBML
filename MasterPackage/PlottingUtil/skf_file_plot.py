@@ -26,6 +26,7 @@ from .util import get_dist_distribution
 import numpy as np
 from .pardict_gen import generate_pardict
 from functools import reduce
+import re
 
 nums = { #Switch this out with MasterConstants later
         'H' : 1,
@@ -540,3 +541,40 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
     print("Plots generated")
     pass
 
+def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float] = 1,
+                        x_minor: Union[int, float] = 0.1) -> None:
+    r"""Plots just the distance distribution for a specific dataset of molecules
+    
+    Arguments:
+        dset_dir (str): The relative path to the directory containing the dataset 
+            molecule files
+        dest (str): Where to save the plots. If the destination passed is None, 
+            the figures are not saved
+        x_major (Union[int, float]): The incrementation for major tick marks along
+            the x-axis
+        x_minor (Union[int, float]): The incrementation for minor tick marks along
+            the x-axis
+    
+    Returns:
+        None
+    """
+    all_files = os.listdir(dset_dir)
+    pattern = r"Fold[0-9]+_molecs.p"
+    fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
+    mols_2D = [pickle.load(open(os.path.join(dset_dir, name), 'rb')) for name in fold_file_names]
+    all_mols = list(reduce(lambda x, y : x + y, mols_2D))
+    
+    d_distr = get_dist_distribution(all_mols)
+    
+    for elem_pair in d_distr:
+        fig, axs = plt.subplots()
+        curr_data = d_distr[elem_pair]
+        bins = np.arange( min(curr_data), max(curr_data) + x_minor, x_minor)
+        axs.hist(curr_data, bins = bins, color = 'red', alpha = 0.75)
+        axs.set_ylabel("Frequency")
+        axs.set_xlabel("Angstroms")
+        title = f"{elem_pair} pairwise distance distribution"
+        axs.set_title(title)
+        if (dest is not None):
+            fig.savefig(os.path.join(dest, f"{elem_pair}_dist.png"))
+    print("All histogram plots generated")
