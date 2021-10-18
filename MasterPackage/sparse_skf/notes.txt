@@ -1,1 +1,0 @@
-Derived from skf_8020_100knot_new_repulsive_eachepochupdate/Split0/saved_models.p
