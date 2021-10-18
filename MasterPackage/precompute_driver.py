@@ -127,7 +127,7 @@ def precompute_main(settings_filename: str, defaults_filename: str, lower_limit:
         settings_filename (str): The path to the setting file of .json format
         defaults_filename (str): The path to the defaults file of .json format
         lower_limit (int): The number of heavy atoms to include up to for the folds containing
-            lower heavy elements (e.g. folds up to 5)
+            lower heavy elements (e.g. folds up to 5). The lower bound is inclusive
         num_folds (int): The total number of folds
         num_folds_lower (int): The number of folds that contain molecules with heavy atoms
             only up to lower_limit
@@ -170,7 +170,7 @@ def precompute_main(settings_filename: str, defaults_filename: str, lower_limit:
 if __name__ == '__main__':
     settings_filename = "settings_refactor_tst.json"
     defaults_filename = "refactor_default_tst.json"
-    lower_limit = 5
+    lower_limit = 4
     num_folds = 6
     num_folds_lower = 3
     randomize = True

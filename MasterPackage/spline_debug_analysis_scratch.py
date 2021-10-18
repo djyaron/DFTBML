@@ -23,18 +23,18 @@ import pickle, os
 from PlottingUtil import plot_skf_dist_overlay, read_skf_set
 from DFTBrepulsive import SKFSet
 
-mols0 = pickle.load(open("fold_molecs_test_8020/Fold0_molecs.p", "rb"))
-mols1 = pickle.load(open("fold_molecs_test_8020/Fold1_molecs.p","rb"))
+mols0 = pickle.load(open("comparison_dset_2/Fold0_molecs.p", "rb"))
+mols1 = pickle.load(open("comparison_dset_2/Fold1_molecs.p","rb"))
 dset = mols0 + mols1
 
-skf_path = "higher_cutoff_run"
+skf_path = "comparison_dset_2_result"
 dest = skf_path + "/skf_plots"
 if (not os.path.isdir(dest)):
     os.mkdir(dest)
 
 skfset = read_skf_set(skf_path)
 
-plot_skf_dist_overlay(skfset, dest = dest, mode = 'plot', dset = dset)
+plot_skf_dist_overlay(skfset, dest = None, mode = 'plot', dset = dset)
 
 ##############################################################################
 
@@ -740,17 +740,605 @@ dest = "cmar_v_hcrv_diff_plots"
 
 compare_differences(set1_name, set2_name, dest, "scatter", units = 'kcal')
 
+#%% Creating separated datasets for replicating spline behavior
 
+'''
+Need to create two datasets that do not have the same empirical formulas to 
+ensure that training on different sets results in the same overall splines.
 
-
-
-
-
+Process is as follows:
+    1) Pull a series of configurations from the ANI1 molecule
+    2) Separate into two sets based on molecular formula
+    3) Do the fold generation and separate into folds for precomputation
+    4) Do the precompute for both sets
+    5) Run the mode through the saved data and generate SKF files
+    6) Plot for comparison and generate diffs
     
-        
-            
-        
+The code here will only handle steps 1 - 4
+'''
+from FoldManager import get_ani1data
+import random
+from functools import reduce
+import os
+import pickle
+from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
+from precompute_driver import precompute_folds
+
+#Step 1: get dataset
+
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [1,2,3,4,5,6,7,8]
+max_config = 15
+target = {"Etot" : "cc",
+           "dipole" : "wb97x_dz.dipole",
+           "charges" : "wb97x_dz.cm5_charges"}
+ani_path = "ANI-1ccx_clean_fullentry.h5"
+
+dset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, ani_path)
+
+#Step 2: separate the two sets based on empirical formula
+
+mol_form_dict = dict()
+
+for molecule in dset:
+    curr_name = molecule['name']
+    if curr_name not in mol_form_dict:
+        mol_form_dict[curr_name] = [molecule]
+    else:
+        mol_form_dict[curr_name].append(molecule)
+
+molecule_names = mol_form_dict.keys()
+num_to_sample = len(molecule_names) // 2
+set1_names = random.sample(molecule_names, num_to_sample)
+set2_names = list(set(molecule_names) - set(set1_names))
+
+dset1_raw = [mol_form_dict[name] for name in set1_names]
+dset2_raw = [mol_form_dict[name] for name in set2_names]
+
+dset1_final = list(reduce(lambda x, y : x + y, dset1_raw))
+dset2_final = list(reduce(lambda x, y : x + y, dset2_raw))
+
+#Do a quick check
+dset1_final_names = {mol['name'] for mol in dset1_final}
+dset2_final_names = {mol['name'] for mol in dset2_final}
+
+assert(dset1_final_names - dset2_final_names == dset1_final_names)
+assert(dset2_final_names - dset1_final_names == dset2_final_names)
+assert(dset1_final_names.intersection(dset2_final_names) == set())
+
+#Step 3: Do the precompute generation for the different datasets. Here, the 
+#   majority of the data is going to be focused on training rather than validation,
+#   going to do a 80-20 split in each dataset.
+
+#Need to save the data first
+
+dest1 = "comparison_dset_1"
+dest2 = "comparison_dset_2"
+
+if not os.path.isdir(dest1):
+    os.mkdir(dest1)
+
+if not os.path.isdir(dest2):
+    os.mkdir(dest2)
+
+
+prop_train = 0.8
+
+num_train1 = int(prop_train * len(dset1_final))
+num_train2 = int(prop_train * len(dset2_final))
+
+train_fold1, valid_fold1 = dset1_final[:num_train1], dset1_final[num_train1:]
+train_fold2, valid_fold2 = dset2_final[:num_train2], dset2_final[num_train2:]
+
+with open(os.path.join(os.getcwd(), dest1, "Fold0_molecs.p"), "wb") as handle:
+    pickle.dump(train_fold1, handle)
+
+with open(os.path.join(os.getcwd(), dest1, "Fold1_molecs.p"), "wb") as handle:
+    pickle.dump(valid_fold1, handle)
+
+with open(os.path.join(os.getcwd(), dest2, "Fold0_molecs.p"), "wb") as handle:
+    pickle.dump(train_fold2, handle)
+
+with open(os.path.join(os.getcwd(), dest2, "Fold1_molecs.p"), "wb") as handle:
+    pickle.dump(valid_fold2, handle)
     
+#Now do the precomputation on the data to generate the information needed
+#   for the model
+
+settings_filename = "settings_refactor_tst.json"
+defaults_filename = "refactor_default_tst.json"
+
+resulting_settings_obj = parse_input_dictionaries(settings_filename, defaults_filename)
+opts = inflate_to_dict(resulting_settings_obj)
+s = collapse_to_master_settings(resulting_settings_obj)
+
+#Do the precompute for each one
+precompute_folds(s, opts, dest1, True)
+precompute_folds(s, opts, dest2, True)
+
+#%% Create dataset that includes more underrepresented pairwise interactions
+
+from PlottingUtil import plot_distance_histogram
+from FoldManager import get_ani1data_boosted
+import os
+import pickle
+from PlottingUtil import plot_distance_histogram
+
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [i + 1 for i in range(8)]
+target_atoms = [7, 8]
+max_config = 8
+boosted_config = 15
+target = {"Etot" : "cc",
+           "dipole" : "wb97x_dz.dipole",
+           "charges" : "wb97x_dz.cm5_charges"}
+ani1_path = "ANI-1ccx_clean_fullentry.h5"
+
+all_mols = get_ani1data_boosted(allowed_Zs, heavy_atoms, target_atoms, 'all',
+                                max_config, boosted_config, target, ani1_path)
+
+
+prop_train = 0.8
+num_train = int(prop_train * len(all_mols))
+
+with open("representative_dataset/Fold0_molecs.p", "wb") as handle:
+    pickle.dump(all_mols[:num_train], handle)
+
+with open("representative_dataset/Fold1_molecs.p", 'wb') as handle:
+    pickle.dump(all_mols[num_train:], handle)
+
+plot_distance_histogram("representative_dataset", None)
+
+#%% Combining the underlying molecules to get accurate exclusion benchmark
+
+#In comparing the performance for resulting SKF files obtained from training
+#   on different datasets, it's important to have the same testing set for 
+#   both. Otherwise, results are not comparable. 
+
+#To do this, simply combine the molecules together for each comparison dataset 
+#   and use that master directory as the exclusion directory when using the 
+#   run_organics_script.py.
+
+import pickle, os
+
+dset_1 = "comparison_dset_1"
+dset_2 = "comparison_dset_2"
+total_mol_dir = "cd1_cd2_total"
+
+comp_dset_1_mols = pickle.load(open(os.path.join(dset_1, "Fold0_molecs.p"), 'rb'))\
+    + pickle.load(open(os.path.join(dset_1, "Fold1_molecs.p"), 'rb'))
+
+comp_dset_2_mols = pickle.load(open(os.path.join(dset_2, "Fold0_molecs.p"), 'rb'))\
+    + pickle.load(open(os.path.join(dset_2, "Fold1_molecs.p"), 'rb'))
+
+if (not os.path.exists(total_mol_dir)):
+    os.mkdir(total_mol_dir)
+
+with open(os.path.join(total_mol_dir, "Fold0_molecs.p"), "wb") as handle:
+    pickle.dump(comp_dset_1_mols, handle)
+
+with open(os.path.join(total_mol_dir, "Fold1_molecs.p"), "wb") as handle:
+    pickle.dump(comp_dset_2_mols, handle)
+
+with open(os.path.join(total_mol_dir, "info.txt"), "w+") as handle:
+    handle.write(f"Fold0_molecs.p contains all the molecules from {dset_1}\n")
+    handle.write(f"Fold1_molecs.p contains all the molecules from {dset_2}")
+
+#%% Testing reproduction for electronic energies
+
+from DFTBPlus import run_organics, load_ani1
+import Auorg_1_1
+import os, pickle
+
+data_path = "ANI-1ccx_clean_fullentry.h5"
+max_config = 13
+maxheavy = 8
+allowed_Zs = [1,6,7,8]
+target = 'cc'
+exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+par_dict = Auorg_1_1.ParDict()
+
+skf_dir = os.path.join(os.getcwd(), "Experiments_and_graphs", "comparison_dset_1_result")
+ref_params = pickle.load(open('Experiments_and_graphs/comparison_dset_1_result/ref_params.p', 'rb'))
+
+error_Ha, error_Kcal, diffs, mols_1 = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir, exec_path, par_dict, 
+             'new', dftbrep_ref_params = ref_params, filter_test = True,
+             filter_dir = "cd1_cd2_total", parse = 'detailed', dispersion = False, return_dset = True)
+
+skf_dir = os.path.join(os.getcwd(), "Experiments_and_graphs", "comparison_dset_2_result")
+ref_params = pickle.load(open('Experiments_and_graphs/comparison_dset_2_result/ref_params.p', 'rb'))
+
+error_Ha, error_Kcal, diffs, mols_2 = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir, exec_path, par_dict, 
+             'new', dftbrep_ref_params = ref_params, filter_test = True,
+             filter_dir = "cd1_cd2_total", parse = 'detailed', dispersion = False, return_dset = True)
+
+assert(len(mols_1) == len(mols_2))
+elec_disagreements = []
+for mol1, mol2 in zip(mols_1, mols_2):
+    if ('e' in mol1['pzero']) and ('e' in mol2['pzero']):
+        elec_disagreements.append(abs(mol1['pzero']['e'] - mol2['pzero']['e']))
+        
+total_disagreements = []
+for mol1, mol2 in zip(mols_1, mols_2):
+    total_disagreements.append(abs(mol1['pzero']['t'] - mol2['pzero']['t']))
+
+print(f"Average electronic energy disagreement in kcal/mol: {(sum(elec_disagreements) / len(elec_disagreements)) * 627}")
+print(f"Average disagreement for total energy in kcal/mol: {(sum(total_disagreements) / len(total_disagreements)) * 627}")
+
+#The diffs that are returned are direct differences, need to take abs value of diffs for comparison
+#Bad index 625 when max_config = 7 using fmt _8020
+#Bad index shifts to 936 when max_config = 8 using fmt_8020
+
+#Analysis of agreement between the electronic components of energies
+
+#%% Analyzing reproduction of 'cc' energies
+
+'''
+The individual components of the energy (Eelec, Erep, Eref) disagree, but 
+want to see if 'cc' predictions for molecules is in agreement between
+different SKF sets trained on different molecules. 
+
+If the energies are in agreement, then it's clear the underlying physics
+is not perfectly reproduced, but there is some interplay between the different
+energy components. If the energies are not in agreement, then we may have a 
+problem. However, the MAE performance between the two comparison dataset result
+skf sets is basically the same (difference of a few hundreths kcal), so 
+will be interesting to see what the result is. Should agree, I hope.
+'''
+from DFTBPlus.run_dftbplus import generate_linear_ref_mat
+from DFTBPlus import run_organics
+import Auorg_1_1
+import os, pickle
+import numpy as np
+
+data_path = "ANI-1ccx_clean_fullentry.h5"
+max_config = 13
+maxheavy = 8
+allowed_Zs = [1,6,7,8]
+target = 'cc'
+exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+par_dict = Auorg_1_1.ParDict()
+
+skf_dir = os.path.join(os.getcwd(), "Experiments_and_graphs", "comparison_dset_1_result")
+ref_params = pickle.load(open('Experiments_and_graphs/comparison_dset_1_result/ref_params.p', 'rb'))
+
+error_Ha, error_Kcal, diffs, mols_1 = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir, exec_path, par_dict, 
+             'new', dftbrep_ref_params = ref_params, filter_test = True,
+             filter_dir = "cd1_cd2_total", parse = 'detailed', dispersion = False, return_dset = True)
+
+skf_dir = os.path.join(os.getcwd(), "Experiments_and_graphs", "comparison_dset_2_result")
+ref_params = pickle.load(open('Experiments_and_graphs/comparison_dset_2_result/ref_params.p', 'rb'))
+
+error_Ha, error_Kcal, diffs, mols_2 = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir, exec_path, par_dict, 
+             'new', dftbrep_ref_params = ref_params, filter_test = True,
+             filter_dir = "cd1_cd2_total", parse = 'detailed', dispersion = False, return_dset = True)
+
+assert(len(mols_1) == len(mols_2))
+
+#Now going to generate the predicted cc energies for both molecule sets
+atypes = tuple(allowed_Zs)
+XX_1 = generate_linear_ref_mat(mols_1, atypes)
+XX_2 = generate_linear_ref_mat(mols_2, atypes)
+ref_1 = pickle.load(open('Experiments_and_graphs/comparison_dset_1_result/ref_params.p', 'rb'))
+ref_2 = pickle.load(open('Experiments_and_graphs/comparison_dset_2_result/ref_params.p', 'rb'))
+coef_1, coef_2 = ref_1['coef'], ref_2['coef']
+intercept_1, intercept_2 = ref_1['intercept'], ref_2['intercept']
+
+predicted_dt_1 = np.array([molec['pzero']['t'] for molec in mols_1])
+predicted_dt_2 = np.array([molec['pzero']['t'] for molec in mols_2])
+
+cc_1 = predicted_dt_1 + (np.dot(XX_1, coef_1) + intercept_1)
+cc_2 = predicted_dt_2 + (np.dot(XX_2, coef_2) + intercept_2)
+
+MAE_diff = np.mean(np.abs(cc_1 - cc_2))
+print(f"MAE difference in cc energies is {MAE_diff * 627} in kcal/mol")
+
+
+#%% Testing out range-constrained plotting
+from PlottingUtil import read_skf_set, plot_overlay_skf_sets, compare_differences, plot_skf_dist_overlay, plot_multi_overlay_skf_sets
+import os
+import pickle
+
+# skset1 = read_skf_set(os.path.join(os.getcwd(), "comparison_dset_1_identical_run_2")) #Vanishing boundary conditions
+# skset2 = read_skf_set(os.path.join(os.getcwd(), "Experiments_and_graphs", "comparison_dset_2_result"))
+
+range_dict = {
+    "1,1" : 0.500,
+    "6,6" : 1.04,
+    "1,6" : 0.602,
+    "7,7" : 0.986,
+    "6,7" : 0.948,
+    "1,7" : 0.573,
+    "1,8" : 0.599,
+    "6,8" : 1.005,
+    "7,8" : 0.933,
+    "8,8" : 1.062
+    }
+
+universal_ceil = 4.5
+
+range_dict = {(int(k[0]), int(k[2])) : (v, universal_ceil) for k, v in range_dict.items()}
+
+print(range_dict)
+
+dest = os.path.join(os.getcwd(), "comparison_dset_1_identical_run_2/auorg_mio_comp")
+if not os.path.exists(dest):
+    os.mkdir(dest)
+
+# plot_overlay_skf_sets(skset1, skset2, 'cdr1', 'cdr2', None, 'plot', range_dict = range_dict)
+# compare_differences(os.path.join(os.getcwd(), "comparison_dset_1_identical_run_1"),
+#                     os.path.join(os.getcwd(), "comparison_dset_1_identical_run_2"),
+#                     dest, 'plot', units = 'kcal', range_dict = range_dict)
+# dset = pickle.load(open("comparison_dset_1/Fold0_molecs.p", "rb")) + pickle.load(open("comparison_dset_1/Fold1_molecs.p", "rb"))
+# assert(len(dset) == 2210 + 553)
+# plot_skf_dist_overlay(skset1, dest, 'plot', dset, range_dict = range_dict)
+
+names = ["comparison_dset_1_identical_run_2", "Auorg_1_1/auorg-1-1", "MIO_0_1/mio-0-1"]
+labels = ["DFTBML", "Auorg", "MIO"]
+plot_multi_overlay_skf_sets(names, labels, dest, 'plot', range_dict = range_dict)
+
+#%% Generating transfer_dataset that is train on < 4/6 heavy atoms, validate + test on heavy
+
+'''One of the biggest questions is can we train the model on molecules with
+< 4 heavy atoms and achieve good results when validating/testing on molecules
+withb > 4 heavy atoms? Let's see! This will generate the transfer_dataset.
+
+In this construction, Fold0_molecs.p will be the light training molecules
+and Fold1_molecs.p will be the heavy validation molecules. 
+'''
+
+from FoldManager import get_ani1data, count_nheavy
+import random
+import os, shutil
+import pickle
+
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [i + 1 for i in range(8)]
+max_config = 23
+target = {"Etot" : "cc",
+           "dipole" : "wb97x_dz.dipole",
+           "charges" : "wb97x_dz.cm5_charges"}
+data_path = "ANI-1ccx_clean_fullentry.h5"
+
+dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, data_path)
+nums = list(map(lambda x : count_nheavy(x), dataset))
+
+assert(len(dataset) == len(nums))
+
+lower_limit = 6
+prop_train = 0.8
+destination = "transfer_dataset_6_8"
+
+lower_molecs, higher_molecs = [], []
+for count, molec in zip(nums, dataset):
+    if count <= lower_limit:
+        lower_molecs.append(molec)
+    else:
+        higher_molecs.append(molec)
+
+for molec in lower_molecs:
+    assert(count_nheavy(molec) <= lower_limit)
+
+for molec in higher_molecs:
+    assert(count_nheavy(molec) > lower_limit)
+
+num_total = int(len(lower_molecs) / prop_train)
+print(f"Total number of molecules is {num_total}")
+num_higher = num_total - len(lower_molecs)
+final_higher = random.sample(higher_molecs, num_higher)
+print(f"Total number of higher molecules is {len(final_higher)}")
+
+assert(len(final_higher) + len(lower_molecs) == num_total)
+
+for molec in lower_molecs:
+    assert(count_nheavy(molec) <= lower_limit)
+
+for molec in final_higher:
+    assert(count_nheavy(molec) > lower_limit)
+
+total_path = os.path.join(os.getcwd(), destination)
+if os.path.exists(total_path):
+    print(f"Removing directory {total_path}")
+    shutil.rmtree(total_path)
+
+os.mkdir(total_path)
+
+fold0_path = os.path.join(total_path, "Fold0_molecs.p")
+fold1_path = os.path.join(total_path, "Fold1_molecs.p")
+
+random.shuffle(lower_molecs)
+random.shuffle(final_higher)
+
+with open(fold0_path, 'wb') as handle:
+    pickle.dump(lower_molecs, handle)
+
+with open(fold1_path, 'wb') as handle:
+    pickle.dump(final_higher, handle)
+
+print("Finished generating transfer_dataset")
+
+#%% Generate super small training set with a fixed validation set
+
+'''
+Here, the validation set does not matter because there is no stepping through 
+the stochastic gradient descent on the validation predictions. The workflow 
+looks as follows:
+    1) Copy over the validation set from a previous dataset. This is usually
+        the Fold1_molecs.p
+    2) Pull a small number of molecules from ani1 and make sure that 
+        none of them are contained in the validation set
+    3) Save this as the new Fold1_molecs.p along with the copied Fold1_molecs.p.
+        Note that this is unlikely to achieve a good 80-20 split, but this doesn't
+        matter here.
+    4) Precompute for both Fold0 and Fold1 
+    5) Run through the model with that dataset
+    6) Analyze the results
+    
+'''
+from FoldManager import get_ani1data
+import pickle, os, shutil
+import random
+
+validation_copy = "comparison_dset_1/Fold1_molecs.p"
+copy_validation = pickle.load(open(validation_copy, 'rb'))
+
+validation_name_confs = set( [ (mol['name'], mol['iconfig']) for mol in copy_validation ] )
+assert(len(validation_name_confs) == len(copy_validation))
+
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [i + 1 for i in range(8)]
+max_config = 20
+target = {"Etot" : "cc",
+           "dipole" : "wb97x_dz.dipole",
+           "charges" : "wb97x_dz.cm5_charges"}
+data_path = "ANI-1ccx_clean_fullentry.h5"
+
+train_dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, data_path)
+print(f"Length of total training dataset: {len(train_dataset)}")
+
+train_dset_clean = []
+for mol in train_dataset:
+    if (mol['name'], mol['iconfig']) not in validation_name_confs:
+        train_dset_clean.append(mol)
+
+train_name_confs = set([(mol['name'], mol['iconfig']) for mol in train_dset_clean])
+assert(len(train_name_confs) == len(train_dset_clean))
+assert(train_name_confs.isdisjoint(validation_name_confs))
+
+num_train = 1_000
+
+training_molecs = random.sample(train_dset_clean, num_train)
+train_name_confs = set([(mol['name'], mol['iconfig']) for mol in training_molecs])
+assert(len(train_name_confs) == len(training_molecs))
+assert(train_name_confs.isdisjoint(validation_name_confs))
+
+dest = "small_train_dset_1000"
+full_path = os.path.join(os.getcwd(), dest)
+if os.path.exists(full_path):
+    print(f"Removing existing directory at {full_path}")
+    shutil.rmtree(full_path)
+
+os.mkdir(full_path)
+
+fold0_path = os.path.join(full_path, "Fold0_molecs.p")
+fold1_path = os.path.join(full_path, "Fold1_molecs.p")
+
+with open(fold0_path, 'wb') as handle:
+    pickle.dump(training_molecs, handle)
+
+with open(fold1_path, 'wb') as handle:
+    pickle.dump(copy_validation, handle)
+    
+print("Finished generating small_dataset")
+
+#%% Charge and dipole improvement analysis
+import pickle
+lt_path = "comparison_dset_1_identical_run_2/Split0/loss_tracker.p"
+lt = pickle.load(open(lt_path, 'rb'))
+
+val_charges = lt['charges'][0]
+train_charges = lt['charges'][1]
+
+val_dipoles = lt['dipole'][0]
+train_dipoles = lt['dipole'][1]
+
+charge_improvement =  abs(val_charges[-1] - val_charges[0]) / 100 #multiplication factor
+dipole_improvement = abs(val_dipoles[-1] - val_dipoles[0]) / 100 #multiplication factor
+
+print(f"charge improvement: {charge_improvement}")
+print(f"Initial: {val_charges[0] / 100}, Final: {val_charges[-1] / 100}")
+print(f"dipole improvement: {dipole_improvement}")
+print(f"Initial: {val_dipoles[0] / 100}, Final: {val_dipoles[-1] / 100}")
+
+
+#%% Analysis of total loss without convex covering
+
+#All losses are unitless since they are scaled by the reciprocal accuracy factor
+#   so this should be easy to see the jumps following charge updates
+
+import matplotlib.pyplot as plt
+import pickle
+import numpy as np
+
+path = "comparison_dset_1_identical_run_2/Split0/loss_tracker.p"
+lt = pickle.load(open(path, 'rb'))
+valid_Etot = np.array(lt['Etot'][0])
+valid_dipole = np.array(lt['dipole'][0])
+valid_charges = np.array(lt['charges'][0])
+assert(len(valid_Etot) == len(valid_dipole) == len(valid_charges))
+
+epochs = np.array([i for i in range(len(valid_Etot))])
+
+tot_loss = valid_Etot + valid_dipole + valid_charges
+plt.plot(epochs, tot_loss)
+
+#%% Generating a dataset with DFT triple-zeta as the target
+
+'''
+The DFT triple-zeta energy is encoded as 'wt' in the backend of the code, so 
+we will have to change the target dictionary to accomodate this. Otherwise,
+it will be the standard 80-20 split for a dataset. 
+'''
+from FoldManager import get_ani1data
+import pickle, os, shutil
+import random
+
+prop_train = 0.8
+allowed_Zs = [1,6,7,8]
+heavy_atoms = [i + 1 for i in range(8)]
+max_config = 6
+target = {"Etot" : "wt", #DFT triple-zeta energy target
+           "dipole" : "wb97x_dz.dipole",
+           "charges" : "wb97x_dz.cm5_charges"}
+data_path = "ANI-1ccx_clean_fullentry.h5"
+
+dataset = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, data_path)
+
+print(f"Number of molecules in dataset: {len(dataset)}")
+num_train = int(prop_train * len(dataset))
+train_dataset = dataset[:num_train]
+valid_dataset = dataset[num_train:]
+
+random.shuffle(train_dataset)
+random.shuffle(valid_dataset)
+
+print(f"num train: {len(train_dataset)}, num_valid: {len(valid_dataset)}")
+
+with open("DFT_dset/Fold0_molecs.p", "wb") as handle:
+    pickle.dump(train_dataset, handle)
+
+with open("DFT_dset/Fold1_molecs.p", "wb") as handle:
+    pickle.dump(valid_dataset, handle)
+
+print("Data saved to DFT_dset")
+
+
+
+
+
+
+
+
+
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

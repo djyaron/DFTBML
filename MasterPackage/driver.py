@@ -19,6 +19,7 @@ from MasterConstants import Model #For debugging
 from Spline import get_dftb_vals #For debugging
 import torch #For debugging
 from InputLayer import Input_layer_pairwise_linear
+import os, shutil
 
 #%% Code behind
 def run_training(settings_filename: str, defaults_filename: str, skf_method: str = 'old'):
@@ -152,3 +153,34 @@ if __name__ == "__main__":
     
     print(f"Run took {end - start} seconds")
     print(loss_tracker)
+    
+    print("Copying and saving split information")
+    
+    #Some book keeping code
+    s_obj = parse_input_dictionaries(settings, defaults)
+    s_obj = collapse_to_master_settings(s_obj)
+    
+    dset_source = s_obj.top_level_fold_path
+    results_dest = s_obj.run_id
+    
+    num_splits = len(s_obj.split_mapping)
+    for i in range(num_splits):
+        src = os.path.join(dset_source, f"Split{i}")
+        dst = os.path.join(results_dest, f"Split{i}")
+        #TODO: Fix problem of existing directory
+        if os.path.exists(dst):
+            print("Removing existing directory")
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+    
+    print("Copying settings file")
+    
+    shutil.copy("settings_refactor_tst.json", os.path.join(results_dest, "settings_refactor_tst.json"))
+    
+    print("All information copied")
+    
+    
+    
+    
+        
+        
