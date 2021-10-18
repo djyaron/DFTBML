@@ -45,7 +45,7 @@ def load_ani1(ani_path: str, max_config: int, maxheavy: int = 8, allowed_Zs: Lis
             entry for each molecule as a dictionary
     """
     target = {'dt': 'dt', 'dr': 'dr', 'pt': 'pt', 'pe': 'pe', 'pr': 'pr',
-              'cc': 'cc', 'ht': 'ht',
+              'cc': 'cc', 'ht': 'ht', 'wt' : 'wt',
               'dipole': 'wb97x_dz.dipole',
               'charges': 'wb97x_dz.cm5_charges'}
     exclude = ['O3', 'N2O1', 'H1N1O3', 'H2']

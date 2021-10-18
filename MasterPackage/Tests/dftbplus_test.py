@@ -46,6 +46,7 @@ def test_molecule_exclusion() -> None:
     #No overlapping elements
     assert(clean_name_set.difference(nc_pair_set) == clean_name_set)
     assert(nc_pair_set.difference(clean_name_set) == nc_pair_set)
+    assert(clean_name_set.intersection(nc_pair_set) == set())
     
     dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single1")
     name_conf_pairs = find_all_used_configs(dataset_ref_path)
@@ -57,7 +58,26 @@ def test_molecule_exclusion() -> None:
     #No overlapping elements
     assert(clean_name_set.difference(nc_pair_set) == clean_name_set)
     assert(nc_pair_set.difference(clean_name_set) == nc_pair_set)
+    assert(clean_name_set.intersection(nc_pair_set) == set())
     
+    #Ensure that the exclusion based on empirical formula works correctly
+    dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single1")
+    name_conf_pairs = find_all_used_configs(dataset_ref_path)
+    assert(len(name_conf_pairs) == 466)
+    cleaned_dataset = filter_dataset(dataset, name_conf_pairs, "form")
+    clean_dataset_names = [molec['name'] for molec in cleaned_dataset]
+    clean_name_set = set(clean_dataset_names)
+    train_name_set_only = set([pair[0] for pair in name_conf_pairs])
+    assert(clean_name_set.intersection(train_name_set_only) == set())
+    
+    dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single0")
+    name_conf_pairs = find_all_used_configs(dataset_ref_path)
+    assert(len(name_conf_pairs) == 1863)
+    cleaned_dataset = filter_dataset(dataset, name_conf_pairs, "form")
+    clean_dataset_names = [molec['name'] for molec in cleaned_dataset]
+    clean_name_set = set(clean_dataset_names)
+    train_name_set_only = set([pair[0] for pair in name_conf_pairs])
+    assert(clean_name_set.intersection(train_name_set_only) == set())
     print("Molecule exclusion test passed")
 
 def test_dftbplus_organics():

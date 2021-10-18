@@ -20,6 +20,7 @@ check with this formalized test.
 from FoldManager import get_ani1data
 import numpy as np
 import random
+from typing import Dict
 
 
 #%% Code behind
@@ -70,8 +71,80 @@ def test_ani1_Zs_ordering():
     
     print("Atomic number ordering test for ANI-1 dataset passed successfully")
     
+def test_mol_equiv(mol1: Dict, mol2: Dict) -> bool:
+    r"""Checks if two molecules are equivalent across all datafields.
+    """
+    assert(mol1['name'] == mol2['name'])
+    assert(mol1['iconfig'] == mol2['iconfig'])
+    assert(np.allclose(mol1['atomic_numbers'], mol2['atomic_numbers']))
+    assert(np.allclose(mol1['coordinates'], mol2['coordinates']))
+    
+    for t in mol1['targets']:
+        if t == 'Etot':
+            assert(mol1['targets'][t] == mol2['targets'][t])
+        else:
+            assert(np.allclose(mol1['targets'][t], mol2['targets'][t]))
+    
+    return True
+
+def test_ani1_extraction():
+    r"""Testing to make sure that extracting data from ANI1 is a non-random
+        process and that changing the max_config number while keeping other
+        settings the same ensures that smaller datasets are an ordered 
+        subset of larger datasets.
+    """
+    allowed_Zs = [1,6,7,8]
+    heavy_atoms = [i + 1 for i in range(8)]
+    max_config = 8
+    target = {"Etot" : "cc",
+               "dipole" : "wb97x_dz.dipole",
+               "charges" : "wb97x_dz.cm5_charges"}
+    
+    ani1_path = "ANI-1ccx_clean_fullentry.h5"
+    
+    small_set = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, ani1_path)
+    
+    #Change max_config and redraw
+    max_config = 13
+    large_set = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, ani1_path)
+    
+    #Check the set of names is consistent
+    small_names = set([mol['name'] for mol in small_set])
+    large_names = set([mol['name'] for mol in large_set])
+    assert(small_names == large_names)
+    
+    small_set_dict = dict()
+    large_set_dict = dict()
+    
+    for mol in small_set:
+        name = mol['name']
+        if name in small_set_dict:
+            small_set_dict[name].append(mol)
+        else:
+            small_set_dict[name] = [mol]
+    
+    for mol in large_set:
+        name = mol['name']
+        if name in large_set_dict:
+            large_set_dict[name].append(mol)
+        else:
+            large_set_dict[name] = [mol]
+    
+    #Things should be properly ordered
+    
+    assert(set(small_set_dict.keys()) == set(large_set_dict.keys()) == set(small_names) == set(large_names))
+    
+    for name in list(small_names):
+        min_len = min(len(small_set_dict[name]), len(large_set_dict[name]))
+        for i in range(min_len):
+            assert(test_mol_equiv(small_set_dict[name][i], large_set_dict[name][i]))
+    
+    print("Ordering test passed")
+    
+    
 def run_invariant_tests():
     test_ani1_Zs_ordering()
+    test_ani1_extraction()
         
 
 #%% Main block

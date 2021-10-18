@@ -12,6 +12,9 @@ more granular information than the y-axis.
 
 This code is pretty messy, might want to consider a redesign/rewrite of
 the software.
+
+TODO: Restrict range on all the plots to be more accurate about the differences
+    between everything.
 """
 #%% Imports, definitions
 import pickle, os
@@ -55,7 +58,8 @@ def read_skf_set(skf_dir: str) -> SKFSet:
     return skfset
 
 def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, label: str = None,
-                 mode: str = 'scatter') -> None:
+                 mode: str = 'scatter', xlow: Union[int, float] = None, 
+                 xhigh: Union[int, float] = None) -> None:
     r"""Plots a single SKF integral
     
     Arguments:
@@ -68,11 +72,21 @@ def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, lab
             lable could be 'Auorg' if the integral data comes from auorg or 'MIO' if
             it comes from MIO
         mode (str): scatter or plot. Defaults to scatter.
+        xlow (Union[int, float]): The lower bound for the distance. Defaults
+            to None.
+        xhigh (Union[int, float]): The upper bound for the distance. Defaults
+            to None.
     """
     curr_skf = skf_set[elems]
     int_table = getattr(curr_skf, op)
     curr_data = int_table[int_name].to_numpy()
     rgrid = curr_skf.intGrid() / ANGSTROM2BOHR
+    assert(len(rgrid) == len(curr_data))
+    #If xlow and xhigh are given, filter things
+    if (xlow != None) and (xhigh != None):
+        indices = np.where((rgrid >= xlow) & (rgrid <= xhigh))[0]
+        rgrid = rgrid[indices]
+        curr_data = curr_data[indices]
     if mode == 'scatter':
         axs.scatter(rgrid, curr_data, label = label)
     elif mode == 'plot':
@@ -137,7 +151,8 @@ def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
 
 def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
                           set_1_label: str, set_2_label: str, dest: str, mode: str,
-                          x_major: int = 1, x_minor: float = 0.1) -> None:
+                          x_major: int = 1, x_minor: float = 0.1,
+                          range_dict: Dict = None) -> None:
     r"""Plots all integrals of two SKF sets and overlays them.
     
     Arguments:
@@ -152,6 +167,10 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
              for major tick marks)
         x_minor (float): the argument used for minor multiple locator (increments
              for minor tick marks)
+        range_dict (Dict): Dictionary indicating the distance ranges to plot
+            for certain element pairs. Defaults to None, in which case the 
+            full skf grid is used. Each range specified in the range dict has
+            the form (xlow, xhigh).
     
     Returns:
         None
@@ -167,6 +186,13 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
         assert( set(set_1.keys()) == set(set_2.keys()) )
     #Assume for now that skf_set_1 has fewer element files than skf_set_2
     for elem_pair in set_1.keys(): #Unsafe, only works for SKF sets with fewer files than the reference set
+        elem_rev = tuple(reversed(elem_pair))
+        xlow, xhigh = None, None
+        if (range_dict is not None):
+            if elem_pair in range_dict:
+                xlow, xhigh = range_dict[elem_pair]
+            elif elem_rev in range_dict:
+                xlow, xhigh = range_dict[elem_rev]
         for op in all_ops:
             for int_name in getattr(set_1[elem_pair], op).keys():
                 series1 = getattr(set_1[elem_pair], op)[int_name]
@@ -180,12 +206,60 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
                         axs.set_ylabel("Hartrees")
                     elif op == 'S':
                         axs.set_ylabel("A.U.")
-                    plot_skf_int(elem_pair, op, int_name, set_1, axs, label = set_1_label, mode = mode)
-                    plot_skf_int(elem_pair, op, int_name, set_2, axs, label = set_2_label, mode = mode)
+                    plot_skf_int(elem_pair, op, int_name, set_1, axs, label = set_1_label, mode = mode, xlow = xlow, xhigh = xhigh)
+                    plot_skf_int(elem_pair, op, int_name, set_2, axs, label = set_2_label, mode = mode, xlow = xlow, xhigh = xhigh)
                     axs.legend()
                     #In plotting these graphs, the distance along the x-axis is
                     #   going to be important for figuring out spline
                     #   differences. y-axis vlaues
+                    axs.yaxis.set_minor_locator(AutoMinorLocator())
+                    axs.xaxis.set_major_locator(MultipleLocator(x_major))
+                    axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+                    if (dest is not None):
+                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                    plt.show()
+
+def plot_multi_overlay_skf_sets(set_names: List[str], set_labels: List[str], dest: str, mode: str, 
+                                x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None) -> None:
+    r"""Overlays numerous SKF sets together. Refer to the documentation for 
+        plot_overlay_skf_sets for more information. set_names and set_labels should have
+        a 1:1 correspondence index-wise
+    """
+    all_ops = ['H', 'S']
+    assert(len(set_names) == len(set_labels))
+    assert(len(set(set_names)) == len(set_names)) #No repeating set names
+    all_sets = [read_skf_set( os.path.join(os.getcwd(), name) ) for name in set_names]
+    set_key_count = list(map(lambda x : len(x.keys()), all_sets ))
+    min_index = set_key_count.index(min(set_key_count))
+    iter_keys = list(all_sets[min_index].keys())
+    H_keys = getattr(all_sets[min_index][iter_keys[0]], 'H').keys()
+    S_keys = getattr(all_sets[min_index][iter_keys[0]], 'S').keys()
+    for elem_pair in iter_keys:
+        elem_rev = tuple(reversed(elem_pair))
+        xlow, xhigh = None, None
+        if (range_dict is not None):
+            if elem_pair in range_dict:
+                xlow, xhigh = range_dict[elem_pair]
+            elif elem_rev in range_dict:
+                xlow, xhigh = range_dict[elem_rev]
+        for op in all_ops:
+            curr_ints = H_keys if op == 'H' else S_keys
+            for int_name in curr_ints:
+                all_series = [getattr(skset[elem_pair], op)[int_name] for skset in all_sets]
+                int_tst_result = [empty_int(x) for x in all_series]
+                if set(int_tst_result) == {False}: #All series have to be false to proceed
+                    #Do drawing logic here.
+                    fig, axs = plt.subplots()
+                    title = f"{elem_pair}, {op}, {int_name}"
+                    axs.set_title(title)
+                    axs.set_xlabel("Angstroms")
+                    if op == 'H':
+                        axs.set_ylabel("Hartrees")
+                    elif op == 'S':
+                        axs.set_ylabel("A.U.")
+                    for i, skset in enumerate(all_sets):
+                        plot_skf_int(elem_pair, op, int_name, skset, axs, label = set_labels[i], mode = mode, xlow = xlow, xhigh = xhigh)
+                    axs.legend()
                     axs.yaxis.set_minor_locator(AutoMinorLocator())
                     axs.xaxis.set_major_locator(MultipleLocator(x_major))
                     axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
@@ -253,7 +327,7 @@ def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict,
         plt.show()
 
 def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict],
-                          x_major: int = 1, x_minor: float = 0.1) -> None:
+                          x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None) -> None:
     r"""Plots an SKF set with the distance distribution overlayed. 
     
     Arguments:
@@ -267,6 +341,8 @@ def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict
              for major tick marks)
         x_minor (float): the argument used for minor multiple locator (increments
              for minor tick marks)
+        range_dict (Dict): The dictionary for constraining the splines to the 
+            physically relevant region of interest
     
     Returns:
         None
@@ -284,6 +360,13 @@ def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict
     
     all_ops = ['H', 'S'] #Hamiltonian and overlap operators
     for elem_pair in skf_set.keys():
+        elem_rev = tuple(reversed(elem_pair))
+        xlow, xhigh = None, None
+        if (range_dict is not None):
+            if elem_pair in range_dict:
+                xlow, xhigh = range_dict[elem_pair]
+            elif elem_rev in range_dict:
+                xlow, xhigh = range_dict[elem_rev]
         for op in all_ops:
             for int_name in getattr(skf_set[elem_pair], op).keys():
                 if (not empty_int(getattr(skf_set[elem_pair], op)[int_name]) ):
@@ -306,7 +389,7 @@ def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict
                     axs2.set_ylabel("Frequency")
                     
                     #Plot the spline second
-                    plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode)
+                    plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode, xlow = xlow, xhigh = xhigh)
                     #In plotting these graphs, the distance along the x-axis is
                     #   going to be important for figuring out spline
                     #   differences. y-axis vlaues
@@ -445,7 +528,8 @@ def skf_interpolation_plot(skf_dir: str, mode: str, dest: str = None) -> None:
 
 def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
                         mode: str, x_major: Union[int, float] = 1,
-                        x_minor: Union[int, float] = 0.1, units: str = "Ha") -> None:
+                        x_minor: Union[int, float] = 0.1, units: str = "Ha",
+                        range_dict: Dict = None) -> None:
     r"""Plots the differences of two spline plots with the ability to specify
         the units of the plot.
     
@@ -457,6 +541,10 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
         mode (str): The mode for the plots, one of 'plot' and 'scatter'
         units (str): The units to use for plotting. Defaults to 'Ha', which
             is the atomic unit of energy. Can also specify 'kcal' for Kcal/mol.
+        range_dict (Dict): Dictionary indicating the distance ranges to plot
+            for certain element pairs. Defaults to None, in which case the 
+            full skf grid is used. Each range specified in the range dict has
+            the form (xlow, xhigh).
     
     Returns:
         None
@@ -470,6 +558,7 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
         must have been evaluated over the same grid. 
     """
     # raise NotImplementedError()
+    assert(skset_1_name != skset_2_name)
     all_ops = ['H', 'S']
     skset_1 = read_skf_set(skset_1_name)
     skset_2 = read_skf_set(skset_2_name)
@@ -489,6 +578,13 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
         max_set = skset_2
     
     for elem_pair in min_set.keys():
+        elem_rev = tuple(reversed(elem_pair))
+        xlow, xhigh = None, None
+        if (range_dict is not None):
+            if elem_pair in range_dict:
+                xlow, xhigh = range_dict[elem_pair]
+            elif elem_rev in range_dict:
+                xlow, xhigh = range_dict[elem_rev]
         for op in all_ops:
             for int_name in getattr(min_set[elem_pair], op).keys():
                 series1 = getattr(min_set[elem_pair], op)[int_name]
@@ -499,11 +595,21 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
                     rgrid1 = skf1.intGrid() / ANGSTROM2BOHR
                     rgrid2 = skf2.intGrid() / ANGSTROM2BOHR
                     assert(all(rgrid1 == rgrid2)) #rgrids must be the same.
+                    
+                    indices = None
+                    if (xlow is not None) and (xhigh is not None):
+                        indices = np.where((rgrid1 >= xlow) & (rgrid1 <= xhigh))[0]
+                    
                     int_table1 = getattr(skf1, op)
                     int_table2 = getattr(skf2, op)
                     data_1 = int_table1[int_name].to_numpy()
                     data_2 = int_table2[int_name].to_numpy()
                     diff = np.abs(data_2 - data_1)
+                    
+                    if (indices is not None):
+                        rgrid1 = rgrid1[indices]
+                        diff = diff[indices]
+                    
                     if (op == 'H') and (units == 'kcal'):
                         diff = diff * 627.5
                     #Now to plot the differences over the rgrid
@@ -578,3 +684,25 @@ def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float]
         if (dest is not None):
             fig.savefig(os.path.join(dest, f"{elem_pair}_dist.png"))
     print("All histogram plots generated")
+    
+def compare_electronic_values(skset_1_name: str, skset_2_name: str,
+                              targets: List[str] = ['Ep', 'Es', 'Up', 'Us']) -> None:
+    #Are the occupations worth looking at too?
+    assert(skset_1_name != skset_2_name)
+    skset1 = read_skf_set(skset_1_name)
+    skset2 = read_skf_set(skset_2_name)
+    assert(set(skset1.keys()) == set(skset2.keys()))
+    homo_keys = [pair for pair in skset1.keys() if pair[0] == pair[-1]]
+    disagreement_dict = dict()
+    for pair in homo_keys:
+        disagreement_dict[pair] = dict()
+    for elem_pair in homo_keys:
+        atom_info_1 = skset1[elem_pair]
+        atom_info_2 = skset2[elem_pair]
+        for target in targets:
+            disagreement_dict[elem_pair][target] = \
+                abs(atom_info_1[target] - atom_info_2[target])
+    corrected_dict = {k[0] : v for k, v in disagreement_dict.items()}
+    for elem in corrected_dict:
+        for target in corrected_dict[elem]:
+            print(f"{elem}, {target}, {corrected_dict[elem][target]}")

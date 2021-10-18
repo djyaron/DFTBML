@@ -10,6 +10,7 @@ Module to run organic molecules from ANI-1 through DFTB+ with new skf files.
 from .run_dftbplus import compute_results_torch, add_dftb, load_ani1, compute_results_torch_newrep
 from .util import find_all_used_configs, filter_dataset
 from typing import List, Dict
+import pickle
 
 #%% Code behind
 
@@ -19,7 +20,8 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
                  do_dftbpy: bool = True, do_dftbplus: bool = True, fermi_temp: float = None,
                  error_metric: str = "MAE", filter_test: bool = False,
                  filter_dir: str = None, parse: str = 'dftb',
-                 dispersion: bool = False) -> float:
+                 dispersion: bool = False, return_dset: bool = False,
+                 filter_mode: str = "form_conf") -> float:
     r"""Computes the error from running DFTB+ using a set of skf files, with 
         error_metric as the method of computing the error. Error is
         computed on total energy.
@@ -64,6 +66,13 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
             'detailed' for read_detailed_out()
         dispersion (bool): Whether or not to include the dispersion block in 
             the DFTB+ in file.
+        return_dset (bool): Whether or not to return the dataset along with othher
+            results. Defaults to False.
+        filter_mode (str): The mode to use for molecule exclusion when choosing molecules for
+            the test dataset that are not found in the training or validation datasets. 
+            Should be one of "form_conf" or "form", where "form" excludes based only on
+            empirical formula and "form_conf" excludes based on empirical formula and 
+            configuration number. Defaults to "form_conf"
     
     Returns:
         error_Ha (float): The error computed between the true target value and
@@ -88,9 +97,16 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
     dataset = load_ani1(data_path, max_config, maxheavy, allowed_Zs)
     print(f"Length of dataset: {len(dataset)}")
     
+    ###TESTING CODE START
+    # dataset = pickle.load(open("transfer_heavies.p", "rb"))
+    # assert(len(dataset) == 4896)
+    # print(f"Length of loaded heavy dataset: {len(dataset)}")
+    
+    ###TESTING CODE END
+    
     if (filter_test and filter_dir != None):
-        print("Filtering dataset")
-        dataset = filter_dataset(dataset, find_all_used_configs(filter_dir))
+        print(f"Filtering dataset with filter mode {filter_mode}")
+        dataset = filter_dataset(dataset, find_all_used_configs(filter_dir), filter_mode)
         print(f"The number of molecules in the filtered dataset is {len(dataset)}")
     elif (filter_test and filter_dir == None):
         print("Cannot filter dataset, no directory path provided for filtering")
@@ -110,6 +126,9 @@ def run_organics(data_path: str, max_config: int, maxheavy: int, allowed_Zs: Lis
     print(f"Using error metric {error_metric}, the error is:")
     print(f"{error_Ha} in Hartrees")
     print(f"{error_Kcal} in Kcal/mol")
-    return error_Ha, error_Kcal, diffs
+    if return_dset:
+        return error_Ha, error_Kcal, diffs, dataset
+    else:
+        return error_Ha, error_Kcal, diffs
 
 
