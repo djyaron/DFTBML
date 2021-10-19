@@ -7,6 +7,25 @@ Created on Mon Oct 18 21:50:08 2021
 
 
 import json, os
+from typing import Dict
+
+def assert_unique_keys(d: Dict) -> bool:
+    r"""Checks that for a settings file, all the dictionary keys are unique under
+        each section (no duplicates).
+    
+    Arguments:
+        d (Dict): The dictionary to check
+    
+    Returns:
+        (bool): Whether the dictionary passes the duplicate key check. True f
+            there are no duplicate keys, False otherwise
+    """
+    all_inner_keys = []
+    for key in d:
+        if isinstance(d[key], dict):
+            for inner_key in d[key]:
+                all_inner_keys.append(inner_key)
+    return len(set(all_inner_keys)) == len(all_inner_keys)
 
 def precompute_settings_check(settings_filename: str) -> None:
     r"""Performs a quick check on the values of the settings file to ensure that
@@ -30,6 +49,9 @@ def precompute_settings_check(settings_filename: str) -> None:
     full_path = os.path.join(os.getcwd(), settings_filename)
     with open(full_path, 'r') as handle:
         d = json.load(handle)
+    
+    assert(assert_unique_keys(d))
+    print("Passed key uniqueness check!")
     
     assert(d['training_settings']['par_dict_name'] == "Auorg_1_1")
     assert(d['training_settings']['train_ener_per_heavy'] == True)

@@ -46,6 +46,8 @@ if __name__ == "__main__":
     
     precompute_settings_check(settings_filename)
     
+    x = input("Did you check the necessary fields? (Y) ")
+    
     create_datasets(settings_filename, defaults_filename, num_train_valid, mode, ref_dir)
 
 
