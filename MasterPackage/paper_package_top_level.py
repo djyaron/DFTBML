@@ -32,6 +32,7 @@ TODO:
 #%% Generate and precompute dataset (with and without reference)
 
 from PaperPackage import create_datasets
+from precompute_check import precompute_settings_check
 
 if __name__ == "__main__":
 
@@ -42,6 +43,8 @@ if __name__ == "__main__":
     ref_dir = None
     
     top_level_directory = "PaperPackage/master_dset"
+    
+    precompute_settings_check(settings_filename)
     
     create_datasets(settings_filename, defaults_filename, num_train_valid, mode, ref_dir)
 

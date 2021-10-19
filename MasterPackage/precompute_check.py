@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Oct 18 21:50:08 2021
+
+@author: fhu14
+"""
+
+
+import json, os
+
+def precompute_settings_check(settings_filename: str) -> None:
+    r"""Performs a quick check on the values of the settings file to ensure that
+        everything is correct and ready to go.
+    
+    Arguments:
+        settings_filename (str): The name of the settings json file used
+            for dataset precomputation
+    
+    Returns:
+        None
+    
+    Raises:
+        AssertionError if certain values are not properly assigned
+    
+    Notes:
+        Certain fields without a easily checkable valuue (e.g. low-end cutoff dictionary)
+        need to be checked by hand, but this takes care of all other fields
+        with simple values.
+    """
+    full_path = os.path.join(os.getcwd(), settings_filename)
+    with open(full_path, 'r') as handle:
+        d = json.load(handle)
+    
+    assert(d['training_settings']['par_dict_name'] == "Auorg_1_1")
+    assert(d['training_settings']['train_ener_per_heavy'] == True)
+    assert(d['training_settings']['opers_to_model'] == ["H", "R", "G", "S"])
+    
+    assert(d['batch_data_fields']['allowed_Zs'] == [1,6,7,8])
+    assert(d['batch_data_fields']['num_per_batch'] == 10)
+    
+    assert(d['training_settings']['losses'] == ["Etot", "dipole", "charges", "convex"])
+    assert(d['training_settings']['target_accuracy_energy'] == 6270)
+    assert(d['training_settings']['target_accuracy_dipole'] == 100)
+    assert(d['training_settings']['target_accuracy_charges'] == 100)
+    assert(d['training_settings']['target_accuracy_convex'] == 1000)
+    assert(d['training_settings']['target_accuracy_monotonic'] == 1000)
+    
+    assert(d['tensor_settings']['tensor_device'] == 'cpu')
+    assert(d['tensor_settings']['tensor_dtype'] == 'double')
+    assert(d['training_settings']['reference_energy_starting_point'] is not None) #Need to hand-check
+    
+    assert(d['model_settings']['low_end_correction_dict'] is not None) #Need to hand-check
+    assert(d['model_settings']['universal_high'] == 10.0)
+    assert(d['model_settings']['spline_mode'] == 'non-joined')
+    assert(d['model_settings']['spline_deg'] == 3)
+    assert(d['training_settings']['debug'] == False)
+    assert(d['model_settings']['num_knots'] == 100)
+    assert(d['model_settings']['buffer'] == 0.0)
+    assert(d['model_settings']['joined_cutoff'] == 4.5)
+    assert(d['model_settings']['cutoff_dictionary'] is not None)
+    assert(d['model_settings']['off_diag_opers'] == ["G"])
+    assert(d['model_settings']['include_inflect'] == True)
+    
+    print("Need to check reference_energy_starting_point, low_end_correction_dict, and cutoff_dictionary. Everything else is good!")
+    
