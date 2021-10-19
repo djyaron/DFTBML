@@ -83,5 +83,13 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['model_settings']['off_diag_opers'] == ["G"])
     assert(d['model_settings']['include_inflect'] == True)
     
+    assert(d['repulsive_settings']['opts'] == {
+        "nknots" : 50,
+        "cutoff" : "full",
+        "deg" : 3,
+        "bconds" : "vanishing",
+        "constr" : "+2"
+    })
+    
     print("Need to check reference_energy_starting_point, low_end_correction_dict, and cutoff_dictionary. Everything else is good!")
     
