@@ -273,7 +273,7 @@ def read_detailed_out(file_path: str) -> dict:
 
 
 def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valence_correction: bool = True,
-                  valence_dict: Dict = None) -> Array:
+                  val_dict: Dict = None) -> Array:
     r"""Parses out the charge information from the charges.dat file output
         from DFTB+
     
@@ -283,7 +283,7 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
         Zs (Array): The atomic number of atoms in the molecule
         valence_correction (bool): Whether to correct charges or not. Defaults
             to True
-        valence_dict (Dict): The dictionary used for the valence correction.
+        val_dict (Dict): The dictionary used for the valence correction.
             Defaults to None
         
     Returns:
@@ -316,7 +316,7 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
     """
     assert(len(rcart_angstrom) == len(Zs))
     if valence_correction:
-        assert(valence_dict is not None)
+        assert(val_dict is not None)
     with open(charge_filename, "r+") as file:
         charge_content = file.read().splitlines()
     n_atom = rcart_angstrom.shape[0] #(Natom, 3)
@@ -325,7 +325,7 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
     charges = [float(line.split()[0]) for line in charge_lines]
     if valence_correction:
         syms = [ELEMENTS[z].symbol for z in Zs]
-        valences = np.array([valence_dict[elem] for elem in syms])
+        valences = np.array([val_dict[elem] for elem in syms])
         charges -= valences
     return np.array(charges)
 

@@ -38,6 +38,16 @@ atom_masses = {
 
 ANGSTROM2BOHR = 1.889725989
 
+#Dictionary containing information regarding the total number of valence
+#   electrons, mapped by element type. NOT orbital resolved values.
+
+valence_dict = { 
+    "H" : 1,
+    "C" : 4,
+    "N" : 5,
+    "O" : 6
+    }
+
 #%% SKF backend constants
 
 #NOTE: These constants are useful in interfacing with the DFTBrepulsive SKF code.
