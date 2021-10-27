@@ -10,8 +10,9 @@ import re
 from Elements import ELEMENTS
 import numpy as np
 import numbers
+from MasterConstants import valence_dict
 
-from typing import List
+from typing import List, Dict
 
 Array = np.ndarray
 
@@ -172,7 +173,7 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
 
         dftbfile.write(
             r'}' + '\n' +
-            r'Options {}' + '\n' +
+            r'Options { WriteChargesAsText = Yes }' + '\n' +
             r'Analysis {' + '\n' +
             r'   CalculateForces = No' + '\n' +
             r'}' + '\n')
@@ -269,4 +270,85 @@ def read_detailed_out(file_path: str) -> dict:
     if (not triggered):
         raise ValueError("DFTB+ calculation failed!")
     return result_dict
+
+
+def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valence_correction: bool = True,
+                  valence_dict: Dict = None) -> Array:
+    r"""Parses out the charge information from the charges.dat file output
+        from DFTB+
     
+    Arguments:
+        charge_filename (str): The path to the charges.dat file
+        rcart_angstrom (Array): The array of cartesian coordinates for the molecule
+        Zs (Array): The atomic number of atoms in the molecule
+        valence_correction (bool): Whether to correct charges or not. Defaults
+            to True
+        valence_dict (Dict): The dictionary used for the valence correction.
+            Defaults to None
+        
+    Returns:
+        charges (Array): The parsed charges from the DFTB+ output. May be
+            valence corrected depending on the valence_correction toggle
+    
+    Notes:
+        A valence correction takes the following form:
+            
+            Q_corrected = Q_calc - Q_neutral
+        
+        Where Q_calc comes from the parsed charges.dat file and Q_neutral is 
+        interpreted as the number of valence electrons in the atom. Because 
+        the DFTB+ output file sums up all electrons across all the orbitals 
+        by default (i.e. not orbital resolved), the charge fluctuation is 
+        easy to calculate. Charges should NOT be orbital resolved!
+        
+        This correction mirrors the behavior in DFTBML, where the on-atom
+        charges computed are a sum of individual orbital charge fluctuations 
+        (Q_atom = sum_{orb} dQ_{orb}), and each dQ is computed as the difference:
+            
+            dQ_{orb} = Q_orb - Q_orb_0
+        
+        The charges in DFTBML are trained to a charge model 5 (cm5) target
+        which are an extension of the Hirshfeld population analysis. 
+        
+        The charges parsed out should be in the same order as the Natoms fed
+        in the input into DFTB+. Later in the calculation of the dipole,
+        the matrix multiplication should work b/w coordinates and charges.
+    """
+    assert(len(rcart_angstrom) == len(Zs))
+    if valence_correction:
+        assert(valence_dict is not None)
+    with open(charge_filename, "r+") as file:
+        charge_content = file.read().splitlines()
+    n_atom = rcart_angstrom.shape[0] #(Natom, 3)
+    assert(rcart_angstrom.shape[1] == 3)
+    charge_lines = charge_content[len(charge_content) - n_atom:]
+    charges = [float(line.split()[0]) for line in charge_lines]
+    if valence_correction:
+        syms = [ELEMENTS[z].symbol for z in Zs]
+        valences = np.array([valence_dict[elem] for elem in syms])
+        charges -= valences
+    return np.array(charges)
+
+def parse_dipole() -> None:
+    "How do you get DFTB+ to output dipole moments?"
+    raise NotImplementedError("Need to implemend parse_dipole()")
+
+def compute_ESP_dipole(charges: Array, rcart_angstrom: Array) -> Array:
+    r"""Computes the ESP dipoles from DFTB+ computed charges
+    
+    Arguments:
+        charges (Array): The parsed out charges from the DFTB+ output
+        rcart_angstroms (Array): The (Natom, 3) array of atomic positions in angstroms
+    
+    Returns:
+        dipole (Array): Array of shape (3, 1) or just (3,) containing the 
+            computed dipole from the charges and positions
+        
+    Notes:
+        The ESP dipole is computed as R @ q where R is the (3, Natom) matrix of
+        atomic positions and q is the vector of Natom charges. Since R is (3, Natom) 
+        and q is (Natom,), the resulting dipole vector should have dimension 
+        (3,)
+    """
+    assert(len(rcart_angstrom) == len(charges))
+    return np.dot(rcart_angstrom.T, charges)
