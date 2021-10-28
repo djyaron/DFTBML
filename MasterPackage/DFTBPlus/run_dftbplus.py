@@ -443,3 +443,47 @@ def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: L
         return true_target - predicted_target, np.sqrt(np.mean(np.square(true_target - predicted_target)))
     elif error_metric == "MAE":
         return true_target - predicted_target, np.mean(np.abs(true_target - predicted_target))
+    
+def compute_results_alt_targets(dataset: List[Dict], targets: List[str], error_metric: str = "MAE") -> Dict[str, float]:
+    r"""Computes the error for other physical targets beside total energy
+    
+    Arguments:
+        dataset (list[Dict]): The dataset with the DFTB+ results added to it
+        targets (List[str]): The targets you want to compute the error for
+        error_metric (str): The error metric to use. Defaults to MAE, meaning
+            mean absolute error
+    
+    Returns:
+        losses (Dict): The dictionary mapping the loss target to the 
+            calculated error
+    
+    Notes: 
+        The returned Losses dictionary also contains a key indicating the error
+        metric that was used for computing that set of errors. For example,
+        if the error_metric used is "MAE", then the dictionary key 
+        "metric" will map to the string "MAE".
+        
+        The units for the losses will be standard atomic units, e.g. the unit
+        of atomic charge (e) for atomic charges. For dipoles, if it is based 
+        on EPS dipoles, it will be e * Angstrom.
+        
+        It is assumed that the physical targets are represented as vector 
+        quantities rather than single values (e.g. dipoles, charges)
+    """
+    losses = {k : 0 for k in targets}
+    for t in targets:
+        #Restricts the series of values added based on if it's contained for the predictions dictionary
+        pred_t = [mol['pzero'][t] for mol in dataset if t in mol['pzero']]
+        true_t = [mol['targets'][t] for mol in dataset if t in mol['pzero']]
+        assert(len(pred_t) == len(true_t))
+        pred_t = list(map(lambda x : np.array(x), pred_t))
+        true_t = list(map(lambda x : np.array(x), true_t))
+        pred_flat = np.concatenate(pred_t)
+        true_flat = np.concatenate(true_t)
+        if error_metric == "MAE":
+            losses[t] = np.mean(np.abs(true_flat - pred_flat))
+        elif error_metric == "RMS":
+            losses[t] = np.sqrt(np.mean(np.square(true_flat - pred_flat)))
+    return losses
+        
+                
