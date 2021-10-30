@@ -484,6 +484,7 @@ def compute_results_alt_targets(dataset: List[Dict], targets: List[str], error_m
             losses[t] = np.mean(np.abs(true_flat - pred_flat))
         elif error_metric == "RMS":
             losses[t] = np.sqrt(np.mean(np.square(true_flat - pred_flat)))
+    losses['metric'] = error_metric
     return losses
         
                 

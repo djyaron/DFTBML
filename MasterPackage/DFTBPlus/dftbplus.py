@@ -299,7 +299,8 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
         interpreted as the number of valence electrons in the atom. Because 
         the DFTB+ output file sums up all electrons across all the orbitals 
         by default (i.e. not orbital resolved), the charge fluctuation is 
-        easy to calculate. Charges should NOT be orbital resolved!
+        easy to calculate. Just to be safe, the charges for all the spin 
+        channels are summed together just in case charges are orbital resolved
         
         This correction mirrors the behavior in DFTBML, where the on-atom
         charges computed are a sum of individual orbital charge fluctuations 
@@ -322,7 +323,11 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
     n_atom = rcart_angstrom.shape[0] #(Natom, 3)
     assert(rcart_angstrom.shape[1] == 3)
     charge_lines = charge_content[len(charge_content) - n_atom:]
-    charges = [float(line.split()[0]) for line in charge_lines]
+    charges = []
+    for line in charge_lines:
+        elems = line.split()
+        flt_mapped = list(map(lambda x : float(x), elems))
+        charges.append(sum(flt_mapped))
     if valence_correction:
         syms = [ELEMENTS[z].symbol for z in Zs]
         valences = np.array([val_dict[elem] for elem in syms])
