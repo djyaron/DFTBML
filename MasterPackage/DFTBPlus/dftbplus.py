@@ -332,6 +332,7 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
         syms = [ELEMENTS[z].symbol for z in Zs]
         valences = np.array([val_dict[elem] for elem in syms])
         charges -= valences
+        charges *= -1 #Need to multiply by negative 1 to maintain consistency with DFTBLayer/DFTBPy
     return np.array(charges)
 
 def parse_dipole() -> None:

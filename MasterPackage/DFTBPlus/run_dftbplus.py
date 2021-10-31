@@ -16,12 +16,14 @@ import shutil
 from subprocess import call
 import numpy as np
 Array = np.ndarray
-from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out
+from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out, parse_charges,\
+        compute_ESP_dipole
 from FoldManager import get_ani1data
 from h5py import File
 from collections import Counter
 import scipy
 from DFTBpy import DFTB
+from MasterConstants import valence_dict
 
 from typing import List, Dict
 
@@ -214,6 +216,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                 dftb_outfile = os.path.join(scratch_dir,'dftb.out')
             elif parse == 'detailed':
                 dftb_outfile = os.path.join(scratch_dir,'detailed.out')
+            charge_filename = os.path.join(scratch_dir, 'charges.dat')
             write_dftb_infile(Zs, rcart, dftb_infile, skf_dir, dispersion, DFTBoptions)
             start_time = time()
             with open(dftb_outfile,'w') as f:
@@ -232,6 +235,12 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                                 res2[key] = dftb_res[key]
                             except:
                                 pass
+                        #Also see if dipoles and charges are present
+                        charges = parse_charges(charge_filename, rcart, Zs, val_dict = valence_dict)
+                        dipole = compute_ESP_dipole(charges, rcart)
+                        res2['charges'] = charges
+                        res2['dipole'] = dipole
+
                     res2['conv'] = True
                     if fermi_temp is None:
                         dftb_savefile = os.path.join(savefile_dir_path,
