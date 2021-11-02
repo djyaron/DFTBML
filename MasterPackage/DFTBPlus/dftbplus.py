@@ -171,11 +171,17 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
             dispersion_block = write_dispersion_block()
             dftbfile.write(dispersion_block)
 
+        #The CM5 charges are included because the model is being trained against
+        #CM5 charges. Also, including the mulliken analysis and CM5 charges 
+        #ensures the dipole moments are outputted in detailed.out (although not sure
+        #how to do proper conversion to Debye)
         dftbfile.write(
             r'}' + '\n' +
             r'Options { WriteChargesAsText = Yes }' + '\n' +
             r'Analysis {' + '\n' +
             r'   CalculateForces = No' + '\n' +
+            r'   MullikenAnalysis = Yes' + '\n' + 
+            r'   CM5{}' + '\n' +
             r'}' + '\n')
         # A windows executable is only available for version 17.1
         #  https://sites.google.com/view/djmolplatform/get-dftb-17-1-windows
@@ -272,7 +278,7 @@ def read_detailed_out(file_path: str) -> dict:
     return result_dict
 
 
-def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valence_correction: bool = True,
+def parse_charges_dat(charge_filename: str, rcart_angstrom: Array, Zs: Array, valence_correction: bool = True,
                   val_dict: Dict = None) -> Array:
     r"""Parses out the charge information from the charges.dat file output
         from DFTB+
@@ -314,6 +320,16 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
         The charges parsed out should be in the same order as the Natoms fed
         in the input into DFTB+. Later in the calculation of the dipole,
         the matrix multiplication should work b/w coordinates and charges.
+
+        Technically, this information can be obtained from the output file,
+        but this method works too since the calculation is consistent for parsing
+        from charges.dat.
+
+        In the DFTBLayer paper, the charge fluctuations are actually computed as follows:
+            
+            dQ_{orb} = - (Q_orb - Q_orb_0) = Q_orb_0 - Q_orb
+
+        Hence, the multiplication by -1 for consistency.
     """
     assert(len(rcart_angstrom) == len(Zs))
     if valence_correction:
@@ -335,9 +351,82 @@ def parse_charges(charge_filename: str, rcart_angstrom: Array, Zs: Array, valenc
         charges *= -1 #Need to multiply by negative 1 to maintain consistency with DFTBLayer/DFTBPy
     return np.array(charges)
 
-def parse_dipole() -> None:
-    "How do you get DFTB+ to output dipole moments?"
-    raise NotImplementedError("Need to implemend parse_dipole()")
+def parse_dipole(output_file: str, pattern: str, unit: str = 'Debye') -> Array:
+    r"""Uses regex to parse out the dipoles from the output file using a given regex pattern.
+
+    Arguments:
+        output_file (str): The output file to parse dipoles from
+        pattern (str): The pattern to use for parsing out dipoles
+        unit (str): The dipole unit of interest. Defaults to 'Debye',
+            one of 'Debye' or 'au'
+
+    Returns:
+        Dipole (Array): The dipole represented as a (3,) np array
+
+    Raises;
+        ValueError if the dipole matching fails
+
+    Notes: This is the dipole calculated by DFTB+, so not the ESP dipole
+        internally generated for training.  
+    """
+    assert(unit in ['Debye', 'au'])
+    dipole_matcher = re.compile(pattern)
+    content = open(output_file, 'r').read()
+    #The dipole regex pattern can be used with findall
+    dipole_result = dipole_matcher.findall(content)
+    try
+        assert(dipole_result is not None)
+    except:
+        raise ValueError("Regex dipole parsing failed!")
+    assert(len(dipole_result) == 2) #There should be two dipoles
+    chosen_dipole = dipole_result[0] if unit in dipole_result[0] else dipole_result[1]
+    dip_splt = chosen_dipole.split()
+    dipole_elems = []
+    for elem in dip_splt:
+        try:
+            val = float(elem)
+            dipole_elems.append(val)
+        except:
+            pass #Handle trying to convert non-numerical elements to numerical
+    assert(len(dipole_elems) == 3) #There should only be three cartesian components
+    return np.array(dipole_elems)
+
+def parse_charges_output(output_file: str, pattern: str) -> Array:
+    r"""Parses the charges from the output file depending on the pattern
+
+    Arguments:
+        output_file (str): The output file to parse the charges from
+        pattern (str): The regex pattern to use when parsing out charges
+
+    Returns:
+        charges (Array): The array of parsed charges represented as a np array
+
+    Raises:
+        ValueError if the regex charge parsing does not work (i.e. the regex 
+            search returns None)
+
+    Notes: The CM5 charges are contained in the body of the output file detailed.out 
+        Will also have to ensure that the charges are sign-corrected, as mentioned in 
+        the doc string of parse_charges_dat. This function can also parse out the 
+        gross atomic charges depending on the pattern fed in as the second argument. 
+    """
+    charges_matcher = re.compile(pattern)
+    content = open(output_file, 'r').read()
+    charge_result = charges_matcher.search(content)
+    try:
+        assert(charge_result is not None)
+    except:
+        raise ValueError("Regex charge parsing failed!")
+    start, end = charge_result.span()
+    charge_str = charge_result.string[start : end]
+    splt_lines = charge_str.strip().splitlines()
+    #Skips the header (first two lines)
+    atom_lines = splt_lines[2:]
+    charges = np.array([float(elem.split()[1]) for elem in atom_lines])
+    #Actually no need to multiply by negative one here since defintition is consistent
+    #with valence - charge giving dQ
+    return charges
+
 
 def compute_ESP_dipole(charges: Array, rcart_angstrom: Array) -> Array:
     r"""Computes the ESP dipoles from DFTB+ computed charges

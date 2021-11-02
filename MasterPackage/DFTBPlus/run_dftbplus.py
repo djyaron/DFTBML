@@ -16,7 +16,7 @@ import shutil
 from subprocess import call
 import numpy as np
 Array = np.ndarray
-from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out, parse_charges,\
+from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out, parse_charges_dat,\
         compute_ESP_dipole
 from FoldManager import get_ani1data
 from h5py import File
@@ -236,7 +236,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                             except:
                                 pass
                         #Also see if dipoles and charges are present
-                        charges = parse_charges(charge_filename, rcart, Zs, val_dict = valence_dict)
+                        charges = parse_charges_dat(charge_filename, rcart, Zs, val_dict = valence_dict)
                         dipole = compute_ESP_dipole(charges, rcart)
                         res2['charges'] = charges
                         res2['dipole'] = dipole
