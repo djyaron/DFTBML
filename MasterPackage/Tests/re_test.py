@@ -105,8 +105,8 @@ def compare_charge_values() -> None:
     dset_path = "test_files/small_tst_set.p"
     dset = pickle.load(open(dset_path, 'rb'))
     dset_2 = deepcopy(dset)
-    skf_dir = "Auorg_1_1/auorg-1-1" #Should match for any skf set used
-    skf_dir_2 = "MIO_0_1/mio-0-1"
+    skf_dir = os.path.join(os.getcwd(), "Auorg_1_1/auorg-1-1") #Should match for any skf set used
+    skf_dir_2 = os.path.join(os.getcwd(), "MIO_0_1/mio-0-1")
     
     exec_path = os.path.join(os.getcwd(), "../../../dftbp/dftbplus-21.1.x86_64-linux/bin/dftb+")
     par_dict = ParDict()
