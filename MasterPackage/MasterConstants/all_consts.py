@@ -77,3 +77,8 @@ S_entries = {'Sdd0': 0,
 
 atom_header_entries = ("Ed", "Ep", "Es", "SPE", "Ud", "Up", "Us", "fd", "fp", "fs")
 
+#%% Regex constants
+gross_charge = r"(\s+)[Aa]tomic gross charges \(e\)(\s+)?[Aa]tom(\s+)[Cc]harge(\s+\d+\s+-?\d+\.\d+\n)+"
+cm5_charge = r"(\s+)CM5 corrected atomic gross charges \(e\)(\s+)?[Aa]tom(\s+)[Cc]harge(\s+\d+\s+-?\d+\.\d+\n)+"
+#The importance of the ?: prefix in the regex pattern is explained in https://stackoverflow.com/questions/18425386/re-findall-not-returning-full-match
+dipole_line = r"Dipole moment:(?:\s+-?\d+\.\d+){3}\s+\w+\n"
