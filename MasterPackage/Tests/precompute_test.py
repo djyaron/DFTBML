@@ -15,6 +15,7 @@ TODO: Incorporate gammas precompute into the precompute testing
 import os
 from FoldManager import generate_folds, save_folds, compute_graphs_from_folds, precompute_gammas, precompute_gammas_per_fold
 from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
+from .h5handler_test import run_safety_check
 import shutil
 
 #%% Code behind
@@ -52,6 +53,8 @@ def run_precompute_test(clear_direc: bool = True):
     #Now do the gammas computation for each fold
     precompute_gammas_per_fold(opts, "fold_molecs_internal")
     print("Precompute executed successfully.")
+    run_safety_check("fold_molecs_internal", [0, 1, 2, 3, 4, 5])
+    print("Safety check successfully executed for precomputed data")
     #Delete the directory at the end. 
     if clear_direc:
         shutil.rmtree("fold_molecs_internal")
