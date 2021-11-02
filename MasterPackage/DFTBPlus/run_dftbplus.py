@@ -17,13 +17,13 @@ from subprocess import call
 import numpy as np
 Array = np.ndarray
 from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out, parse_charges_dat,\
-        compute_ESP_dipole
+        compute_ESP_dipole, parse_dipole, parse_charges_output
 from FoldManager import get_ani1data
 from h5py import File
 from collections import Counter
 import scipy
 from DFTBpy import DFTB
-from MasterConstants import valence_dict
+from MasterConstants import valence_dict, gross_charge, cm5_charge, dipole_line 
 
 from typing import List, Dict
 
@@ -121,7 +121,7 @@ def load_au(au_type, max_mol, max_config, include_au2):
     return dataset
 
 def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, do_our_dftb: bool = True, 
-             do_dftbplus: bool = True, fermi_temp: float = None, parse: str = 'dftb',
+             do_dftbplus: bool = True, fermi_temp: float = None, parse: str = 'detailed', charge_form: str = "gross",
              dispersion: bool = False) -> None:
     r"""Runs and parses out the DFTB+ results and adds them to the molecule
         dictionaries for a given dataset. 
@@ -140,7 +140,9 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
             smearing. Defaults to None.
         parse (str): Which file to parse. One of 'dftb' or 'detailed'. If 'detailed' 
             is chosen, then a breakdown of total energy into electronic and
-            repulsive contributions is obtainable.
+            repulsive contributions is obtainable. Defaults to 'detailed'
+        charge_form (str): The charge target to use. One of 'gross' and 'cm5', 
+            defaults to 'gross'
         dispersion (bool): Whether or not to include the dispersion block
             in the DFTB in file.
     
@@ -236,10 +238,16 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                             except:
                                 pass
                         #Also see if dipoles and charges are present
-                        charges = parse_charges_dat(charge_filename, rcart, Zs, val_dict = valence_dict)
+                        if charge_form == "gross":
+                            charges = parse_charges_output(dftb_outfile, gross_charge)
+                        elif charge_form == "cm5":
+                            charges = parse_charges_output(dftb_outfile, cm5_charge)
                         dipole = compute_ESP_dipole(charges, rcart)
                         res2['charges'] = charges
                         res2['dipole'] = dipole
+                        charges_dat_gross = parse_charges_dat(charge_filename, rcart, Zs, val_dict = valence_dict)
+                        res2['charges_dat_gross'] = charges_dat_gross #Information saved for testing/debugging purposes
+                        
 
                     res2['conv'] = True
                     if fermi_temp is None:

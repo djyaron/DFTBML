@@ -374,7 +374,7 @@ def parse_dipole(output_file: str, pattern: str, unit: str = 'Debye') -> Array:
     content = open(output_file, 'r').read()
     #The dipole regex pattern can be used with findall
     dipole_result = dipole_matcher.findall(content)
-    try
+    try:
         assert(dipole_result is not None)
     except:
         raise ValueError("Regex dipole parsing failed!")

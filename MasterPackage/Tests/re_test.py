@@ -9,8 +9,13 @@ A test for regular expression parsing of charges and dipoles
 """
 
 #%% Imports, definitions
-import re
+import re, os
 from MasterConstants import gross_charge, cm5_charge, dipole_line
+from DFTBPlus import add_dftb
+import pickle
+from copy import deepcopy
+from Auorg_1_1 import ParDict
+import numpy as np
 
 #%% Code behind
 def test_charge_parsing() -> None:
@@ -85,10 +90,67 @@ def test_dipole_parsing() -> None:
     
     print("Dipole parsing test passed")
     
+def compare_charge_values() -> None:
+    r"""This is a method that uses charges parsed from the charges.dat
+        file and compares it to the result obtained by using regex parsing on 
+        the output file. They should be basically equivalent. This only 
+        compares the gross atomic charges since the cm5 charges will not be
+        equivalent to charges in charges.dat
+        
+        This test requires DFTB+ V. 20+, so only run this on remote 
+        cat1 cluster.
+    """
+    charge_tol = 3E-6
+    
+    dset_path = "test_files/small_tst_set.p"
+    dset = pickle.load(open(dset_path, 'rb'))
+    dset_2 = deepcopy(dset)
+    skf_dir = "Auorg_1_1/auorg-1-1" #Should match for any skf set used
+    skf_dir_2 = "MIO_0_1/mio-0-1"
+    
+    exec_path = os.path.join(os.getcwd(), "../../../dftbp/dftbplus-21.1.x86_64-linux/bin/dftb+")
+    par_dict = ParDict()
+    
+    #Do call on first dset and skf dir
+    add_dftb(dset, skf_dir, exec_path, par_dict, do_our_dftb = False, parse = "detailed", charge_form = "gross")
+    #Do call on second dset and skf dir
+    add_dftb(dset_2, skf_dir_2, exec_path, par_dict, do_our_dftb = False, parse = "detailed", charge_form = "gross")
+    
+    #Testing block for first dset
+    dset_charge_out = [mol['pzero']['charges'] for mol in dset]
+    dset_charge_dat = [mol['pzero']['charge_dat_gross'] for mol in dset]
+    
+    assert(len(dset_charge_out) == len(dset_charge_dat))
+    
+    dset_charge_flat = np.concatenate(dset_charge_out)
+    dset_charge_dat_flat = np.concatenate(dset_charge_dat)
+    
+    assert(len(dset_charge_flat) == len(dset_charge_dat_flat))
+    MAE = np.mean(np.abs(dset_charge_flat - dset_charge_dat_flat))
+    assert(MAE < charge_tol)
+    print(f"Auorg charges passed with MAE of {MAE}")
+    
+    #Testing block for second dset
+    dset_charge_out = [mol['pzero']['charges'] for mol in dset_2]
+    dset_charge_dat = [mol['pzero']['charge_dat_gross'] for mol in dset_2]
+    
+    assert(len(dset_charge_out) == len(dset_charge_dat))
+    
+    dset_charge_flat = np.concatenate(dset_charge_out)
+    dset_charge_dat_flat = np.concatenate(dset_charge_dat)
+    
+    assert(len(dset_charge_flat) == len(dset_charge_dat_flat))
+    MAE = np.mean(np.abs(dset_charge_flat - dset_charge_dat_flat))
+    assert(MAE < charge_tol)
+    print(f"MIO charges passed with MAE of {MAE}")
+    
+    print("Charge consistency test passed")
+    
 
 def run_re_tests():
     test_charge_parsing()
     test_dipole_parsing()
+    compare_charge_values()
     
 #%% Main block
 

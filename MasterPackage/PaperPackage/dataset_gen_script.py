@@ -55,7 +55,7 @@ the necessary information to different parts of the program.
 """
 
 #%% Imports, definitions
-from FoldManager import get_ani1data
+from FoldManager import get_ani1data, count_nheavy
 from typing import List, Dict, Tuple
 import os, random, pickle, shutil
 from precompute_driver import precompute_folds
@@ -147,6 +147,7 @@ def name_non_overlap_uniqueness_test(ref_dir: str, num_train_valid: int) -> None
     
     assert(mols0_ref_nc_set.intersection(test_ref_nc_set) == set())
     assert(mols1_ref_nc_set.intersection(test_ref_nc_set) == set())
+    assert(len(mols0_ref_nc_set.union(mols1_ref_nc_set)) == num_train_valid)
     assert(len(mols0_ref_nc_set.intersection(mols1_ref_nc_set)) == min(len(mols0_ref_nc_set), len(mols1_ref_nc_set)))
     
     print("Uniqueness and overlap test passed")
@@ -205,6 +206,7 @@ def generate_datasets_with_ref(allowed_Z: List[int], heavy_atoms: List[int], max
     
     assert(mols0_ref_nc_set.intersection(test_ref_nc_set) == set())
     assert(mols1_ref_nc_set.intersection(test_ref_nc_set) == set())
+    assert(mols1_ref_nc_set.intersection(mols0_ref_nc_set) == set())
     
     train, test, valid = list(), list(), list()
     for mol in dataset_raw:
@@ -324,3 +326,194 @@ def create_datasets(settings_filename: str, defaults_filename: str, num_train_va
     name_non_overlap_uniqueness_test(s_obj.top_level_fold_path, num_train_valid)
     precompute_folds(s_obj, opts, s_obj.top_level_fold_path, True)
     print("Data generated and precomputed")
+
+#%% Methods for manipulating existing datasets into new datasets (transfer, smaller size, etc.)
+
+def generate_transfer_dataset(lower_limit: int, parent_dset_dir: str) -> str:
+    r"""Takes an existing dataset and transforms it into a transfer dataset
+    
+    Arguments:
+        lower_limit (int): The number of heavy atoms all molecules in the training set
+        parent_dset_dir (str): Path to the parent dataset. Must contain the 
+            given PREFIX.
+        
+    Returns:
+        new_location (str): Where the transfer dataset is saved
+    
+    Notes:
+        By convention, the training set is saved as Fold0_molecs.p and the 
+        validation set is saved as Fold1_molecs.p. The test set will not be
+        transformed.
+        
+        The training, validation, and test molecules are all loaded together. 
+        Then, the lighter ones are separated from the heavier ones, and the lighter
+        ones are saved as the new training fold (after shuffling). The remaining
+        heavy ones are divided amongst the validation and test according to the 
+        length of validation and the length of test. Experimentally, a lower limit
+        of 5 gives sets approximately the same size as the original. Lower limit
+        is inclusive (i.e., count_nheavy(mol) <= lower_limit considered light)
+    """
+    train_path = os.path.join(os.getcwd(), parent_dset_dir, "Fold0_molecs.p")
+    valid_path = os.path.join(os.getcwd(), parent_dset_dir, "Fold1_molecs.p")
+    test_path = os.path.join(os.getcwd(), parent_dset_dir, "test_set.p")
+    train_mols = pickle.load(open(train_path, 'rb'))
+    valid_mols = pickle.load(open(valid_path, 'rb'))
+    test_mols = pickle.load(open(test_path, 'rb'))
+    train_len = len(train_mols)
+    valid_len = len(valid_mols)
+    
+    total_mols = train_mols + valid_mols + test_mols
+    light_mols = [mol for mol in total_mols if count_nheavy(mol) <= lower_limit]
+    heavy_mols = [mol for mol in total_mols if count_nheavy(mol) > lower_limit]
+    assert(len(light_mols) + len(heavy_mols) == len(total_mols))
+    
+    random.shuffle(light_mols)
+    train_set = light_mols
+    
+    random.shuffle(heavy_mols)
+    valid_set = heavy_mols[:valid_len]
+    test_set = heavy_mols[valid_len:]
+    assert(len(train_set) + len(valid_set) + len(test_set) == len(total_mols))
+    assert( ( abs( len(train_set) - train_len ) / train_len  ) <= 0.05 ) #5% tolerance for differences in training set size.
+    
+    print(f"Number of training molecules: {len(train_set)}")
+    print(f"Number of validation molecules: {len(valid_set)}")
+    print(f"Number of testing molecules: {len(test_set)}")
+    
+    #Construct the location
+    separator = os.sep if os.sep in parent_dset_dir else "/"
+    parent_dset_name = parent_dset_dir.split(separator)[-1]
+    new_location = os.path.join(os.getcwd(), PREFIX, f"{parent_dset_name}_transfer_{lower_limit}")
+    save_dataset(new_location, train_set, valid_set, test_set)
+    
+    print("Transfer dataset successfully generated")
+    
+    return new_location
+
+def precompute_transfer_dataset(location: str, parent_dset_dir: str) -> None:
+    r"""Performs precomputation on the transfer dataset at the designated location
+    
+    Arguments:
+        location (str): The location of (path to) the dataset to precompute
+        parent_dset_dir (str): The location of the original parent dataset
+    
+    Returns:
+        None
+    
+    Notes:
+        Every transfer dataset is precomputed with the same settings as its
+        parent dataset. PLEASE NOTE that the top level fold path parameter is
+        copied over but NOT used; instead, the location parameter is used
+        for precomputation. The settings file for every derived transfer dataset
+        will have the top level fold path parameter pointing to its parent dataset.
+        This is by design and does not mean the precomputation was incorrect!
+        In fact, the dset_settings files should be identical between parent 
+        dataset and all derivative datasets.
+    """
+    # raise NotImplementedError("Implement precompute_transfer_dataset")
+    
+    parent_settings_file = os.path.join(os.getcwd(), parent_dset_dir, "dset_settings.json")
+    defaults_file = os.path.join(os.getcwd(), PREFIX, "refactor_default_tst.json")
+    
+    #Copy the settings
+    copy_settings(parent_settings_file, location)
+    
+    s_obj = parse_input_dictionaries(parent_settings_file, defaults_file)
+    opts = inflate_to_dict(s_obj)
+    s_obj = collapse_to_master_settings(s_obj)
+    
+    precompute_folds(s_obj, opts, location, True)
+    
+    print("Transfer dataset successfully precomputed")
+
+def create_transfer_dataset(lower_limit: int, parent_dset_dir: str) -> None:
+    r"""Master method for generating transfer datasets
+    
+    Arguments:
+        lower_limit (int): The number of heavy atoms all molecules in the training set
+        parent_dset_dir (str): Path to the parent dataset
+    
+    Returns:
+        None
+    """
+    transfer_dset_location = generate_transfer_dataset(lower_limit, parent_dset_dir)
+    precompute_transfer_dataset(transfer_dset_location, parent_dset_dir)
+    print("Finished creating transfer dataset")
+    
+#%% Methods for creating a small size dataset
+
+def generate_smaller_training_set(size: int, parent_dset_dir: str) -> None:
+    r"""Creates a smaller training set for assessing the impact of data size
+    
+    Arguments: 
+        parent_dset_dir (str): Path to the parent dataset
+        size (int): The number of molecules to include in the training set
+    
+    Returns:
+        new_location (str): Where the smaller dataset is saved
+        
+    Notes: 
+        The validation and testing sets remain unchanged
+    """
+    # raise NotImplementedError("Need to implement generate_smaller_training_set")
+    
+    train_path = os.path.join(os.getcwd(), parent_dset_dir, "Fold0_molecs.p")
+    valid_path = os.path.join(os.getcwd(), parent_dset_dir, "Fold1_molecs.p")
+    test_path = os.path.join(os.getcwd(), parent_dset_dir, "test_set.p")
+    
+    train_mols = pickle.load(open(train_path, 'rb'))
+    valid_mols = pickle.load(open(valid_path, 'rb'))
+    test_mols = pickle.load(open(test_path, 'rb'))
+    
+    new_train_mols = random.sample(train_mols, size)
+    
+    print(f"Number of training molecules: {len(new_train_mols)}")
+    print(f"Number of validation molecules: {len(valid_mols)}")
+    print(f"Number of testing molecules: {len(test_mols)}")
+    
+    separator = os.sep if os.sep in parent_dset_dir else "/"
+    parent_dset_name = parent_dset_dir.split(separator)[-1]
+    new_location = os.path.join(os.getcwd(), PREFIX, f"{parent_dset_name}_reduced_{size}")
+    save_dataset(new_location, new_train_mols, valid_mols, test_mols)
+    
+    return new_location
+
+def precompute_smaller_dataset(location: str, parent_dset_dir: str) -> None:
+    r"""Performs precomputation for the smaller dataset
+    
+    Arguments:
+        location (str): The location of (path to) the dataset to precompute
+        parent_dset_dir (str): The location of the original parent dataset
+    
+    Returns:
+        None
+    
+    Notes:
+        See notes for precompute_transfer_dataset.
+    """
+    parent_settings_file = os.path.join(os.getcwd(), parent_dset_dir, "dset_settings.json")
+    defaults_file = os.path.join(os.getcwd(), PREFIX, "refactor_default_tst.json")
+    
+    copy_settings(parent_settings_file, location)
+    
+    s_obj = parse_input_dictionaries(parent_settings_file, defaults_file)
+    opts = inflate_to_dict(s_obj)
+    s_obj = collapse_to_master_settings(s_obj)
+    
+    precompute_folds(s_obj, opts, location, True)
+    
+    print("Smaller dataset successfully precomputed")
+    
+def create_smaller_dataset(size: int, parent_dset_dir: str) -> None:
+    r"""Master method for generating smaller datasets
+    
+    Arguments:
+        size (int): The number of molecules to include in the training set
+        parent_dset_dir (str): Path to the parent dataset
+    
+    Returns:
+        None
+    """
+    smaller_dset_location = generate_smaller_training_set(size, parent_dset_dir)
+    precompute_smaller_dataset(smaller_dset_location, parent_dset_dir)
+    print("Finished creating smaller dataset")
