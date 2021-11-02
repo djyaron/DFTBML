@@ -19,3 +19,4 @@ from .model_total_test import run_total_model_tests
 from .skf_test import run_skf_tests
 from .gamma_construction_test import run_gammas_tests
 from .data_invariants_test import run_invariant_tests
+from .re_test import run_re_tests
