@@ -224,7 +224,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
             with open(dftb_outfile,'w') as f:
                 res2 = dict()
                 try:
-                    res = call(dftb_exec,cwd=scratch_dir,stdout = f, shell=False)
+                    res = call(dftb_exec,cwd=scratch_dir,stdout = None, shell=False)
                     if parse == 'dftb':
                         dftb_res = read_dftb_out(dftb_outfile)
                         res2['t'] = dftb_res['Ehartree']

@@ -446,4 +446,7 @@ def compute_ESP_dipole(charges: Array, rcart_angstrom: Array) -> Array:
         (3,)
     """
     assert(len(rcart_angstrom) == len(charges))
+    assert(rcart_angstrom.shape[1] == 3)
+    assert(len(rcart_angstrom.shape) == 2) #2 dimensional array
+    assert(len(charges.shape) == 1) #1 dimensional array
     return np.dot(rcart_angstrom.T, charges)

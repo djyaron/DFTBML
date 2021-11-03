@@ -112,13 +112,14 @@ def compare_charge_values() -> None:
     par_dict = ParDict()
     
     #Do call on first dset and skf dir
+    #import pdb; pdb.set_trace()
     add_dftb(dset, skf_dir, exec_path, par_dict, do_our_dftb = False, parse = "detailed", charge_form = "gross")
     #Do call on second dset and skf dir
     add_dftb(dset_2, skf_dir_2, exec_path, par_dict, do_our_dftb = False, parse = "detailed", charge_form = "gross")
     
     #Testing block for first dset
     dset_charge_out = [mol['pzero']['charges'] for mol in dset]
-    dset_charge_dat = [mol['pzero']['charge_dat_gross'] for mol in dset]
+    dset_charge_dat = [mol['pzero']['charges_dat_gross'] for mol in dset]
     
     assert(len(dset_charge_out) == len(dset_charge_dat))
     
@@ -131,8 +132,8 @@ def compare_charge_values() -> None:
     print(f"Auorg charges passed with MAE of {MAE}")
     
     #Testing block for second dset
-    dset_charge_out = [mol['pzero']['charges'] for mol in dset_2]
-    dset_charge_dat = [mol['pzero']['charge_dat_gross'] for mol in dset_2]
+    dset_charge_out = [mol['pzero']['charges'] for mol in dset_2] 
+    dset_charge_dat = [mol['pzero']['charges_dat_gross'] for mol in dset_2]
     
     assert(len(dset_charge_out) == len(dset_charge_dat))
     
