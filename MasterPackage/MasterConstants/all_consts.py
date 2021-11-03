@@ -82,3 +82,15 @@ gross_charge = r"(\s+)[Aa]tomic gross charges \(e\)(\s+)?[Aa]tom(\s+)[Cc]harge(\
 cm5_charge = r"(\s+)CM5 corrected atomic gross charges \(e\)(\s+)?[Aa]tom(\s+)[Cc]harge(\s+\d+\s+-?\d+\.\d+\n)+"
 #The importance of the ?: prefix in the regex pattern is explained in https://stackoverflow.com/questions/18425386/re-findall-not-returning-full-match
 dipole_line = r"Dipole moment:(?:\s+-?\d+\.\d+){3}\s+\w+\n"
+
+#%% Dipole conversion constants
+#The conversion factors are taken from https://cccbdb.nist.gov/debye.asp
+# and the DFTB+ manual
+#To use, multiply the value by the corresponding unit
+#Debye --> e * A (Angstrom):
+DEBYE2EA = 0.2081943
+#Debye --> au (atomic units):
+DEBYE2AU = 0.393430238326893
+
+
+
