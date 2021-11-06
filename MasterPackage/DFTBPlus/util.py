@@ -15,6 +15,7 @@ import os, re
 import numpy as np
 from statistics import mean, stdev
 
+Array = np.ndarray
 
 #%% Code behind
 
@@ -71,7 +72,7 @@ def filter_dataset(dataset: List[Dict], name_conf_pairs: List[tuple], mode: str 
                 cleaned_dataset.append(molecule)
     return cleaned_dataset
 
-def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) -> None:
+def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) -> Array:
     r"""Performs sequential outlier exclusion on the data using a threshold 
         value for standard deviations
     
@@ -87,7 +88,7 @@ def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) 
         1) Compute the mean and standard deviation
         2) All values that are greater than or equal to 20 standard deviations above the mean are removed
         3) A new mean and standard deviation are calculated
-        4) Process repeats until the data is left with no values greater than or equal to 20 
+        4) Process repeats until the data is left with no values greater than or equal to threshold 
             standard deviations above the mean
     """
     if not isinstance(data, list):
@@ -97,4 +98,4 @@ def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) 
         data.pop(data.index(max(data)))
     
     print(f"Outlier exclusion finished with threshold of {threshold}")
-    
+    return np.array(data)
