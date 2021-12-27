@@ -177,11 +177,11 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
         #how to do proper conversion to Debye)
         dftbfile.write(
             r'}' + '\n' +
-            r'Options { WriteChargesAsText = Yes }' + '\n' +
+            r'Options { }' + '\n' + #WriteChargesAsText = Yes (temporarily removed)
             r'Analysis {' + '\n' +
             r'   CalculateForces = No' + '\n' +
-            r'   MullikenAnalysis = Yes' + '\n' + 
-            r'   CM5{}' + '\n' +
+            #r'   MullikenAnalysis = Yes' + '\n' +  Temporarily remove MullikenAnalysis and CM5
+            #r'   CM5{}' + '\n' +
             r'}' + '\n')
         # A windows executable is only available for version 17.1
         #  https://sites.google.com/view/djmolplatform/get-dftb-17-1-windows

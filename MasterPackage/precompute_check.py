@@ -91,5 +91,14 @@ def precompute_settings_check(settings_filename: str) -> None:
         "constr" : "+2"
     })
     
+    assert(d['skf_settings'] == {
+
+    "skf_extension" : "",
+    "skf_ngrid" : 50,
+    "skf_strsep" : "  ",
+    "spl_ngrid" : 500
+
+    })
+    
     print("Need to check reference_energy_starting_point, low_end_correction_dict, and cutoff_dictionary. Everything else is good!")
     

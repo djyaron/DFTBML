@@ -323,7 +323,8 @@ def create_datasets(settings_filename: str, defaults_filename: str, num_train_va
     
     save_dataset(s_obj.top_level_fold_path, train, valid, test)
     copy_settings(settings_filename, s_obj.top_level_fold_path)
-    name_non_overlap_uniqueness_test(s_obj.top_level_fold_path, num_train_valid)
+    # UNCOMMENT THIS LATER
+    # name_non_overlap_uniqueness_test(s_obj.top_level_fold_path, num_train_valid)
     precompute_folds(s_obj, opts, s_obj.top_level_fold_path, True)
     print("Data generated and precomputed")
 
@@ -408,7 +409,8 @@ def precompute_transfer_dataset(location: str, parent_dset_dir: str) -> None:
         will have the top level fold path parameter pointing to its parent dataset.
         This is by design and does not mean the precomputation was incorrect!
         In fact, the dset_settings files should be identical between parent 
-        dataset and all derivative datasets.
+        dataset and all derivative datasets. This does not include 
+        datasets generated with a reference dataset
     """
     # raise NotImplementedError("Implement precompute_transfer_dataset")
     
