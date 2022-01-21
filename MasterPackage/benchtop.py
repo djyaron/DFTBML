@@ -132,19 +132,20 @@ def existence_checks() -> None:
     #Next, loop through the settings files and ensure that for each of the experiments,
     #   the necessary dataset is there
     for filename in settings_files_names:
-        filename = os.path.join(SETTINGS_DIR_PATH, filename)
-        with open(filename, 'r') as handle:
-            settings_dict = json.load(handle)
-            dset_path = settings_dict['loaded_data_fields']['top_level_fold_path']
-            try:
-                dset_path_splt = dset_path.split("/")
-                assert(dset_path_splt[0] == "benchtop_wdir" and dset_path_splt[1] == "dsets")
-            except:
-                write_to_log(f"Dataset path for {filename} does not contain necessary prefixes")
-                raise ValueError(f"Dataset path for {filename} does not contain necessary prefixes")
-            if not os.path.exists(dset_path):
-                write_to_log(f"Dataset {dset_path} is missing for experiment based on file {filename}")
-                raise ValueError(f"Dataset {dset_path} is missing for experiment based on file {filename}")
+        if "default" not in filename:
+            filename = os.path.join(SETTINGS_DIR_PATH, filename)
+            with open(filename, 'r') as handle:
+                settings_dict = json.load(handle)
+                dset_path = settings_dict['loaded_data_fields']['top_level_fold_path']
+                try:
+                    dset_path_splt = dset_path.split("/")
+                    assert(dset_path_splt[0] == "benchtop_wdir" and dset_path_splt[1] == "dsets")
+                except:
+                    write_to_log(f"Dataset path for {filename} does not contain necessary prefixes")
+                    raise ValueError(f"Dataset path for {filename} does not contain necessary prefixes")
+                if not os.path.exists(dset_path):
+                    write_to_log(f"Dataset {dset_path} is missing for experiment based on file {filename}")
+                    raise ValueError(f"Dataset {dset_path} is missing for experiment based on file {filename}")
     
     print("Existence checks completed")
     write_to_log("Existence checks completed")
