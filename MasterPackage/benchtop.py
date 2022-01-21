@@ -404,7 +404,13 @@ def run_experiments() -> None:
                 write_tmp_file(experiment)
                 write_to_log(f"Beginning experiment {experiment}")
                 print(f"Beginning experiment {experiment}")
-                run_training(experiment_path, defaults_path)
+                try:
+                    #Forgot to add the correct skf method
+                    run_training(experiment_path, defaults_path, skf_method = 'new')
+                except Exception as e:
+                    print(f"Experiment {experiment} failed because {e}")
+                    write_to_log(f"Experiment {experiment} failed because {e}")
+                    return #Just going to early return instead of raising another exception
                 with open(experiment_path, 'r') as handle:
                     json_dict = json.load(handle)
                     results_directory_name = json_dict['run_id']
