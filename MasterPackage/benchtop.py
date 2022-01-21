@@ -393,24 +393,25 @@ def run_experiments() -> None:
     #The experiment is the name of the settings file, the experiment_path is the full path to the file
     defaults_path = os.path.join(SETTINGS_DIR_PATH, "refactor_default_tst.json")
     for experiment in os.listdir(SETTINGS_DIR_PATH):
-        experiment_path = os.path.join(SETTINGS_DIR_PATH, experiment)
-        file_executing = check_tmp_file_existence(experiment)
-        if not file_executing:
-            precompute_settings_check(experiment_path)
-            x = input("Did you check the necessary fields? (Y) ")
-            y = input("Did you check the run id? (Y) ")
-            #Write placeholder file to tell other servers this experiment is being done
-            write_tmp_file(experiment)
-            write_to_log(f"Beginning experiment {experiment}")
-            print(f"Beginning experiment {experiment}")
-            run_training(experiment_path, defaults_path)
-            with open(experiment_path, 'r') as handle:
-                json_dict = json.load(handle)
-                results_directory_name = json_dict['run_id']
-            copy_results_files(results_directory_name)
-            delete_tmp_file(experiment)
-            write_to_log(f"Completed experiment{experiment}")
-            print(f"Completed experiment{experiment}")
+        if "default" not in experiment:
+            experiment_path = os.path.join(SETTINGS_DIR_PATH, experiment)
+            file_executing = check_tmp_file_existence(experiment)
+            if not file_executing:
+                precompute_settings_check(experiment_path)
+                x = input("Did you check the necessary fields? (Y) ")
+                y = input("Did you check the run id? (Y) ")
+                #Write placeholder file to tell other servers this experiment is being done
+                write_tmp_file(experiment)
+                write_to_log(f"Beginning experiment {experiment}")
+                print(f"Beginning experiment {experiment}")
+                run_training(experiment_path, defaults_path)
+                with open(experiment_path, 'r') as handle:
+                    json_dict = json.load(handle)
+                    results_directory_name = json_dict['run_id']
+                copy_results_files(results_directory_name)
+                delete_tmp_file(experiment)
+                write_to_log(f"Completed experiment{experiment}")
+                print(f"Completed experiment{experiment}")
     
     print("All experiments completed/already in progress")
             
