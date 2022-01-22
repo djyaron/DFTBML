@@ -338,6 +338,41 @@ def copy_results_files(directory_name: str) -> None:
     except Exception as e:
         write_to_log(f"Could not move results directory {directory_name} to {destination} because of {e}")
         raise Exception(f"Could not move results directory {directory_name} to {destination} because of {e}")
+
+def copy_split_info(dset_name: str, results_directory_name: str, num_splits: int) -> None:
+    r"""Copies over the split information into the correct results directory
+    
+    Arguments:
+        dset_name (str): The name of the dataset containing the Split0 directory
+            that needs to be copied
+        results_directory_name (str): The name of the results directory to copy
+            the Split0 directory into
+        num_splits (int): The number of splits to copy over
+    
+    Returns:
+        None
+    
+    Raises: 
+        Exception: If the copy operation cannot be performed
+    
+    Notes: For both the dset_name and the results_directory_name arguments, 
+        the arguments should just be the name of the directories and not the
+        full paths; those will be constructed afterward.
+        
+        There are also existence checks to make sure the Split0 directories
+        exist before the copy operation is attempted. 
+    """
+    for i in range(num_splits):
+        src_splt = os.path.join(DSETS_DIR_PATH, dset_name, f"Split{i}")
+        dest_splt = os.path.join(RESULTS_DIR_PATH, results_directory_name, f"Split{i}")
+        try:
+            shutil.copytree(src_splt, dest_splt)
+            print(f"Successfully copied Split{i} into {results_directory_name}")
+            write_to_log(f"Successfully copied Split{i} into {results_directory_name}")
+        except Exception as e:
+            print(f"Could not copy Split{i} into {results_directory_name} because {e}")
+            write_to_log(f"Could not copy Split{i} into {results_directory_name} because {e}")
+            continue #Continue onto the next iteration
     
 def run_experiments() -> None:
     r"""Master function for running all the specified experiments and 
@@ -414,10 +449,17 @@ def run_experiments() -> None:
                 with open(experiment_path, 'r') as handle:
                     json_dict = json.load(handle)
                     results_directory_name = json_dict['run_id']
+                    dset_name = json_dict['loaded_data_fields']['top_level_fold_path'].split('/')[-1]
+                    num_splits = len(json_dict["training_settings"]["split_mapping"])
                 copy_results_files(results_directory_name)
+                print(f"Completed copying results directory {results_directory_name}")
+                write_to_log(f"Completed copying results directory {results_directory_name}")
+                copy_split_info(dset_name, results_directory_name, num_splits)
+                print(f"Completed copying split information for results directory {results_directory_name}")
+                write_to_log(f"Completed copying split information for results directory {results_directory_name}")
                 delete_tmp_file(experiment)
-                write_to_log(f"Completed experiment{experiment}")
-                print(f"Completed experiment{experiment}")
+                write_to_log(f"Completed experiment {experiment}")
+                print(f"Completed experiment {experiment}")
     
     print("All experiments completed/already in progress")
             
