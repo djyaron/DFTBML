@@ -38,7 +38,7 @@ s.rep_setting = "new"
 s.train_ener_per_heavy = False
 s.type_conversion_ignore_keys = ["glabels", "basis_sizes", "charges", "dipole_mat", "iconfigs"]
 s.opers_to_model = ["H", "R", "G", "S"]
-top_level_fold_path = "PaperPackage/master_dset_reduced_300"
+top_level_fold_path = "benchtop_wdir/dsets/master_dset_reduced_300"
 fold_mapping = {0 : [[0],[1]]}
 all_losses = {
     
@@ -239,19 +239,23 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "PaperPackage/master_dset_reduced_300_300_epoch_run/Split0/saved_models.p"
-    ref_filename = "PaperPackage/master_dset_reduced_300_300_epoch_run/ref_params.p"
+    mod_filename = "benchtop_wdir/results/master_dset_reduced_300_300_epoch_run/Split0/saved_models.p"
+    ref_filename = "benchtop_wdir/results/master_dset_reduced_300_300_epoch_run/ref_params.p"
     all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
 
     exec_path = os.path.join(os.getcwd(), "../../../dftbp/dftbplus-21.1.x86_64-linux/bin/dftb+")
 
-    skf_dir = os.path.join(os.getcwd(), "PaperPackage", "master_dset_reduced_300_300_epoch_run")
+    skf_dir = os.path.join(os.getcwd(), "benchtop_wdir", "results", "master_dset_reduced_300_300_epoch_run")
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, do_our_dftb = True, do_dftbplus = True, parse = 'detailed')
     
+    import pdb;pdb.set_trace()
+
     disagreements = []
     for mol in all_mols:
+        #Note that the dzero values and predictions do not agree because the dzero values are 
+        #   derived from a parameter dictionary that contains different SKF files (e.g. Auorg)
         disagreements.append(abs(mol['pzero']['t'] - mol['predictions']['Etot']['Etot']))
         
     print(f"MAE error in Ha: {sum(disagreements) / len(disagreements)}")
