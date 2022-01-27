@@ -427,7 +427,7 @@ def run_experiments() -> None:
     #Start looping through the settings files and executing experiments
     #The experiment is the name of the settings file, the experiment_path is the full path to the file
     defaults_path = os.path.join(SETTINGS_DIR_PATH, "refactor_default_tst.json")
-    for experiment in os.listdir(SETTINGS_DIR_PATH):
+    for experiment in sorted(os.listdir(SETTINGS_DIR_PATH)):
         if "default" not in experiment:
             experiment_path = os.path.join(SETTINGS_DIR_PATH, experiment)
             file_executing = check_tmp_file_existence(experiment)
