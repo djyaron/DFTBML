@@ -433,8 +433,8 @@ def run_experiments() -> None:
             file_executing = check_tmp_file_existence(experiment)
             if not file_executing:
                 precompute_settings_check(experiment_path)
-                x = input("Did you check the necessary fields? (Y) ")
-                y = input("Did you check the run id? (Y) ")
+                #x = input("Did you check the necessary fields? (Y) ")
+                #y = input("Did you check the run id? (Y) ")
                 #Write placeholder file to tell other servers this experiment is being done
                 write_tmp_file(experiment)
                 write_to_log(f"Beginning experiment {experiment}")
