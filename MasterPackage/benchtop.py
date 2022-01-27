@@ -457,7 +457,7 @@ def run_experiments() -> None:
                 copy_split_info(dset_name, results_directory_name, num_splits)
                 print(f"Completed copying split information for results directory {results_directory_name}")
                 write_to_log(f"Completed copying split information for results directory {results_directory_name}")
-                delete_tmp_file(experiment)
+                #delete_tmp_file(experiment)
                 write_to_log(f"Completed experiment {experiment}")
                 print(f"Completed experiment {experiment}")
     
