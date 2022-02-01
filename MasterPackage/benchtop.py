@@ -131,12 +131,15 @@ def existence_checks() -> None:
         raise ValueError("Non-json format file detected in settings_files directory!")
     #Next, loop through the settings files and ensure that for each of the experiments,
     #   the necessary dataset is there
+    all_result_names = [] #Want to check that every experiment specifies a unique result name
     for filename in settings_files_names:
         if "default" not in filename:
             filename = os.path.join(SETTINGS_DIR_PATH, filename)
             with open(filename, 'r') as handle:
                 settings_dict = json.load(handle)
                 dset_path = settings_dict['loaded_data_fields']['top_level_fold_path']
+                result_path = settings_dict['run_id']
+                all_result_names.append(result_path)
                 try:
                     dset_path_splt = dset_path.split("/")
                     assert(dset_path_splt[0] == "benchtop_wdir" and dset_path_splt[1] == "dsets")
@@ -146,7 +149,8 @@ def existence_checks() -> None:
                 if not os.path.exists(dset_path):
                     write_to_log(f"Dataset {dset_path} is missing for experiment based on file {filename}")
                     raise ValueError(f"Dataset {dset_path} is missing for experiment based on file {filename}")
-    
+    #Assert that all the experiments pipe to unique result directories
+    assert(len(all_result_names) == len(set(all_result_names)))
     print("Existence checks completed")
     write_to_log("Existence checks completed")
 
@@ -339,6 +343,39 @@ def copy_results_files(directory_name: str) -> None:
         write_to_log(f"Could not move results directory {directory_name} to {destination} because of {e}")
         raise Exception(f"Could not move results directory {directory_name} to {destination} because of {e}")
 
+def copy_settings_files(experiment_name: str, directory_name: str) -> None:
+    r"""Also copies the experiment setting file into the results directory.
+
+    Arguments:
+        experiment_name (str): The name of the experiment settings file to copy over
+        directory_name (str): The name of the directory to copy the settings file into
+
+    Returns: 
+        None
+
+    Raises:
+        Exception: If the shutil copy operation does not work, then an 
+            exception is raised.
+    
+    Notes: This removes any bookkeeping overhead for tracking settings files 
+        into the results directories. This helps with future analysis and the
+        reproducibility of experiments.
+    """
+    full_experiment_path = os.path.join(SETTINGS_DIR_PATH, experiment_name)
+    full_directory_path = os.path.join(RESULTS_DIR_PATH, directory_name)
+    src = full_experiment_path
+    dst = os.path.join(full_directory_path, experiment_name)
+    try:
+        shutil.copy(src, dst)
+    except Exception as e:
+        msg = f"Could not complete settings file copy operation for {experiment_name} because of {e}"
+        write_to_log(msg)
+        raise Exception(msg)
+    msg_success = f"Successfully completed the settings file copy operation for {experiment_name} to {directory_name}"
+    write_to_log(msg_success)
+    print(msg_success)
+
+
 def copy_split_info(dset_name: str, results_directory_name: str, num_splits: int) -> None:
     r"""Copies over the split information into the correct results directory
     
@@ -451,12 +488,17 @@ def run_experiments() -> None:
                     results_directory_name = json_dict['run_id']
                     dset_name = json_dict['loaded_data_fields']['top_level_fold_path'].split('/')[-1]
                     num_splits = len(json_dict["training_settings"]["split_mapping"])
+                
                 copy_results_files(results_directory_name)
                 print(f"Completed copying results directory {results_directory_name}")
                 write_to_log(f"Completed copying results directory {results_directory_name}")
+                
                 copy_split_info(dset_name, results_directory_name, num_splits)
                 print(f"Completed copying split information for results directory {results_directory_name}")
                 write_to_log(f"Completed copying split information for results directory {results_directory_name}")
+                
+                copy_settings_files(experiment, results_directory_name)
+
                 #delete_tmp_file(experiment)
                 write_to_log(f"Completed experiment {experiment}")
                 print(f"Completed experiment {experiment}")
