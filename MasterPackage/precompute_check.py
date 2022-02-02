@@ -90,6 +90,9 @@ def precompute_settings_check(settings_filename: str) -> None:
         "bconds" : "vanishing",
         "constr" : "+2"
     })
+
+    assert(d['repulsive_settings']['rep_setting'] == 'new')
+    assert(d['repulsive_settings']['rep_integration'] == 'external')
     
     assert(d['skf_settings'] == {
 

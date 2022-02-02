@@ -22,6 +22,7 @@ from functools import reduce
 import collections
 import numpy as np
 from Training import charge_update_subroutine
+from MasterConstants import DEBYE2EA
 Array = np.ndarray
 
 #%% Constants
@@ -239,14 +240,14 @@ def pass_feeds_through(all_models_filename: str, reference_params_filename: str,
 
 #%% Main block
 if __name__ == "__main__":
-    mod_filename = "benchtop_wdir/results/master_dset_reduced_300_300_epoch_run_V2/Split0/saved_models.p"
-    ref_filename = "benchtop_wdir/results/master_dset_reduced_300_300_epoch_run_V2/ref_params.p"
+    mod_filename = "benchtop_wdir/results/master_dset_reduced_300_300_epoch_run/Split0/saved_models.p"
+    ref_filename = "benchtop_wdir/results/master_dset_reduced_300_300_epoch_run/ref_params.p"
     all_batches = pass_feeds_through(mod_filename, ref_filename, True)
     all_mols = list(reduce(lambda x, y : x + y, all_batches))
 
     exec_path = os.path.join(os.getcwd(), "../../../dftbp/dftbplus-21.1.x86_64-linux/bin/dftb+")
 
-    skf_dir = os.path.join(os.getcwd(), "benchtop_wdir", "results", "master_dset_reduced_300_300_epoch_run_V2")
+    skf_dir = os.path.join(os.getcwd(), "benchtop_wdir", "results", "master_dset_reduced_300_300_epoch_run")
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, do_our_dftb = True, do_dftbplus = True, parse = 'detailed')
     
@@ -259,7 +260,8 @@ if __name__ == "__main__":
 
     total_ener_disagreements = [abs(mol['pzero']['t'] - mol['predictions']['Etot']['Etot']) for mol in all_mols]
     charge_disagreements = [np.abs(mol['pzero']['charges'] - mol['predictions']['charges']) for mol in all_mols]
-    dipole_disagreements = [np.abs(mol['pzero']['dipole'] - mol['predictions']['dipole']) for mol in all_mols]
+    #Do the correct dipole conversion here for going from Debye to eA. The default unit for add_dftb() is Debye
+    dipole_disagreements = [np.abs(mol['pzero']['dipole'] * DEBYE2EA - mol['predictions']['dipole']) for mol in all_mols]
     dipole_ESP_disagreements = [np.abs(mol['pzero']['dipole_ESP'] - mol['predictions']['dipole']) for mol in all_mols]
             
     charge_disagreements = np.concatenate(charge_disagreements)

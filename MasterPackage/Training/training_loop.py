@@ -107,6 +107,7 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             print("Updating gammas and config trackers")
             all_models['rep'].update_gammas_config(gamma_T, c_tracker_T, gamma_V, c_tracker_V)
         if s.rep_integration == 'internal':
+            raise ValueError("Internal repulsive integration should not have been called!")
             #Not playing with gradient descent right now!
             model_variables['rep'] = all_models['rep'].get_variables()
     
