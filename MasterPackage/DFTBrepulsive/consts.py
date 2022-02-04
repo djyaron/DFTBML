@@ -26,6 +26,9 @@ CUTOFFS_SRT = {(1, 1): (0.63, 2.10),
                (7, 7): (0.99, 1.80),
                (7, 8): (0.93, 1.80),
                (8, 8): (1.06, 1.80)}
+#FH: Set the first value to 0 as a test to see if this fixes SKF translation issues
+CUTOFFS_SRT={k : (0, v[1]) for k, v in CUTOFFS_SRT.items()}
+
 CUTOFFS_MED = {(1, 1): (0.63, 3.30),
                (1, 6): (0.60, 3.00),
                (1, 7): (0.59, 3.00),
