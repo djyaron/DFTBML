@@ -293,13 +293,13 @@ def spline_linear_model(xknots, xeval, xyfit, bconds, max_der=2, deg=3):
     
     # Generate the basis for xeval and apply the constraints
     if xeval is not None:
-        X = [tckb_to_Xmatrix(tckb,xeval,ider) for ider in range(max_der+1)]
+        X = [tckb_to_Xmatrix(tckb,xeval,ider) for ider in range(maxd+1)]
         const = None
         for wz in wzs:
             X,const,_,_ = apply_constraint(X,const,wz = wz)
     else:
-        X = Xk[0:(max_der+1)]
-        const = constk[0:(max_der+1)]
+        X = Xk[0:(maxd+1)]
+        const = constk[0:(maxd+1)]
     
     coefs = None
     if xyfit is not None:
@@ -319,7 +319,7 @@ def spline_linear_model(xknots, xeval, xyfit, bconds, max_der=2, deg=3):
             coefs,_,_,_ = np.linalg.lstsq(X_fit[0],yfit, rcond = None)
         
     if const is None:
-        const = np.zeros(len(xeval))
+        const = [np.zeros(len(xeval)) for i_der in range(maxd+1)]
     
     return {'xknots': xknots,
             'X'     : X,

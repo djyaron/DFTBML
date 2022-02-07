@@ -252,12 +252,14 @@ class SplineModel(PairwiseLinearModel):
     def linear_model(self, xeval, ider=0):
         # TODO: This may not be optimal, especially when derivatives above 0 
         #       are being requested
+        if (ider > self.max_der):
+            raise ValueError('linear_model requests derivative above max')
         if isinstance(xeval, (int, float)):
             xeval = np.array([xeval])
         if self.spline_dict is None:
             # dictionary was never initialized
             self.spline_dict = spline_linear_model(self.xknots, xeval, None,
-                                                   self.bconds, ider,
+                                                   self.bconds, self.max_der,
                                                    self.deg)
         elif (len(self.spline_dict['X']) > ider) and \
                 (len(self.spline_dict['xvals']) == len(xeval)) and \
