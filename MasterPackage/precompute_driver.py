@@ -117,6 +117,43 @@ def precompute_folds(s, opts: Dict, top_level_molec_path: str, copy_molecs: bool
     precompute_gammas_per_fold(opts, top_level_molec_path)
     print("Fold precomputation done")
 
+def precompute_repulsive_gammas(settings_filename: str, defaults_filename: str) -> None:
+    r"""Reruns the precomputation process for the repulsive gammas since those 
+        need to be reformulated every time repulsive parameters are changed.
+    
+    Arguments:
+        setting_file_name (str): The name of the settings file to be used for 
+            the precomputation
+        default_setting_name (str): The default setting name to be used in 
+            generating the overall settings object.
+        
+    Returns:
+        None
+    
+    Notes: The repulsive model is a bit finicky because whenever the parameters
+        used to define it are changed, the gammas (spline bases) need to be
+        recomputed. Failing to do so can lead to unexpected behavior, so this method
+        is intended as a simple way to perform just the precomputation for the
+        gammas.
+        
+        The parameters of specific interest are defined in the repulsive_settings -> opts block,
+        and specifically are:
+            1) nknots: The number of knots used to control the repulsive splines
+            2) deg: The degree of the spline
+            3) bconds: The boundary conditions used to define the spline
+            4) cutoff: The cutoff regime used for the pairwise interactions
+                of the spline
+        Changing any of these necessitates recompoutation of gammas.
+    """
+    #Initialize the settings objects and dictionaries
+    resulting_settings_obj = parse_input_dictionaries(settings_filename, defaults_filename)
+    opts = inflate_to_dict(resulting_settings_obj)
+    s = collapse_to_master_settings(resulting_settings_obj)
+    #call the functions 
+    precompute_gammas(opts, s.top_level_fold_path)
+    precompute_gammas_per_fold(opts, s.top_level_fold_path)
+    print("Finished computing gammas")
+
 def precompute_main(settings_filename: str, defaults_filename: str, lower_limit: int, 
                    num_folds: int, num_folds_lower: int, randomize: bool, copy_molecs: bool,
                    generate_folds: bool = True) -> None:

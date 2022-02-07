@@ -12,7 +12,7 @@ from MasterConstants import ANGSTROM2BOHR, Model
 from Spline import get_dftb_vals
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
-import os
+import os, pickle
 
 #%% Code behind
 
@@ -44,3 +44,4 @@ def plot_skf_values(models: List[Model], par_dict: Dict, dest_dir: str) -> None:
             ax.xaxis.set_minor_locator(AutoMinorLocator())
             fig.savefig(os.path.join(dest_dir, f"{model}_skf.png"))
             plt.show()
+
