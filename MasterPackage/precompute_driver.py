@@ -117,7 +117,7 @@ def precompute_folds(s, opts: Dict, top_level_molec_path: str, copy_molecs: bool
     precompute_gammas_per_fold(opts, top_level_molec_path)
     print("Fold precomputation done")
 
-def precompute_repulsive_gammas(settings_filename: str, defaults_filename: str) -> None:
+def precompute_repulsive_gammas(settings_filename: str, defaults_filename: str, top_level_path: str) -> None:
     r"""Reruns the precomputation process for the repulsive gammas since those 
         need to be reformulated every time repulsive parameters are changed.
     
@@ -126,6 +126,8 @@ def precompute_repulsive_gammas(settings_filename: str, defaults_filename: str) 
             the precomputation
         default_setting_name (str): The default setting name to be used in 
             generating the overall settings object.
+        top_level_path (str): The directory containin the folds whose 
+            gammas need to be recomputed
         
     Returns:
         None
@@ -150,8 +152,8 @@ def precompute_repulsive_gammas(settings_filename: str, defaults_filename: str) 
     opts = inflate_to_dict(resulting_settings_obj)
     s = collapse_to_master_settings(resulting_settings_obj)
     #call the functions 
-    precompute_gammas(opts, s.top_level_fold_path)
-    precompute_gammas_per_fold(opts, s.top_level_fold_path)
+    precompute_gammas(opts, top_level_path)
+    precompute_gammas_per_fold(opts, top_level_path)
     print("Finished computing gammas")
 
 def precompute_main(settings_filename: str, defaults_filename: str, lower_limit: int, 
