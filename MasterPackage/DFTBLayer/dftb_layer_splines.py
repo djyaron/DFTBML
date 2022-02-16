@@ -237,7 +237,8 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
                       'equal_knots' : False,
                       'cutoff' : model_cutoff,
                       'bconds' : 'last_only', #last_only applies boundary conditions on the final knot only
-                      'deg' : spline_deg}
+                      'deg' : spline_deg,
+                      'max_der' : 2} #Hard-code to get the second derivative as the maximum derivative
             if spline_mode == 'joined':
                 spline = JoinedSplineModel(config)
                 
