@@ -12,6 +12,6 @@ from .skf_plot import plot_skf_values
 from .repulsive_plot import plot_repulsive_model, compare_repulsive_value_magnitudes, test_rep_spline_interp
 from .skf_file_plot import plot_single_skf_set, read_skf_set, plot_overlay_skf_sets, plot_repulsive_overlay,\
     plot_skf_dist_overlay, skf_interpolation_plot, compare_differences, plot_distance_histogram,\
-        compare_electronic_values, plot_multi_overlay_skf_sets
+        compare_electronic_values, plot_multi_overlay_skf_sets, convert_to_range_dict
 from .util import get_dist_distribution
 from .pardict_gen import generate_pardict

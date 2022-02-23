@@ -706,3 +706,28 @@ def compare_electronic_values(skset_1_name: str, skset_2_name: str,
     for elem in corrected_dict:
         for target in corrected_dict[elem]:
             print(f"{elem}, {target}, {corrected_dict[elem][target]}")
+
+def convert_to_range_dict(input_dict: Dict, high_cutoff: float) -> Dict:
+    r"""Converts a lowend cutoff dictionary into a range dictionary required for plotting
+    
+    Arguments:
+        input_dict (Dict): The input dictionary to convert to the range dictionary format
+        high_cutoff (float): The rhigh to use for the upper bound of each range
+    
+    Returns:
+        range_dict (Dict): The range dictionary that is useful for plotting
+    
+    Notes:
+        The lowend cutoff dictionary is different from the range dictionary because
+        of the format differences. Lowend cutoff dictionary entries are of the form:
+            
+            "elem1,elem2" : cutoff_val
+        
+        But range dictionaries need to be of the form:
+            
+            (elem1, elem2) : (cutoff_val, high_cutoff)
+        
+        This function performs the conversion.
+    """
+    new_dict = {(int(k[0]), int(k[-1])) : (v, high_cutoff) for k, v in input_dict.items()}
+    return new_dict
