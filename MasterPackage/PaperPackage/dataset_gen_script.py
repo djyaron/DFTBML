@@ -60,6 +60,7 @@ from typing import List, Dict, Tuple
 import os, random, pickle, shutil
 from precompute_driver import precompute_folds
 from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
+import filecmp
 PREFIX = "PaperPackage" #All datasets should be saved to this containing directory
 
 #%% Code behind (general data generation scheme)
@@ -519,3 +520,191 @@ def create_smaller_dataset(size: int, parent_dset_dir: str) -> None:
     smaller_dset_location = generate_smaller_training_set(size, parent_dset_dir)
     precompute_smaller_dataset(smaller_dset_location, parent_dset_dir)
     print("Finished creating smaller dataset")
+    
+#%% Methods for creating a larger dataset for training
+
+#In this case, we are going to keep the same empirical formulas for the train and test, but add
+#   more configurations for each empirical formula. In this sense, it is based off a reference
+
+def expand_dataset(settings_filename: str, defaults_filename: str, existing_dset_directory: str) -> None:
+    r"""Recreates a dataset but with more configurations for each of the empirical
+    formulas in the training and validation sets. The test set remains unchanged.
+    
+    Arguments:
+        settings_file (str): The dset settings file to use for precomputing 
+            the new dataset
+        existing_dset_directory (str): The existing dataset to augment
+    
+    Returns:
+        None
+    
+    Notes: The training and validation set contain a set of empirical formulas
+        that are non-overlapping with the test set. Thus, the test set from the 
+        original dataset can still be used.
+    """
+    s_obj = parse_input_dictionaries(settings_filename, defaults_filename)
+    opts = inflate_to_dict(s_obj) #opts is a dictionary for DFTBrepulsive to use only. 
+    s_obj = collapse_to_master_settings(s_obj)
+    
+    train_mols = pickle.load(open(os.path.join(existing_dset_directory, "Fold0_molecs.p"), 'rb'))
+    valid_mols = pickle.load(open(os.path.join(existing_dset_directory, "Fold1_molecs.p"), 'rb'))
+    
+    train_valid_emp_formulas = set([mol['name'] for mol in train_mols + valid_mols])
+    dataset = get_ani1data(s_obj.allowed_Zs, s_obj.heavy_atoms, s_obj.max_config, s_obj.target,
+                                               s_obj.data_path, s_obj.exclude)
+    new_train_valid_mols = [mol for mol in dataset if mol['name'] in train_valid_emp_formulas]
+    random.shuffle(new_train_valid_mols)
+    num_train = int(len(new_train_valid_mols) * 0.8)
+    training_mols = new_train_valid_mols[:num_train]
+    validation_mols = new_train_valid_mols[num_train:]
+    print(f"New num train: {len(training_mols)}")
+    print(f"New num valid: {len(validation_mols)}")
+    test_mols = pickle.load(open(os.path.join(existing_dset_directory, "test_set.p"), "rb"))
+    save_dataset(s_obj.top_level_fold_path, training_mols, validation_mols, test_mols)
+    # save_dataset(s_obj.top_level_fold_path, train, valid, test)
+    copy_settings(settings_filename, s_obj.top_level_fold_path)
+    precompute_folds(s_obj, opts, s_obj.top_level_fold_path, True)
+    print("Data generated and precomputed")
+
+def split_to_comparative_dset(existing_dset_directory: str) -> None:
+    r"""Takes an existing dataset and splits the dataset to create two comparative ones for analysis
+    
+    Arguments:
+        existing_dset_directory (str): The path to the directory containing an 
+            existing dataset to be split
+        
+    Returns:
+        None
+    
+    Notes:
+        The new datasets are named after the existing_dset_directory with the
+        suffixes "first_half" and "second_half" appended onto it, respectively.
+        The split is done on the training molecules, so the Fold0_molecs.p file is 
+        split in half based on empirical formulas. This ensures that the training data
+        for the two comparative sets are non-overlapping w.r.t the empirical formulas
+    """
+    #Directory setup
+    if "/" in existing_dset_directory:
+        dset_name = existing_dset_directory.split("/")[-1]
+    else:
+        dset_name = existing_dset_directory.split(os.sep)[-1]
+    first_direc_name = f"PaperPackage/{dset_name}_first_half"
+    second_direc_name = f"PaperPackage/{dset_name}_second_half"
+    if os.path.isdir(first_direc_name):
+        shutil.rmtree(first_direc_name)
+    if os.path.isdir(second_direc_name):
+        shutil.rmtree(second_direc_name)
+    os.mkdir(first_direc_name)
+    os.mkdir(second_direc_name)
+    
+    #Load the molecules in
+    molecules = pickle.load(open(os.path.join(existing_dset_directory, "Fold0_molecs.p"), "rb"))
+    molec_forms = list(set([mol['name'] for mol in molecules]))
+    random.shuffle(molec_forms)
+    
+    #Now divide into halves the empirical formulas
+    half_index = len(molec_forms) // 2
+    first_half_forms = set(molec_forms[:half_index])
+    second_half_forms = set(molec_forms[half_index:])
+    
+    #Ensure there is no overlap, the empty set has a False boolean value
+    assert(not first_half_forms.intersection(second_half_forms))
+    
+    #Form the two sets of molecules based on the empirical formulas
+    first_half_mol_dicts, second_half_mol_dicts = [], []
+    for molec in molecules:
+        if molec['name'] in first_half_forms:
+            first_half_mol_dicts.append(molec)
+        elif molec['name'] in second_half_forms:
+            second_half_mol_dicts.append(molec)
+    #Length sanity check
+    assert(len(first_half_mol_dicts) + len(second_half_mol_dicts) == len(molecules))
+    
+    #Begin creating and transporting files
+    with open(f"{first_direc_name}/Fold0_molecs.p", 'wb') as handle:
+        pickle.dump(first_half_mol_dicts, handle)
+    with open(f"{second_direc_name}/Fold0_molecs.p", 'wb') as handle:
+        pickle.dump(second_half_mol_dicts, handle)
+    #Copy over the validation set as that should be fine
+    shutil.copy(os.path.join(existing_dset_directory, "Fold1_molecs.p"), os.path.join(first_direc_name, "Fold1_molecs.p"))
+    shutil.copy(os.path.join(existing_dset_directory, "Fold1_molecs.p"), os.path.join(second_direc_name, "Fold1_molecs.p"))
+    #Copy over the test set too
+    shutil.copy(os.path.join(existing_dset_directory, "test_set.p"), os.path.join(first_direc_name, "test_set.p"))
+    shutil.copy(os.path.join(existing_dset_directory, "test_set.p"), os.path.join(second_direc_name, "test_set.p"))
+    
+    print("Finished splitting into comparative datasets")
+    
+def comparative_dset_check(directories: List[str], original_directory: str) -> None:
+    r"""Safety check for comparative dset
+    """
+    #Load the Fold0 molecules from the two half directories
+    mols_first_half = pickle.load(open(os.path.join(directories[0], "Fold0_molecs.p"), "rb"))
+    mols_second_half = pickle.load(open(os.path.join(directories[1], "Fold0_molecs.p"), "rb"))
+    
+    tot_mols = mols_first_half + mols_second_half
+    tot_nc = set([(mol['name'], mol['iconfig']) for mol in tot_mols])
+    
+    #Original full mol set
+    original_mols = pickle.load(open(os.path.join(original_directory, "Fold0_molecs.p"), 'rb'))
+    assert(len(tot_nc) == len(original_mols))
+    original_nc = set([(mol['name'], mol['iconfig']) for mol in original_mols])
+    
+    assert(tot_nc.difference(original_nc) == set())
+    assert(original_nc.difference(tot_nc) == set())
+    
+    #Check that the two smaller datasets are indeed non-overlapping
+    first_half_names_only = set([mol['name'] for mol in mols_first_half])
+    second_half_names_only = set([mol['name'] for mol in mols_second_half])
+    assert(first_half_names_only.intersection(second_half_names_only) == set())
+    
+    #File diff comparison for test set and Fold1 molecs
+    #filecmp returns True if the two files are equal
+    assert(filecmp.cmp(
+        os.path.join(directories[0], "Fold1_molecs.p"),
+        os.path.join(original_directory, "Fold1_molecs.p"),
+        shallow = False #Full comparison
+        ))
+    assert(filecmp.cmp(
+        os.path.join(directories[1], "Fold1_molecs.p"),
+        os.path.join(original_directory, "Fold1_molecs.p"),
+        shallow = False #Full comparison
+        ))
+    assert(filecmp.cmp(
+        os.path.join(directories[0], "test_set.p"),
+        os.path.join(original_directory, "test_set.p"),
+        shallow = False #Full comparison
+        ))
+    assert(filecmp.cmp(
+        os.path.join(directories[1], "test_set.p"),
+        os.path.join(original_directory, "test_set.p"),
+        shallow = False #Full comparison
+        ))
+    
+    print("Tests passed for comparative datasets!")
+    
+def precompute_comparative_datasets(location: str, settings_filename: str,
+                                    defaults_filename: str) -> None:
+    r"""Performs the precomputation process for the generated comparative 
+        datasets
+    
+    Arguments:
+        location (str): The path to the dataset to precompute
+        settings_filename (str): The name of the settings filename to use
+        defaults_filename (str): The name of the defaults filename to use
+    
+    Returns:
+        None
+    """
+    s_obj = parse_input_dictionaries(settings_filename, defaults_filename)
+    opts = inflate_to_dict(s_obj) #opts is a dictionary for DFTBrepulsive to use only. 
+    s_obj = collapse_to_master_settings(s_obj)
+    
+    settings_src = os.path.join(os.getcwd(), settings_filename)
+    
+    print(f"Settings file name is {settings_src}")
+    
+    precompute_folds(s_obj, opts, location, True)
+    
+    copy_settings(settings_src, location)
+    
+    print(f"Finished precomputation for {location}")
