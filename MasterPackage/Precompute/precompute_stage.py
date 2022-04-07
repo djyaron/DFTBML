@@ -66,6 +66,8 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
             losses[loss] = s.target_accuracy_convex
         elif loss == 'monotonic':
             losses[loss] = s.target_accuracy_monotonic
+        elif loss == 'smooth':
+            losses[loss] = s.target_accuracy_smooth
         else:
             raise ValueError("Unsupported loss type")
     

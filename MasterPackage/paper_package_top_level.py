@@ -33,24 +33,58 @@ TODO:
 """
 #%% Generate and precompute dataset (with and without reference)
 
-# from PaperPackage import create_datasets
-# from precompute_check import precompute_settings_check
+from PaperPackage import create_datasets
+from precompute_check import precompute_settings_check
+from PaperPackage import split_to_comparative_dset, comparative_dset_check
+from PaperPackage import precompute_comparative_datasets
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 
-#     settings_filename = "PaperPackage/settings_refactor_tst.json"
-#     defaults_filename = "PaperPackage/refactor_default_tst.json"
-#     num_train_valid = 150
-#     mode = 'with_ref'
-#     ref_dir = "PaperPackage/master_dset_reduced_1000"
+    settings_filename = "PaperPackage/dset_settings.json"
+    defaults_filename = "PaperPackage/refactor_default_tst.json"
+    # num_train_valid = 150
+    # mode = 'no_ref'
+    # ref_dir = None
     
-#     # top_level_directory = "PaperPackage/master_dset"
+    # top_level_directory = "PaperPackage/master_dset"
     
-#     precompute_settings_check(settings_filename)
+    # precompute_settings_check(settings_filename)
     
-#     x = input("Did you check the necessary fields? (Y) ")
+    # x = input("Did you check the necessary fields? (Y) ")
     
-#     create_datasets(settings_filename, defaults_filename, num_train_valid, mode, ref_dir)
+    # create_datasets(settings_filename, defaults_filename, num_train_valid, mode, ref_dir)
+    
+    # expand_dataset(settings_filename, defaults_filename, "PaperPackage/master_dset_wt_ener_target")
+    
+    # split_to_comparative_dset("PaperPackage/master_dset_expanded_cc")
+    
+    # comparative_dset_check(
+    #     ["PaperPackage/master_dset_expanded_cc_first_half",
+    #       "PaperPackage/master_dset_expanded_cc_second_half"],
+    #     "PaperPackage/master_dset_expanded_cc"
+    #     )
+    
+    # location = "PaperPackage/master_dset_expanded_cc_second_half"
+    # precompute_comparative_datasets(location, settings_filename,
+    #                                 defaults_filename)
+    
+    
+    #Add arguments here to precompute for the first and second half datasets!
+    
+    #Quick check of dset_settings.json top level fold path; makes sure the
+    #   top_level_fold_path matches the directory the dset_settings.json file
+    #   is contained in
+    
+    import os, json
+    
+    directories_to_check = ["master_dset_expanded_cc", "master_dset_expanded_cc_first_half", "master_dset_expanded_cc_second_half"]
+    
+    for direc in directories_to_check:
+        full_path = os.path.join(os.getcwd(), "PaperPackage", direc, "dset_settings.json")
+        print("Checking", direc)
+        with open(full_path, 'r') as jfile:
+            jdict = json.load(jfile)
+            assert(jdict['loaded_data_fields']['top_level_fold_path'] == f"PaperPackage/{direc}")
 
 #%% Generate transfer dataset
 # from PaperPackage import create_transfer_dataset
@@ -107,24 +141,24 @@ TODO:
 #coordinates should be the same. This check is very useful when trying to generate a 
 #dataset with a reference dataset as a template
 
-import pickle
-import numpy as np
+# import pickle
+# import numpy as np
 
-dset_1_name = "PaperPackage/master_dset/test_set.p"
-dset_2_name = "PaperPackage/master_dset_300_epoch_run/test_set.p"
+# dset_1_name = "PaperPackage/master_dset/test_set.p"
+# dset_2_name = "PaperPackage/master_dset_300_epoch_run/test_set.p"
 
-dset1 = pickle.load(open(dset_1_name, 'rb'))
-dset2 = pickle.load(open(dset_2_name, 'rb'))
+# dset1 = pickle.load(open(dset_1_name, 'rb'))
+# dset2 = pickle.load(open(dset_2_name, 'rb'))
 
-assert(len(dset1) == len(dset2))
-for i, mol in enumerate(dset1):
-    assert(mol['name'] == dset2[i]['name'])
-    assert(all(mol['atomic_numbers'] == dset2[i]['atomic_numbers']))
-    assert(np.allclose(mol['coordinates'], dset2[i]['coordinates']))
-    # for target in mol['targets']:
-    #     assert(np.allclose(mol['targets'][target], dset2[i]['targets'][target]))
+# assert(len(dset1) == len(dset2))
+# for i, mol in enumerate(dset1):
+#     assert(mol['name'] == dset2[i]['name'])
+#     assert(all(mol['atomic_numbers'] == dset2[i]['atomic_numbers']))
+#     assert(np.allclose(mol['coordinates'], dset2[i]['coordinates']))
+#     # for target in mol['targets']:
+#     #     assert(np.allclose(mol['targets'][target], dset2[i]['targets'][target]))
 
-print(f"Dataset equivalence check passed between {dset_1_name} and {dset_2_name}")
+# print(f"Dataset equivalence check passed between {dset_1_name} and {dset_2_name}")
 
 #%% Dataset equivalence non-ordered
 
@@ -165,44 +199,46 @@ print(f"Dataset equivalence check passed between {dset_1_name} and {dset_2_name}
 
 #%% Do a training run using a certain dataset
 
-from driver import run_training
-from precompute_check import precompute_settings_check
-import json, os, shutil
+# from driver import run_training
+# from precompute_check import precompute_settings_check
+# import json, os, shutil
 
-settings_filename = "PaperPackage/settings_refactor_tst.json"
-defaults_filename = "PaperPackage/refactor_default_tst.json"
+# settings_filename = "PaperPackage/settings_refactor_tst.json"
+# defaults_filename = "PaperPackage/refactor_default_tst.json"
 
-precompute_settings_check(settings_filename)
-x = input("Did you check the necessary fields? (Y) ")
-y = input("Did you check the run id? (Y) ")
+# precompute_settings_check(settings_filename)
+# x = input("Did you check the necessary fields? (Y) ")
+# y = input("Did you check the run id? (Y) ")
 
-run_training(settings_filename, defaults_filename, skf_method = 'new')
+# run_training(settings_filename, defaults_filename, skf_method = 'new')
 
-settings_full_path = os.path.join(os.getcwd(), settings_filename)
-with open(settings_full_path, 'r') as handle:
-    d = json.load(handle)
+# settings_full_path = os.path.join(os.getcwd(), settings_filename)
+# with open(settings_full_path, 'r') as handle:
+#     d = json.load(handle)
 
-result_dir = d['run_id']
-source = os.path.join(os.getcwd(), result_dir)
-destination = os.path.join(os.getcwd(), "PaperPackage", result_dir)
-if os.path.isdir(destination):
-    shutil.rmtree(destination)
-shutil.move(source, destination)
+# result_dir = d['run_id']
+# source = os.path.join(os.getcwd(), result_dir)
+# destination = os.path.join(os.getcwd(), "PaperPackage", result_dir)
+# if os.path.isdir(destination):
+#     shutil.rmtree(destination)
+# shutil.move(source, destination)
 
-dset_source = d['loaded_data_fields']['top_level_fold_path']
+# dset_source = d['loaded_data_fields']['top_level_fold_path']
 
-num_splits = len(d['training_settings']['split_mapping'])
-for i in range(num_splits):
-    src = os.path.join(dset_source, f"Split{i}")
-    dst = os.path.join(destination, f"Split{i}")
-    if os.path.exists(dst):
-        print("Removing existing directory")
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
+# #In copying split information, goes from top_level_fold_path/Split{num} --> run_id/Split{num}
 
-print("Copying settings file")
-shutil.copy(settings_filename, os.path.join(destination, "settings_refactor_tst.json"))
-print("All information copied")
+# num_splits = len(d['training_settings']['split_mapping'])
+# for i in range(num_splits):
+#     src = os.path.join(dset_source, f"Split{i}")
+#     dst = os.path.join(destination, f"Split{i}")
+#     if os.path.exists(dst):
+#         print("Removing existing directory")
+#         shutil.rmtree(dst)
+#     shutil.copytree(src, dst)
+
+# print("Copying settings file")
+# shutil.copy(settings_filename, os.path.join(destination, "settings_refactor_tst.json"))
+# print("All information copied")
 
 #%% Analyze the results
 '''

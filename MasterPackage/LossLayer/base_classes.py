@@ -35,7 +35,8 @@ TODO: Figure out system for classifying if model should concave up or concave do
 class ModelPenalty:
 
     def __init__ (self, input_pairwise_linear, penalty: str, dgrid: (Array, Array), inflect_point_val: Tensor = None,
-                  n_grid: int = 500, neg_integral: bool = False, pre_comp_xgrid: Array = None) -> None:
+                  n_grid: int = 500, neg_integral: bool = False, pre_comp_xgrid: Array = None,
+                  third_deriv_sign: str = 'pos') -> None:
         r"""Initializes the ModelPenalty object for computing the spline functional form penalty
         
         Arguments:
@@ -49,6 +50,9 @@ class ModelPenalty:
             n_grid (int): Number of grid points to use. Defaults to 500
             neg_integral (bool): Whether the spline is concave down. Defaults to False (concave up)
             pre_comp_xgrid (Array): The precomputed xgrid. Defaults to None.
+            third_deriv_sign (str): The sign of the third derivative. One of 'pos' for positive or 
+                'neg' for negative. Defaults to 'pos', but should be assigned if the penalty type is 
+                'smooth'
         
         Returns:
             None
@@ -61,6 +65,7 @@ class ModelPenalty:
         self.input_pairwise_lin = input_pairwise_linear
         self.penalty = penalty
         self.neg_integral = neg_integral
+        self.third_deriv_sign = third_deriv_sign
         self.n_grid = n_grid
         
         #Compute the x-grid
@@ -73,8 +78,10 @@ class ModelPenalty:
         #Compute the derivative_grid for the necessary derivative given the penalty
         self.dgrid = None
         if dgrid is None:
-            if self.penalty == "convex" or self.penalty == "smooth":
+            if self.penalty == "convex":
                 self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 2)
+            elif self.penalty == "smooth": #Smooth penalty is applied based on the third derivative
+                self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 3)
             elif self.penalty == "monotonic":
                 self.dgrid = self.input_pairwise_lin.pairwise_linear_model.linear_model(self.xgrid, 1)
         else:
@@ -226,25 +233,69 @@ class ModelPenalty:
         return convex_penalty
     
     def get_smooth_penalty(self) -> float:
-        r"""Computes the smooth penalty
+        r"""Computes the smooth penalty based on the third derivative
         
-        Arguments: 
+        Arguments:
             None
         
         Returns:
-            smooth_penalty (float): The value for the smooth penalty
+            smooth_penalty (float): The value of the smoot penalty with gradients for 
+                backpropagation
         
-        Notes: The smooth penalty is computed as a dot product on the second
-            derivative values, enforcing the second derivative goes to 0. 
-            Not currently used.
+        Notes:
+            Unlike the convex penalty, the smooth penalty is applied on the sign of the 
+            third derivative. This is determined as the opposite sign of the second derivative,
+            which is the case because of the simple univariate curvature of the splines. The 
+            implementation of the penalty is analagous to the convex penalty
         """
+        
+        # raise NotImplementedError("Method get_smooth_penalty() not implemented!")
+        
         smooth_penalty = 0
+        m = torch.nn.ReLU() #Use ReLU to select for sign
         c = self.input_pairwise_lin.get_variables()
-        deriv = self.dgrid
-        deriv = torch.tensor(deriv)
-        p_smooth = torch.einsum('j,ij->i',c,deriv)
-        smooth_penalty = torch.einsum('i,i->', p_smooth, p_smooth)
+        if hasattr(self.input_pairwise_lin, 'joined'):
+            other_coefs = self.input_pairwise_lin.get_fixed()
+            c = torch.cat([c, other_coefs])
+        deriv, consts = self.dgrid[0], self.dgrid[1]
+        deriv, consts = torch.tensor(deriv, dtype = c.dtype, device = c.device), torch.tensor(consts, dtype = c.dtype, device = c.device)
+        p_smooth = torch.matmul(deriv, c) + consts
+        #Assuming for right now that there is no penalty grid/inflection point;
+        #   will have to come back and take care of this later
+        if self.third_deriv_sign == 'neg':
+            p_smooth = m(p_smooth)
+        else:
+            p_smooth = -1 * p_smooth
+            p_smooth = m(p_smooth)
+        smooth_penalty = torch.matmul(p_smooth, p_smooth) / p_smooth.shape[0]
         return smooth_penalty
+    
+    def get_smooth_L2_loss(self) -> float:
+        r"""Computes the L2 loss over the third derivative penalty
+        
+        Arguments:
+            None
+        
+        Returns:
+            L2_norm (float): The computed value of the L2-norm of the 
+                the third derivative.
+        
+        Notes:
+            Unlike the sign penalty being used for the second derivative
+            (which is essentially an inequality penalty), the L2 loss seeks 
+            to minimize the L2-norm of the vector of third derivative predictions.
+            The L2-norm is defined as sqrt(Sum_i |x_i|^2).
+        """
+        c = self.input_pairwise_lin.get_variables()
+        if hasattr(self.input_pairwise_lin, 'joined'):
+            other_coefs = self.input_pairwise_lin.get_fixed()
+            c = torch.cat([c, other_coefs])
+        deriv, consts = self.dgrid[0], self.dgrid[1]
+        deriv, consts = torch.tensor(deriv, dtype = c.dtype, device = c.device), torch.tensor(consts, dtype = c.dtype, device = c.device)
+        pred_third_der = torch.matmul(deriv, c) + consts
+        L2_norm = torch.sqrt(torch.sum(torch.square(pred_third_der)))
+        return L2_norm
+            
     
     #Compute the actual loss
     def get_loss(self) -> float:
@@ -264,7 +315,8 @@ class ModelPenalty:
         elif self.penalty == "monotonic":
             return self.get_monotonic_penalty()
         elif self.penalty == "smooth":
-            return self.get_smooth_penalty()
+            #Switching over to the L2 Loss
+            return self.get_smooth_L2_loss()
         
 class LossModel:
     def get_feed(self, feed: Dict, molecs: List[Dict], all_models: Dict, par_dict: Dict, debug: bool) -> None:

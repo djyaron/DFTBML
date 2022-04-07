@@ -226,6 +226,8 @@ class SplineModel(PairwiseLinearModel):
             elif bconds == 'last_only':
                 #Zero value and derivative at the end point only
                 self.bconds = [Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0)]
+            elif bconds == 'third_deriv_testing':
+                self.bconds = [Bcond(-1, 1, 0)]
         else:
             # Natural boundary conditions
             self.bconds = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)]
@@ -272,7 +274,7 @@ class SplineModel(PairwiseLinearModel):
             # nder = ider + 1 because of use of range inside
             self.spline_dict = spline_new_xvals(self.spline_dict, xeval, nder=ider + 1)
 
-        return self.spline_dict['X'][ider], self.spline_dict['const'][ider]
+        return self.spline_dict['X'][ider], np.zeros(self.spline_dict['X'][ider].shape[0]) #self.spline_dict['const'][ider]
 
 class JoinedSplineModel(PairwiseLinearModel):
     

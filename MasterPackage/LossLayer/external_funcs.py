@@ -118,6 +118,33 @@ def generate_concavity_dict(model_spline_dict: Dict) -> Dict[Model, bool]:
         plt.show()
     return concavity_dict
 
+def generate_third_deriv_dict(concavity_dict: Dict) -> Dict:
+    r"""Generates the dictionary specifying the correct sign of the third derivatives
+    
+    Arguments:
+        concavity_dict (Dict): The dictionary of the concavities, i.e. signs of the 
+            second derivatives
+    
+    Returns:
+        third_deriv_dict (Dict): The dictionary of the third derivative, indicating 
+            which sign the third derivative should be for each model_spec
+    
+    Notes:
+        For the simpler cases, the third derivative should be the opposite sign of the 
+        second derivative. As per the specification of generate_concavity_dict,a value of 
+        True corresponds to a concave down function (negative second derivative) and a 
+        value of False corresponds to a concave up function (positive second derivative).
+        Thus, if v'' < 0 (True), we note that v''' > 0 ('pos'), while if v'' > 0 (False), we note that
+        v''' < 0 ('neg')
+    """
+    third_model_deriv_dict = dict()
+    for model_spec in concavity_dict:
+        if concavity_dict[model_spec] == True:
+            third_model_deriv_dict[model_spec] = 'pos'
+        if concavity_dict[model_spec] == False:
+            third_model_deriv_dict[model_spec] = 'neg'
+    return third_model_deriv_dict
+
 def compute_charges(dQs: Union[Array, Tensor], ids: Union[Array, Tensor]) -> List[Tensor]:
         r"""Computes the charges with a segment sum over dQs
         

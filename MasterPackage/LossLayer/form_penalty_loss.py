@@ -6,7 +6,7 @@ Created on Mon Jun  7 19:12:34 2021
 """
 #%% Imports, definitions
 from .base_classes import LossModel, ModelPenalty
-from .external_funcs import compute_mod_vals_derivs, generate_concavity_dict
+from .external_funcs import compute_mod_vals_derivs, generate_concavity_dict, generate_third_deriv_dict
 from typing import List, Dict
 import numpy as np
 import torch
@@ -18,6 +18,7 @@ class FormPenaltyLoss(LossModel):
     
     seen_dgrid_dict = dict()
     seen_concavity_dict = dict()
+    seen_third_deriv_dict = dict()
     
     def __init__(self, penalty_type: str, grid_density: int = 500) -> None:
         r"""Initializes the FormPenaltyLoss object
@@ -60,32 +61,48 @@ class FormPenaltyLoss(LossModel):
             class-level seen_dgrid_dict or seen_concavity_dict rather than recomputed. Adds the dgrids, concavity, and current
             models into the feed. Because the spline models are all aliased, everything is connected.
         """
+        #Flag for debugging only
+        calculations_performed = False
         
-        if 'form_penalty' not in feed: 
+        if f"form_penalty_{self.type}" not in feed:
             # First, check to see what's already done
             concavity_dict = dict()
+            third_deriv_dict = dict()
             # Models that have not had their concavity computed need to have that done and the results saved
             model_subset = dict()
             for mod_spec in feed['models']:
-                if mod_spec in FormPenaltyLoss.seen_concavity_dict:
+                #The second and third derivatives are calculated together (concavity and third_deriv)
+                if (mod_spec in FormPenaltyLoss.seen_concavity_dict) and (mod_spec in FormPenaltyLoss.seen_third_deriv_dict):
                     concavity_dict[mod_spec] = FormPenaltyLoss.seen_concavity_dict[mod_spec]
-                elif (mod_spec not in FormPenaltyLoss.seen_concavity_dict) and (len(mod_spec.Zs) == 2):
+                    third_deriv_dict[mod_spec] = FormPenaltyLoss.seen_third_deriv_dict[mod_spec]
+                elif (mod_spec not in FormPenaltyLoss.seen_concavity_dict) and (mod_spec not in FormPenaltyLoss.seen_third_deriv_dict)\
+                    and (len(mod_spec.Zs) == 2):
                     model_subset[mod_spec] = all_models[mod_spec]
+            
             mod_spline_dict = compute_mod_vals_derivs(model_subset, par_dict)
             temp_concav_dict = generate_concavity_dict(mod_spline_dict)
+            temp_third_deriv_dict = generate_third_deriv_dict(temp_concav_dict)
+            #Check that the keys are the same (they should be!)
+            assert(set(temp_concav_dict.keys()) == set(temp_third_deriv_dict.keys()))
             # non-empty dictionaries evaluate to true in python
             if temp_concav_dict:
+                calculations_performed = True
                 concavity_dict.update(temp_concav_dict)
+                third_deriv_dict.update(temp_third_deriv_dict)
                 FormPenaltyLoss.seen_concavity_dict.update(temp_concav_dict)
+                FormPenaltyLoss.seen_third_deriv_dict.update(temp_third_deriv_dict)
             
             #Optimization (push onto pre-compute), save the dgrid and xgrid for the model as well
             final_dict = dict()
             for model_spec in concavity_dict:
                 current_model = all_models[model_spec]
                 if model_spec in FormPenaltyLoss.seen_dgrid_dict:
-                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], FormPenaltyLoss.seen_dgrid_dict[model_spec][0],
+                    final_dict[model_spec] = (current_model, concavity_dict[model_spec],
+                                              third_deriv_dict[model_spec],
+                                              FormPenaltyLoss.seen_dgrid_dict[model_spec][0],
                                               FormPenaltyLoss.seen_dgrid_dict[model_spec][1])
                 else:
+                    calculations_performed = True
                     #UNCOMMENT THIS LATER!!!
                     rlow, rhigh = current_model.pairwise_linear_model.r_range()
                     # rlow, rhigh = 0, 10.0
@@ -95,11 +112,15 @@ class FormPenaltyLoss(LossModel):
                     xgrid = current_model.pairwise_linear_model.xknots
                     #We only need the first and second derivative for the dgrids
                     #Including the constants, especially important for the joined splines!
-                    dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1),
-                              current_model.pairwise_linear_model.linear_model(xgrid, 2)] 
-                    final_dict[model_spec] = (current_model, concavity_dict[model_spec], dgrids, xgrid)
+                    dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1), #monotonic
+                              current_model.pairwise_linear_model.linear_model(xgrid, 2), #convex
+                              current_model.pairwise_linear_model.linear_model(xgrid, 3)] #smooth
+                    final_dict[model_spec] = (current_model, concavity_dict[model_spec],
+                                              third_deriv_dict[model_spec], dgrids, xgrid)
                     FormPenaltyLoss.seen_dgrid_dict[model_spec] = (dgrids, xgrid)
-            feed['form_penalty'] = final_dict
+            
+            print(f"For penalty type {self.type}, calculations performed: {calculations_performed}")
+            feed[f"form_penalty_{self.type}"] = final_dict
     
     def get_value(self, output: Dict, feed: Dict, rep_method: str) -> Tensor:
         r"""Computes the form penalty for the spline functional form
@@ -117,24 +138,35 @@ class FormPenaltyLoss(LossModel):
         
         Notes: None
         """
-        form_penalty_dict = feed["form_penalty"]
+        form_penalty_dict = feed[f"form_penalty_{self.type}"]
         total_loss = 0
         for model_spec in form_penalty_dict:
             # if model_spec.oper != 'G':
             if (rep_method == 'new') and (model_spec.oper == 'R'):
                 continue #Skip built-in repulsive models if using DFTBrepulsive implementation
-            pairwise_lin_mod, concavity, dgrids, xgrid = form_penalty_dict[model_spec]
+            pairwise_lin_mod, concavity, third_deriv_sign, dgrids, xgrid = form_penalty_dict[model_spec]
+            #Just make sure the values are the correct types
+            assert(concavity in [True, False])
+            assert(third_deriv_sign in ['pos','neg'])
             inflection_point_val = pairwise_lin_mod.get_inflection_pt()
             # print(model_spec, inflection_point_val)
             penalty_model = None
-            if self.type == "convex" or self.type == "smooth":
-                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity,
-                                              pre_comp_xgrid = xgrid)
-                # loss_val = get_loss(pairwise_lin_mod, self.type, dgrids[1], inflect_point_val = inflection_point_val, neg_integral = concavity,
-                #                         pre_comp_xgrid = xgrid)
+            #Break this conditional block between convex and smooth, dgrids[1] is for convex and dgrids[2] is for smooth
+            if self.type == "convex":
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[1], 
+                                             inflect_point_val = inflection_point_val, n_grid = self.density, 
+                                             neg_integral = concavity, pre_comp_xgrid = xgrid)
+            elif self.type == "smooth":
+                #The third_deriv_sign argument is used for smooth penalty because it depends on the 
+                #   sign of the third derivative
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[2], 
+                                             inflect_point_val = inflection_point_val, n_grid = self.density, 
+                                             neg_integral = concavity, pre_comp_xgrid = xgrid,
+                                             third_deriv_sign = third_deriv_sign)
             elif self.type == "monotonic":
-                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], inflect_point_val = inflection_point_val, n_grid = self.density, neg_integral = concavity,
-                                             pre_comp_xgrid = xgrid)
+                penalty_model = ModelPenalty(pairwise_lin_mod, self.type, dgrids[0], 
+                                             inflect_point_val = inflection_point_val, n_grid = self.density, 
+                                             neg_integral = concavity, pre_comp_xgrid = xgrid)
             total_loss += penalty_model.get_loss()
         return torch.sqrt(total_loss / len(form_penalty_dict))
     
@@ -144,3 +176,4 @@ class FormPenaltyLoss(LossModel):
         """
         FormPenaltyLoss.seen_concavity_dict = {}
         FormPenaltyLoss.seen_dgrid_dict = {}
+        FormPenaltyLoss.seen_third_deriv_dict = {}

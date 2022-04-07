@@ -32,7 +32,7 @@ from Geometry import Geometry
 from .eig import SymEigB
 from .batch import create_batch, create_dataset, DFTBList
 
-from MasterConstants import Model
+from MasterConstants import Model, Bcond
 
 from Spline import SplineModel, JoinedSplineModel
 from DFTBpy import _Gamma12
@@ -211,6 +211,29 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             minimum_value, maximum_value = spline_dict[model_spec]
             minimum_value -= buffer
             maximum_value += buffer
+            
+            #For countering numerical stability issues, try spacing out the knots at the end. This might end up becoming a 
+            #   hyperparameter of some sort. When the knots were not spaced out at the end, you get values for the third
+            #   derivative that are too high. 
+            #REMOVE THIS SECTION AFTER THE THIRD DERIVATIVE PENALTY IS FIGURED OUT!
+
+
+            # if model_spec.oper in ["H", "S"]:
+            #     intermediate_value = 4.0
+            #     intermediate_num_knots = 48
+            #     xknots_intermediate = np.linspace(minimum_value, intermediate_value, num = intermediate_num_knots)
+            #     remaining_diff = maximum_value - intermediate_value
+            #     knot_spacing = remaining_diff / 2 #98 knots, 2 remaining
+            #     starting_val = xknots_intermediate[-1]
+            #     remaining_knots = []
+            #     for i in range(2):
+            #         remaining_knots.append(starting_val + ((i + 1) * knot_spacing))
+            #     assert(remaining_knots == [4.25, 4.5])
+            #     xknots = np.append(xknots_intermediate, remaining_knots)
+            #     assert(len(xknots) == 50)
+            # else:
+            
+            #simple knot initialization scheme (equidistant)
             xknots = np.linspace(minimum_value, maximum_value, num = num_knots) #Set maximum_value to cutoff, not 10 angstroms
             print(f"number of knots: {len(xknots)}")
             print(f"first knot: {xknots[0]}, second knot: {xknots[-1]}")
@@ -236,9 +259,9 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             config = {'xknots' : xknots,
                       'equal_knots' : False,
                       'cutoff' : model_cutoff,
-                      'bconds' : 'last_only', #last_only applies boundary conditions on the final knot only
+                      'bconds' : 'last_only', #Running with 'last_only' boundary conditions again
                       'deg' : spline_deg,
-                      'max_der' : 2} #Hard-code to get the second derivative as the maximum derivative
+                      'max_der' : 4} #Hard-code to get the fourth derivative as the maximum derivative, requires 5th order splines
             if spline_mode == 'joined':
                 spline = JoinedSplineModel(config)
                 
@@ -248,6 +271,10 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
                 
             elif spline_mode == 'non-joined':
                 spline = SplineModel(config)
+                #Checkn that the boundary conditions went through
+                assert(spline.bconds == [Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0)])
+                
+                # assert(spline.bconds == []) #Disable this assert because the boundary condtions are not empty now
                 
                 #REMOVE THESE LINES LATER
                 # model = Input_layer_DFTB(model_spec)
