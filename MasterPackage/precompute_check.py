@@ -60,12 +60,13 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['batch_data_fields']['allowed_Zs'] == [1,6,7,8])
     assert(d['batch_data_fields']['num_per_batch'] == 10)
     
-    assert(d['training_settings']['losses'] == ["Etot", "dipole", "charges", "convex"])
+    assert(d['training_settings']['losses'] == ["Etot", "dipole", "charges", "convex", "smooth"])
     assert(d['training_settings']['target_accuracy_energy'] == 6270)
     assert(d['training_settings']['target_accuracy_dipole'] == 100)
     assert(d['training_settings']['target_accuracy_charges'] == 100)
     assert(d['training_settings']['target_accuracy_convex'] == 1000)
     assert(d['training_settings']['target_accuracy_monotonic'] == 1000)
+    assert(d['training_settings']['target_accuracy_smooth'] == 0.1)
     
     assert(d['tensor_settings']['tensor_device'] == 'cpu')
     assert(d['tensor_settings']['tensor_dtype'] == 'double')
@@ -74,7 +75,7 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['model_settings']['low_end_correction_dict'] is not None) #Need to hand-check
     assert(d['model_settings']['universal_high'] == 10.0)
     assert(d['model_settings']['spline_mode'] == 'non-joined')
-    assert(d['model_settings']['spline_deg'] == 3)
+    assert(d['model_settings']['spline_deg'] == 5)
     assert(d['training_settings']['debug'] == False)
     assert(d['model_settings']['num_knots'] == 100)
     assert(d['model_settings']['buffer'] == 0.0)
@@ -84,8 +85,8 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['model_settings']['include_inflect'] == True)
     
     assert(d['repulsive_settings']['opts'] == {
-        "nknots" : 50,
-        "cutoff" : "full",
+        "nknots" : 50, #Try running with 50 knots over the short cutoff
+        "cutoff" : "short", #Try running with modified short cutoff
         "deg" : 3,
         "bconds" : "vanishing",
         "constr" : "+2"

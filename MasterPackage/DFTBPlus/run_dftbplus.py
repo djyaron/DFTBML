@@ -278,7 +278,8 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                         
                     shutil.copy(os.path.join(scratch_dir,'detailed.out'), 
                                 dftb_savefile)
-                except Exception:
+                except Exception as e:
+                    print("made it inside the exception in run_dftbplus.py")
                     if fermi_temp is None:
                         dftb_savefile = os.path.join(scratch_dir,'auout',
                                                      'err_' + mol['name']+'_zero.out')
@@ -539,6 +540,7 @@ def compute_results_alt_targets(dataset: List[Dict], targets: List[List[str]], e
     
     losses = {tuple(k) : 0 for k in targets}
     for pairing in targets:
+        #import pdb; pdb.set_trace()
         pred_key, targ_key = pairing
         #zero-point calculation from DFTB+, so predictions are pzero
         pred_val = [mol['pzero'][pred_key] for mol in dataset]
@@ -548,7 +550,11 @@ def compute_results_alt_targets(dataset: List[Dict], targets: List[List[str]], e
         targ_val = list(map(lambda x : np.array(x), targ_val))
         pred_val = np.concatenate(pred_val)
         targ_val = np.concatenate(targ_val)
-        if ("dipole" in pred_key) and ("dipole" in targ_key):
+        if (("dipole" in pred_key) and ("dipole" in targ_key)) and (pred_key != 'dipole_ESP'):
+            #ESP dipoles are computed from charge and position, 
+            #so naturally have units of eA. There is no need to convert
+            #from eA to eA, so can go ahead and pass.
+            
             #The target value will be in units of eA for dipole
             #so multiply by corresponding factor to go from 
             #Debye --> eA
@@ -654,19 +660,20 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
         handle.write(f"\tInitial number of data points: {original_len}\n")
         handle.write(f"\n")
         handle.write(f"\tNumber of data point excluded: {final_len - original_len}\n")
-        handle.write(f"\tThreshold for exclusion: {exclusion_threshold}\n")
+        handle.write(f"\tThreshold for exclusion: {exclusion_threshold} standard deviations\n")
         handle.write(f"\tFinal error in Hartrees: {scaled_err_Ha}\n")
         handle.write(f"\tFinal error in kcal/mol: {scaled_err_Kcal}\n")
         handle.write(f"\n")
         handle.write(f"Error for other physical targets:\n")
         handle.write(f"\tError metric: {error_metric}\n")
-        handle.write("\tCharge units: e")
-        handle.write(f"\tDipole units: {target_dipole_unit}")
-        handle.write("\tFormat: [prediction property] vs. [target property]: [difference]")
+        handle.write("\tTarget charge units: e\n")
+        handle.write(f"\tTarget dipole units: {target_dipole_unit}\n")
+        handle.write("\tFormat: [prediction property] vs. [target property]: [difference]\n")
         for pair in alternative_errs:
-            pred_prop, targ_prop = pair
-            loss_val = alternative_errs[pair]
-            handle.write(f"\t{pred_prop}\t{targ_prop}: {loss_val}\n")
+            if pair != 'metric':
+                pred_prop, targ_prop = pair
+                loss_val = alternative_errs[pair]
+                handle.write(f"\t{pred_prop}\tvs.\t{targ_prop}: {loss_val}\n")
         handle.write("End of report")
             
         

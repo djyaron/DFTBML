@@ -49,6 +49,10 @@ CUTOFFS_LNG = {(1, 1): (0.63, 4.80),
                (7, 7): (0.99, 3.80),
                (7, 8): (0.93, 3.80),
                (8, 8): (1.06, 3.80)}
+#FH: Set the first value to 0 as a test to see if extending the range slightly helps with SKFs
+CUTOFFS_LNG={k : (0, v[1]) for k, v in CUTOFFS_LNG.items()}
+
+
 CUTOFFS_EXT = {(1, 1): (0.63, 5.00),
                (1, 6): (0.60, 5.00),
                (1, 7): (0.59, 5.00),

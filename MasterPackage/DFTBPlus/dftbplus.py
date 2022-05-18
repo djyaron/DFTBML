@@ -177,11 +177,11 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
         #how to do proper conversion to Debye)
         dftbfile.write(
             r'}' + '\n' +
-            r'Options { }' + '\n' + #WriteChargesAsText = Yes (temporarily removed)
+            r'Options { WriteChargesAsText = Yes }' + '\n' +
             r'Analysis {' + '\n' +
             r'   CalculateForces = No' + '\n' +
-            #r'   MullikenAnalysis = Yes' + '\n' +  Temporarily remove MullikenAnalysis and CM5
-            #r'   CM5{}' + '\n' +
+            r'   MullikenAnalysis = Yes' + '\n' +
+            r'   CM5{}' + '\n' +
             r'}' + '\n')
         # A windows executable is only available for version 17.1
         #  https://sites.google.com/view/djmolplatform/get-dftb-17-1-windows
@@ -370,12 +370,13 @@ def parse_dipole(output_file: str, pattern: str, unit: str = 'Debye') -> Array:
         internally generated for training.  
     """
     assert(unit in ['Debye', 'au'])
+    #assert(unit == "Debye")
     dipole_matcher = re.compile(pattern)
     content = open(output_file, 'r').read()
     #The dipole regex pattern can be used with findall
     dipole_result = dipole_matcher.findall(content)
     try:
-        assert(dipole_result is not None)
+        assert(dipole_result != [])
     except:
         raise ValueError("Regex dipole parsing failed!")
     assert(len(dipole_result) == 2) #There should be two dipoles

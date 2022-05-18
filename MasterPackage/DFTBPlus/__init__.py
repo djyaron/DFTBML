@@ -12,3 +12,4 @@ from .run_ANI1_orgs import run_organics
 from .util import find_all_used_configs, filter_dataset, sequential_outlier_exclusion
 from .dftbplus import read_detailed_out, read_dftb_out, parse_charges_dat, parse_dipole, parse_charges_output,\
     compute_ESP_dipole
+from .xTB_driver import run_xTB_dftbp
