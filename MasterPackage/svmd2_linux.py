@@ -251,6 +251,11 @@ if __name__ == "__main__":
     
     add_dftb(all_mols, skf_dir, exec_path, par_dict, do_our_dftb = True, do_dftbplus = True, parse = 'detailed')
     
+    all_mol_result_path = os.path.join(os.getcwd(), "svmd2_results_dir", "modified_short_cutoff_results.p")
+    with open(all_mol_result_path, "wb") as handle:
+        print("Saving all mols with dftb results for further analysis")
+        pickle.dump(all_mols, handle)
+    
     #import pdb;pdb.set_trace()
 
     #Separate lists for each type of disagreement for each physical target; vector quantities like
