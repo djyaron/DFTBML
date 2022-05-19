@@ -274,7 +274,7 @@ class SplineModel(PairwiseLinearModel):
             # nder = ider + 1 because of use of range inside
             self.spline_dict = spline_new_xvals(self.spline_dict, xeval, nder=ider + 1)
 
-        return self.spline_dict['X'][ider], np.zeros(self.spline_dict['X'][ider].shape[0]) #self.spline_dict['const'][ider]
+        return self.spline_dict['X'][ider], self.spline_dict['const'][ider]
 
 class JoinedSplineModel(PairwiseLinearModel):
     
