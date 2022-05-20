@@ -36,7 +36,7 @@ TODO:
 from PaperPackage import create_datasets
 from precompute_check import precompute_settings_check
 from PaperPackage import split_to_comparative_dset, comparative_dset_check
-from PaperPackage import precompute_comparative_datasets
+from PaperPackage import precompute_comparative_datasets, expand_dataset
 
 if __name__ == "__main__":
 
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     
     # create_datasets(settings_filename, defaults_filename, num_train_valid, mode, ref_dir)
     
-    # expand_dataset(settings_filename, defaults_filename, "PaperPackage/master_dset_wt_ener_target")
+    expand_dataset(settings_filename, defaults_filename, "PaperPackage/master_dset_wt_ener_target")
     
     # split_to_comparative_dset("PaperPackage/master_dset_expanded_cc")
     
@@ -75,16 +75,16 @@ if __name__ == "__main__":
     #   top_level_fold_path matches the directory the dset_settings.json file
     #   is contained in
     
-    import os, json
+    # import os, json
     
-    directories_to_check = ["master_dset_expanded_cc", "master_dset_expanded_cc_first_half", "master_dset_expanded_cc_second_half"]
+    # directories_to_check = ["master_dset_expanded_cc", "master_dset_expanded_cc_first_half", "master_dset_expanded_cc_second_half"]
     
-    for direc in directories_to_check:
-        full_path = os.path.join(os.getcwd(), "PaperPackage", direc, "dset_settings.json")
-        print("Checking", direc)
-        with open(full_path, 'r') as jfile:
-            jdict = json.load(jfile)
-            assert(jdict['loaded_data_fields']['top_level_fold_path'] == f"PaperPackage/{direc}")
+    # for direc in directories_to_check:
+    #     full_path = os.path.join(os.getcwd(), "PaperPackage", direc, "dset_settings.json")
+    #     print("Checking", direc)
+    #     with open(full_path, 'r') as jfile:
+    #         jdict = json.load(jfile)
+    #         assert(jdict['loaded_data_fields']['top_level_fold_path'] == f"PaperPackage/{direc}")
 
 #%% Generate transfer dataset
 # from PaperPackage import create_transfer_dataset
