@@ -410,7 +410,38 @@ def copy_split_info(dset_name: str, results_directory_name: str, num_splits: int
             print(f"Could not copy Split{i} into {results_directory_name} because {e}")
             write_to_log(f"Could not copy Split{i} into {results_directory_name} because {e}")
             continue #Continue onto the next iteration
+
+def copy_test_set(dset_name: str, results_directory_name: str) -> None:
+    r"""Copies the test set into the correct location from the dataset into the 
+        results directory
     
+    Arguments: 
+        dset_name (str): The name of the dataset containing the Split0 directory
+            that needs to be copied
+        results_directory_name (str): The name of the results directory to copy the 
+            test set into
+    
+    Returns:
+        None
+    
+    
+    Raises:
+        Exception: If the copy operation cannot be performed
+    
+    Notes: For both the dset_name and the results_directory_name arguments, 
+        the arguments should just be the name of the directories and not the
+        full paths; those will be constructed afterward.
+    """
+    src_test_set = os.path.join(DSETS_DIR_PATH, dset_name, 'test_set.p')
+    dest_test_set = os.path.join(RESULTS_DIR_PATH, results_directory_name, 'test_set.p')
+    try:
+        shutil.copy(src_test_set, dest_test_set)
+        print(f"Successfully copied {src_test_set} to {dest_test_set}")
+        write_to_log(f"Successfully copied {src_test_set} to {dest_test_set}")
+    except Exception as e:
+        print(f"Could not copy test set from {dset_name} into {results_directory_name} because {e}")
+        write_to_log(f"Could not copy test set from {dset_name} into {results_directory_name} because {e}")
+
 def run_experiments() -> None:
     r"""Master function for running all the specified experiments and 
         performing the necessary safety checks.
@@ -496,6 +527,8 @@ def run_experiments() -> None:
                 copy_split_info(dset_name, results_directory_name, num_splits)
                 print(f"Completed copying split information for results directory {results_directory_name}")
                 write_to_log(f"Completed copying split information for results directory {results_directory_name}")
+                
+                copy_test_set(dset_name, results_directory_name)
                 
                 copy_settings_files(experiment, results_directory_name)
 

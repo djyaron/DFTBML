@@ -151,10 +151,49 @@ def mass_analyze(test_set_path: str, master_directory: str, fit_ref: bool = Fals
         analysis_pipeline(test_set_path, relative_skf_dir, fit_ref)
     print("Mass analysis done")
 
+def mass_analyze_infer_test_set(master_directory: str, fit_ref: bool = False) -> None:
+    r"""Performs a mass analysis with the test set contained within the 
+        results directory.
+    
+    Arguments:
+        master_directory (str): The relative path to the directory containing all the results subdirectories
+            that require analysis
+        fit_ref (bool): Whether or not to do a fresh reference energy fit. 
+            Defaults to False because generally, you are testing with
+            trained reference energy parameters
+    
+    Returns:
+        None
+    
+    Raises: 
+        ValueError: If the test set does not exist
+        ValueError: If the master_directory does not exist
+    
+    Notes:
+        Refer to notes for mass_analyze. This function is triggered by setting the 
+        dser argument to 'internal'
+    """
+    try:
+        assert(os.path.exists(os.path.join(os.getcwd(), master_directory)))
+    except Exception as e:
+        raise ValueError("Master directory does not exist!")
+    all_result_directories = sorted(os.listdir(master_directory))
+    for skf_dir in all_result_directories:
+        relative_skf_dir = os.path.join(master_directory, skf_dir)
+        test_set_path = os.path.join(master_directory, skf_dir, 'test_set.p')
+        try:
+            assert(os.path.exists(test_set_path))
+        except Exception as e:
+            raise ValueError("Test set does not exist!")
+        analysis_pipeline(test_set_path, relative_skf_dir, fit_ref)
+    print("Mass analysis with internal test sets completed")
+
 #%% Main block
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    #If this is set to 'internal', then the internal test sets for each result
+    #   directory are used
     parser.add_argument("dset", help = "Name of the test set to use")
     parser.add_argument("batch", help = "Whether you are analyzing a batch or not")
     #Note that if batch is true, then this is not the single skf_dir but the relative path to the directory containing
@@ -169,12 +208,19 @@ if __name__ == "__main__":
     assert(batch.upper() in ["Y", "N"])
     assert(fit_ref.upper() == "N")
     assert(batch.upper() == "Y")
-    assert((("cc" in dset_path) and ("cc" in skf_dir)) or (("wt" in dset_path) and ("wt" in skf_dir)))
+    if dset_path.lower() != 'internal':
+        assert((("cc" in dset_path) and ("cc" in skf_dir)) or (("wt" in dset_path) and ("wt" in skf_dir)))
     
     fit_ref = True if fit_ref.upper() == "Y" else False
     batch = True if batch.upper() == "Y" else False
     
     if not batch:
+        print(f"Performing single result directory analysis with the given test set {dset_path}")
         analysis_pipeline(dset_path, skf_dir, fit_ref = fit_ref)
     else:
-        mass_analyze(dset_path, skf_dir, fit_ref = fit_ref)
+        if dset_path != 'internal':
+            print(f"Performing mass analysis with given test set {dset_path}")
+            mass_analyze(dset_path, skf_dir, fit_ref = fit_ref)
+        else:
+            print("Performing mass analysis with internal test sets")
+            mass_analyze_infer_test_set(skf_dir, fit_ref = fit_ref)
