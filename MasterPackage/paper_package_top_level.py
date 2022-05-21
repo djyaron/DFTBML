@@ -279,12 +279,41 @@ locally
 
 # # diffs, err = compute_results_torch(test_set, target, allowed_Zs)
 
+#%% Dataset checking using newly implemented utilities
+from PaperPackage import check_dset_inheritance, test_strict_molecule_set_equivalence
+import os
 
+parent_cc_dset = "PaperPackage/master_dset"
+parent_cc_test_set = os.path.join(parent_cc_dset, 'test_set.p')
+parent_wt_dset = "PaperPackage/master_dset_wt_ener_target"
+parent_wt_test_set = os.path.join(parent_wt_dset, 'test_set.p')
 
+child_cc_dsets = ["master_dset_expanded_cc", "master_dset_expanded_cc_first_half", 
+                  "master_dset_expanded_cc_second_half", "master_dset_reduced_300", "master_dset_reduced_1000",
+                  "max_config_100_cc_dset_no_transfer"]
+child_wt_dsets = ["master_dset_expanded_wt", "master_dset_reduced_300_wt_ener_target",
+                  "master_dset_reduced_1000_wt_ener_target","max_config_100_wt_dset_no_transfer"]
 
+for i in range(len(child_cc_dsets)):
+    child_cc_dsets[i] = "PaperPackage/" + child_cc_dsets[i]
 
+for i in range(len(child_wt_dsets)):
+    child_wt_dsets[i] = "PaperPackage/" + child_wt_dsets[i]
 
+#Verify test set equivalence for these datasets
+for child_set in child_cc_dsets:
+    print(f"Testing {child_set}")
+    child_test_set = os.path.join(child_set, 'test_set.p')
+    test_strict_molecule_set_equivalence(parent_cc_test_set, child_test_set, include_targets = True)
+    
+for child_set in child_wt_dsets:
+    print(f"Testing {child_set}")
+    child_test_set = os.path.join(child_set, 'test_set.p')
+    test_strict_molecule_set_equivalence(parent_wt_test_set, child_test_set, include_targets = True)
 
+#Verify some inheritance properties between a select few datasets
+check_dset_inheritance(parent_cc_dset, "PaperPackage/max_config_100_cc_dset_no_transfer", 'same_emp_forms')
+check_dset_inheritance(parent_wt_dset, "PaperPackage/max_config_100_wt_dset_no_transfer", 'same_emp_forms')
 
 
 

@@ -12,11 +12,12 @@ Some generic utility functions for the datasets generated
 import os, pickle
 from typing import List, Dict
 import numpy as np
-
+import re
+from functools import reduce
 
 #%% Code behind
 
-def test_strict_molecule_set_equivalence(set1_path: str, set2_path: str, include_targets: bool = True) -> bool:
+def test_strict_molecule_set_equivalence(set1_path: str, set2_path: str, include_targets: bool = True) -> None:
     r"""Tests if two molecule sets are equivalent. A molecular configuration is
         defined using a dictionary for each configuration
     
@@ -27,8 +28,7 @@ def test_strict_molecule_set_equivalence(set1_path: str, set2_path: str, include
             targets in the equivalence check
     
     Returns:
-        (bool): Returns True if the sets are equivalent, raises an assertion error 
-            otherwise
+        None
     
     Raises:
         AssertionError: If any of the conditions of equality are violated
@@ -124,7 +124,45 @@ def test_molecule_set_equivalence_unordered(dset_1_name: str, dset_2_name: str) 
     #No target equivalence
     print(f"Dataset reference equivalence check passed between {dset_1_name} and {dset_2_name}")
 
-def check_dset_inheritance(parent_dset_dir: str, child_dset_dir: str, criterion: str) -> None:
+def extract_all_train_valid_forms(dset_dir: str) -> List[str]:
+    r"""Extracts all the empirical formulas from the training and validation molecules
+        stored in Fold0_molecs.p and onward
+        
+    Arguments:
+        dset_dir (str): the path to the dataset directory
+
+    Returns:
+        forms (List[str]): the list of empirical formulas
+    """
+    pattern = r"Fold[0-9]+_molecs.p"
+    valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir(dset_dir)))
+    all_mols = [pickle.load(open(os.path.join(dset_dir, name), 'rb')) for name in valid_names]
+    all_mols = list(reduce(lambda x, y : x + y, all_mols))
+    forms = [mol['name'] for mol in all_mols]
+    return forms
+
+def non_overlap_with_test(dset_dir: str) -> None:
+    r"""Checks that the the empirical formulas for the training and validation sets
+        do not overlap with the test set
+    
+    Arguments:
+        dset_dir (str): path to the directory to check
+    
+    Returns:
+        None
+    
+    Raises: 
+        AssertionError: if there is an overlap detected beween the training
+            and validation sets and the test set empirical formulas
+    """
+    test_set = pickle.load(open(os.path.join(dset_dir, 'test_set.p'), 'rb'))
+    train_valid_forms = set(extract_all_train_valid_forms(dset_dir))
+    test_forms = set([mol['name'] for mol in test_set])
+    assert(train_valid_forms.intersection(test_forms) == set())
+    print(f"No overlap between training/validation formulas and test formulas in dataset {dset_dir}")
+
+def check_dset_inheritance(parent_dset_dir: str, child_dset_dir: str, criterion: str,
+                           check_test_set_equivalence: bool = True) -> None:
     r"""Checks to ensure that the child dataset and parent dataset correctly inherited
         using a specific criterion
     
@@ -139,6 +177,9 @@ def check_dset_inheritance(parent_dset_dir: str, child_dset_dir: str, criterion:
                 This is useful for checking if datasets of alternate targets are 
                 correctly inherited, i.e. 'wt' target dsets are correctly inherited from 
                 their 'cc' counterparts
+        check_test_set_equivalence (bool): Whether or not to check if the test sets
+            have strict equivalence. Defaults to True, in which case the 
+            test is performed
         
     Raises:
         AssertionError: If any of the conditions for correct inheritance are violated, 
@@ -148,17 +189,34 @@ def check_dset_inheritance(parent_dset_dir: str, child_dset_dir: str, criterion:
         None
     """
     #First, the test sets are always inherited so they should be equivalent
-    parent_test_set_path = os.path.join(parent_dset_dir, 'test_set.p')
-    child_test_set_path = os.path.join(child_dset_dir, 'test_set.p')
-    test_strict_molecule_set_equivalence(parent_test_set_path, child_test_set_path,
-                                         include_targets = True)
+    if check_test_set_equivalence:
+        parent_test_set_path = os.path.join(parent_dset_dir, 'test_set.p')
+        child_test_set_path = os.path.join(child_dset_dir, 'test_set.p')
+        test_strict_molecule_set_equivalence(parent_test_set_path, child_test_set_path,
+                                             include_targets = True)
     
     #behavior changes depending on the criterion
     assert(criterion in ['same_emp_forms', 'molec_equivalence'])
     #case of same empirical formulas for the training and validation sets
-    #TODO: continue from here
+    if criterion == 'same_emp_forms':
+        parent_train_valid_forms = extract_all_train_valid_forms(parent_dset_dir)
+        child_train_valid_forms = extract_all_train_valid_forms(child_dset_dir)
+        assert(set(parent_train_valid_forms) == set(child_train_valid_forms))
+        print(f"Successfuly inheritance between {parent_dset_dir} and {child_dset_dir} with criterion {criterion}")
+    elif criterion == 'molec_equivalence':
+        pattern = r"Fold[0-9]+_molecs.p"
+        parent_valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir(parent_dset_dir)))
+        child_valid_names = list(filter(lambda x : re.match(pattern, x), os.listdir(child_dset_dir)))
+        assert(set(parent_valid_names) == set(child_valid_names))
+        for name in parent_valid_names:
+            parent_path = os.path.join(parent_dset_dir, name)
+            child_path = os.path.join(child_dset_dir, name)
+            test_strict_molecule_set_equivalence(parent_path, child_path, include_targets = False)
+        print(f"Successfuly inheritance between {parent_dset_dir} and {child_dset_dir} with criterion {criterion}")
+    #Also check that there is no overlap in the empirical formulas between the training and validation molecules
+    #   and the test set
+    non_overlap_with_test(parent_dset_dir)
+    print(f"{parent_dset_dir} no overlap between train/valid and test")
+    non_overlap_with_test(child_dset_dir)
+    print(f"{child_dset_dir} no overlap between train/valid and test")
     
-    
-
-
-
