@@ -666,7 +666,7 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
         handle.write(f"\n")
         handle.write(f"\tNumber of data point excluded: {final_len - original_len}\n")
         handle.write(f"\tThreshold for exclusion: {exclusion_threshold} standard deviations\n")
-        handle.write(f"\tNumber of data points removed due to failures: {num_failed_molecules}")
+        handle.write(f"\tNumber of data points removed due to failures: {num_failed_molecules}\n")
         handle.write(f"\tFinal error in Hartrees: {scaled_err_Ha}\n")
         handle.write(f"\tFinal error in kcal/mol: {scaled_err_Kcal}\n")
         handle.write(f"\n")
