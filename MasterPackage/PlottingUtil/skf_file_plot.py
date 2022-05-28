@@ -666,9 +666,13 @@ def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float]
     """
     all_files = os.listdir(dset_dir)
     pattern = r"Fold[0-9]+_molecs.p"
-    fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
+    pattern2 = r"test_set.p" #Include the test_set.p in the distribution
+    fold_file_names = list(filter(lambda x : re.match(pattern, x) or re.match(pattern2, x), all_files))
     mols_2D = [pickle.load(open(os.path.join(dset_dir, name), 'rb')) for name in fold_file_names]
-    all_mols = list(reduce(lambda x, y : x + y, mols_2D))
+    if len(mols_2D) > 1:
+        all_mols = list(reduce(lambda x, y : x + y, mols_2D))
+    else:
+        all_mols = mols_2D[0]
     
     d_distr = get_dist_distribution(all_mols)
     
@@ -679,6 +683,8 @@ def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float]
         axs.hist(curr_data, bins = bins, color = 'red', alpha = 0.75)
         axs.set_ylabel("Frequency")
         axs.set_xlabel("Angstroms")
+        axs.xaxis.set_major_locator(MultipleLocator(x_major))
+        axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
         title = f"{elem_pair} pairwise distance distribution"
         axs.set_title(title)
         if (dest is not None):

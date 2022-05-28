@@ -20,7 +20,7 @@ Analysis pipeline:
 from DFTBPlus import add_dftb, calc_format_target_reports
 import os, argparse, pickle
 import shutil
-from typing import List, Dict, Union
+from typing import List, Dict, Tuple
 from Auorg_1_1 import ParDict
 
 #%% Parameter space
@@ -46,6 +46,42 @@ exclusion_threshold = 20 #Number of standard deviations for excluding outliers
 dest = "analysis_dir" #The destination for the analysis.txt output file
 
 #%% Code behind
+
+def molecule_check(processed_molecs: List[Dict], keys_to_check: List[str] = 
+                   ['dipole', 'charges', 'conv']) -> Tuple[int, List[Dict]]:
+    r"""Performs a safety check on the test molecules before performing 
+        further analyses
+    
+    Arguments:
+        processed_molecs (List[Dict]): The list of molecule dictionaries
+            with the DFTB+ results added to them
+        keys_to_check (List[str]): The list of keys to check in the 
+            dictionary. Defaults to a list of 'dipole', 'charges', and 'conv'.
+    
+    Returns:
+        num_failed (int): The number of molecules that have been excluded
+        safe_molecs (List[Dict]): The list of molecule dictionaries which
+            are safe to proceed with analysis
+    
+    Notes: For the keys 'dipole' and 'charges', the check is just to see that
+        these keys exist. For 'conv', the check is to ensure that the key has
+        a corresponding value of True.
+    """
+    print(f"Checking over {len(processed_molecs)} molecules")
+    good_molecules, bad_molecule_count = [], 0
+    for molec in processed_molecs:
+        try:
+            #The 'pzero' key should exist and contains the DFTB+ results
+            assert('pzero' in molec)
+            assert('dipole' in molec['pzero'])
+            assert('charges' in molec['pzero'])
+            assert(molec['pzero']['conv'])
+            good_molecules.append(molec)
+        except:
+            bad_molecule_count += 1
+    print(f"Removed {bad_molecule_count} molecules")
+    assert(len(processed_molecs) == len(good_molecules) + bad_molecule_count)
+    return bad_molecule_count, good_molecules
 
 def analysis_pipeline(dset_path: str, skf_dir: str, fit_ref: bool = False) -> None:
     r"""Executes the analysis pipeline
@@ -83,21 +119,29 @@ def analysis_pipeline(dset_path: str, skf_dir: str, fit_ref: bool = False) -> No
     #Pass empty dictionary since not doing DFTBPy calculation
     add_dftb(test_molecules, skf_dir, exec_path, {}, do_our_dftb = False, do_dftbplus = True, parse = parse,
              charge_form = charge_form, dipole_unit = dipole_unit)
+    #Do some manipulations with the path and save the molecules as a pickle file
+    skf_dir_splt = os.path.split(skf_dir)
+    if skf_dir_splt[-1] == "":
+        skf_dir_splt = os.path.split(skf_dir_splt[0])
+    simple_skf_dir = skf_dir_splt[-1]
+    
+    molec_dst = os.path.join(os.getcwd(), dest, "analysis_files", f"analysis_{simple_skf_dir}.p")
+    with open(molec_dst, 'wb') as handle:
+        pickle.dump(test_molecules, handle)
+    
+    #Prune the test molecules before continuing with any analysis
+    num_bad_molecs, test_molecules = molecule_check(test_molecules)
+    
     ref_params = None
-    #import pdb; pdb.set_trace()
     if not fit_ref:
         ref_param_path = os.path.join(os.getcwd(), skf_dir, "ref_params.p")
         ref_params = pickle.load(open(ref_param_path, 'rb'))
     calc_format_target_reports(skf_dir, dest, test_molecules, error_metric, tot_ener_targ, pairwise_targs, fit_ref, 
                                allowed_Zs, ref_params = ref_params, dipole_conversion = True, 
                                prediction_dipole_unit = dipole_unit, target_dipole_unit = target_dipole_unit,
-                               exclusion_threshold = exclusion_threshold)
+                               exclusion_threshold = exclusion_threshold, num_failed_molecules = num_bad_molecs)
     
     src = os.path.join(os.getcwd(), dest, "analysis.txt")
-    skf_dir_splt = os.path.split(skf_dir)
-    if skf_dir_splt[-1] == "":
-        skf_dir_splt = os.path.split(skf_dir_splt[0])
-    simple_skf_dir = skf_dir_splt[-1]
     dst = os.path.join(os.getcwd(), dest, "analysis_files", f"analysis_{simple_skf_dir}.txt")
     shutil.copy(src, dst)
 

@@ -577,7 +577,8 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
                           tot_ener_targ: str, pairwise_targs: List[List[str]],
                           fit_fresh_ref_ener: bool, allowed_Zs: List[int], ref_params: Dict = None, 
                           dipole_conversion: bool = True, prediction_dipole_unit: str = "Debye",
-                          target_dipole_unit: str = "eA", exclusion_threshold: Union[int, float] = 20) -> None:
+                          target_dipole_unit: str = "eA", exclusion_threshold: Union[int, float] = 20,
+                          num_failed_molecules: int = 0) -> None:
     r"""Writes out a human-readable analysis report for all physical targets run
         and saves to a file.
     
@@ -613,6 +614,8 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
         exclusion_threshold (Union[int, float]): The number of standard deviations
             to use as a threshold when performing outlier exclusions for energy differences.
             Defaults to 20.
+        num_failed_molecules (int): The number of molecules that have failed the 
+            DFTB+ cycle either due to non-convergence or missing keys. Defaults to 0
         
     Returns:
         None
@@ -622,6 +625,8 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
             1) compute_results_torch (fresh ref ener tot ener loss)
             2) compute_results_torch_newrep (tot ener loss with trained reference parameters)
             3) compute_results_alt_targets (loss for charges and dipoles)
+        Only molecules that have passed the safety check defined in analyze.py is allowed
+        to continue
     """
     #Safety checks
     assert(prediction_dipole_unit in ['au', 'Debye'])
@@ -661,6 +666,7 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
         handle.write(f"\n")
         handle.write(f"\tNumber of data point excluded: {final_len - original_len}\n")
         handle.write(f"\tThreshold for exclusion: {exclusion_threshold} standard deviations\n")
+        handle.write(f"\tNumber of data points removed due to failures: {num_failed_molecules}")
         handle.write(f"\tFinal error in Hartrees: {scaled_err_Ha}\n")
         handle.write(f"\tFinal error in kcal/mol: {scaled_err_Kcal}\n")
         handle.write(f"\n")
