@@ -66,13 +66,25 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['training_settings']['target_accuracy_charges'] == 100)
     assert(d['training_settings']['target_accuracy_convex'] == 1000)
     assert(d['training_settings']['target_accuracy_monotonic'] == 1000)
-    assert(d['training_settings']['target_accuracy_smooth'] == 0.1)
+    assert(d['training_settings']['target_accuracy_smooth'] == 10)
     
     assert(d['tensor_settings']['tensor_device'] == 'cpu')
     assert(d['tensor_settings']['tensor_dtype'] == 'double')
-    assert(d['training_settings']['reference_energy_starting_point'] is not None) #Need to hand-check
+    assert(d['training_settings']['reference_energy_starting_point'] == [-2.30475824e-01, -3.63327215e+01, -5.23253002e+01, -7.18450781e+01,
+  1.27026973e-03]) #Need to hand-check
     
-    assert(d['model_settings']['low_end_correction_dict'] is not None) #Need to hand-check
+    assert(d['model_settings']['low_end_correction_dict'] == {
+    "1,1" : 0.500,
+    "6,6" : 1.04,
+    "1,6" : 0.602,
+    "7,7" : 0.986,
+    "6,7" : 0.948,
+    "1,7" : 0.573,
+    "1,8" : 0.599,
+    "6,8" : 1.005,
+    "7,8" : 0.933,
+    "8,8" : 1.062
+    }) #Need to hand-check
     assert(d['model_settings']['universal_high'] == 10.0)
     assert(d['model_settings']['spline_mode'] == 'non-joined')
     assert(d['model_settings']['spline_deg'] == 5)
