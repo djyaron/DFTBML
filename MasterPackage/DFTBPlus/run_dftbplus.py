@@ -742,7 +742,9 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
     else:
         coef, intercept, atype_ordering = ref_params['coef'], ref_params['intercept'], ref_params['atype_ordering']
         energy_result = compute_results_torch_newrep(dataset, tot_ener_targ, allowed_Zs, atype_ordering, coef, intercept, error_metric)
-    alternative_errs = compute_results_alt_targets(dataset, pairwise_targs, error_metric, dipole_conversion, prediction_dipole_unit, target_dipole_unit)
+    #Computing the alternative targets here is not good since it does remove outliers,
+    #   need to remove outliers and then compute all other elements
+    # alternative_errs = compute_results_alt_targets(dataset, pairwise_targs, error_metric, dipole_conversion, prediction_dipole_unit, target_dipole_unit)
     
     #Outlier exclusion for energy results
     diffs, err_Ha = energy_result
@@ -751,10 +753,14 @@ def calc_format_target_reports(exp_label: str, dest: str, dataset: List[Dict], e
         diffs = np.abs(diffs) #Absolute value for MAE
     elif error_metric == "RMS": 
         diffs = np.square(diffs) #Square of differences for RMS
-    pruned_diffs = sequential_outlier_exclusion(diffs, exclusion_threshold)
+    pruned_diffs, excluded_molecs = sequential_outlier_exclusion(diffs, dataset, exclusion_threshold)
     final_len = len(pruned_diffs)
+    assert(len(excluded_molecs) == original_len - final_len)
+    assert(len(dataset) == final_len)
     scaled_err_Ha = np.mean(pruned_diffs) if error_metric == "MAE" else np.sqrt(np.mean(pruned_diffs))
     scaled_err_Kcal = scaled_err_Ha * 627.5
+    #Compute the alternative errors down here after outliers have been corrected for
+    alternative_errs = compute_results_alt_targets(dataset, pairwise_targs, error_metric, dipole_conversion, prediction_dipole_unit, target_dipole_unit)
     
     #Write out the analysis.txt file
     full_file_path = os.path.join(os.getcwd(), dest, "analysis.txt")

@@ -72,7 +72,7 @@ def filter_dataset(dataset: List[Dict], name_conf_pairs: List[tuple], mode: str 
                 cleaned_dataset.append(molecule)
     return cleaned_dataset
 
-def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) -> Array:
+def sequential_outlier_exclusion(data: List, molecules: List[Dict], threshold: Union[int, float] = 20) -> Array:
     r"""Performs sequential outlier exclusion on the data using a threshold 
         value for standard deviations
     
@@ -80,9 +80,15 @@ def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) 
         data (List): The data to perform the outlier exclusion for
         threshold (Union[int, float]): The number of standard deviations to use
             for outlier exclusion. Defaults to 20 standard deviations.
+        molecules (List[Dict]): The molecules that data was derived from. Should 
+            be the case that len(data) == len(molecules), and this is 
+            explicitly checked for.
     
     Returns:
-        None
+        Array: The array of corrected data with all the outliers removed
+        excluded_molecs (List[Dict]): The list of molecule that were removed
+            from the overall molecule list due to being an outlier
+        
     
     Notes: The sequential outlier exclusion method is as follows:
         1) Compute the mean and standard deviation
@@ -93,9 +99,17 @@ def sequential_outlier_exclusion(data: List, threshold: Union[int, float] = 20) 
     """
     if not isinstance(data, list):
         data = list(data)
+    #Should have the same number of molecules as data points, 1 - 1 correspondence.
+    assert(len(data) == len(molecules))
+    
+    excluded_molecs = []
     
     while ((max(data) - mean(data)) / stdev(data)) >= threshold:
-        data.pop(data.index(max(data)))
+        #Pop the at the index of the offending data point for both the data and the molecules
+        #   (essentially excluding the molecules from the analysis)
+        pop_ind = data.index(max(data))
+        data.pop(pop_ind)
+        excluded_molecs.append(molecules.pop(pop_ind))
     
     print(f"Outlier exclusion finished with threshold of {threshold}")
-    return np.array(data)
+    return np.array(data), excluded_molecs
