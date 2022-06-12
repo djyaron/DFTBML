@@ -19,7 +19,7 @@ Analysis pipeline:
 """
 
 #%% Imports, definitions
-import os
+import os, pickle
 import shutil
 from subprocess import call
 import numpy as np
@@ -27,7 +27,7 @@ Array = np.ndarray
 from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out, parse_charges_dat,\
         compute_ESP_dipole, parse_dipole, parse_charges_output
 from .util import sequential_outlier_exclusion
-from FoldManager import get_ani1data
+from FoldManager import get_ani1data, count_nheavy
 from h5py import File
 from collections import Counter
 import scipy
@@ -424,7 +424,8 @@ def generate_linear_ref_mat(dataset: List[Dict], atypes: tuple) -> Array:
 #%% Energy analysis functions
 
 def compute_results_torch(dataset: List[Dict], target: str, allowed_Zs: List[int],
-                         error_metric: str = "RMS", compare_model_skf: bool = False) -> float:
+                         error_metric: str = "RMS", compare_model_skf: bool = False,
+                         per_heavy_atom: bool = False) -> float:
     r"""Computes the results for the new skf files in predicting energies
     
     Arguments:
@@ -437,8 +438,15 @@ def compute_results_torch(dataset: List[Dict], target: str, allowed_Zs: List[int
         compare_model_skf (bool): Whether comparing ani1 target against 
             DFTB+ prediction (False) or comparing DFTBLayer prediction
             against DFTB+ prediction, i.e. saved models vs skf (True)
+        per_heavy_atom (bool): Whether the errors should be calculated 
+            per heavy atom. Defaults to False, in which case total molecular
+            energy is considered.
     
     Returns:
+        diff (Array): The array of differences computed between the predicted 
+            energies and the target energies
+        error (float): The error calculated using the given metric, either MAE
+            or RMS
         
     Notes: The predicted energy from DFTB+ with the new skf files is stored 
         in the 'pzero' key. A linear reference energy term is fit between the 
@@ -452,6 +460,12 @@ def compute_results_torch(dataset: List[Dict], target: str, allowed_Zs: List[int
         true_target = np.array([molec['targets'][target] for molec in dataset])
     else:
         true_target = np.array([molec['predictions'][target] for molec in dataset])
+    #Perform the per heavy atom correction if necessary
+    if per_heavy_atom:
+        heavy_counts = np.array([count_nheavy(molec) for molec in dataset])
+        assert(heavy_counts.shape == true_target.shape == predicted_target.shape)
+        true_target = true_target / heavy_counts
+        predicted_target = predicted_target / heavy_counts
     diff = true_target - predicted_target
     if error_metric == "RMS":
         return diff, np.sqrt(np.mean(np.square(diff))) 
@@ -459,7 +473,8 @@ def compute_results_torch(dataset: List[Dict], target: str, allowed_Zs: List[int
         return diff, np.mean(np.abs(diff))
 
 def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: List[int], 
-                                 atypes: tuple, coefs: Array, intercept: float, error_metric: str = "MAE") -> float:
+                                 atypes: tuple, coefs: Array, intercept: float, error_metric: str = "MAE",
+                                 per_heavy_atom: bool = False) -> float:
     r"""Similar to compute_results_torch but with precomputed coefficients and intercepts
     
     Arguments:
@@ -472,6 +487,9 @@ def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: L
         coefs (Array): The reference energy coefficients
         intercept (Array): The reference energy intercept
         error_metric (str): "MAE" or "RMS"
+        per_heavy_atom (bool): Whether the errors should be calculated 
+            per heavy atom. Defaults to False, in which case total molecular
+            energy is considered.
     
     Returns:
         float: The error computed according to the method specified by error_metric
@@ -480,10 +498,94 @@ def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: L
     predicted_dt = np.array([molec['pzero']['t'] for molec in dataset])
     predicted_target = predicted_dt + (np.dot(XX, coefs) + intercept)
     true_target = np.array([molec['targets'][target] for molec in dataset])
+    #Perform the necessary per_heavy_atom_correction
+    if per_heavy_atom:
+        heavy_counts = np.array([count_nheavy(molec) for molec in dataset])
+        assert(heavy_counts.shape == predicted_target.shape == true_target.shape)
+        true_target = true_target / heavy_counts
+        predicted_target = predicted_target / heavy_counts
     if error_metric == "RMS":
         return true_target - predicted_target, np.sqrt(np.mean(np.square(true_target - predicted_target)))
     elif error_metric == "MAE":
         return true_target - predicted_target, np.mean(np.abs(true_target - predicted_target))
+
+def multi_per_atom_correction(direc_path: str, error_metric: str = "MAE") -> None:
+    r"""Performs the per heavy atom correction for the energy MAEs using 
+        intermediate results saved from the full DFTB+ analysis
+    
+    Arguments:
+        direc_path (str): The path to the properly formatted directory containing
+            the necessary experiments to analyze (SEE NOTES)
+        error_metric (str): Metric to use, one of MAE or RMS. Defaults to MAE.
+    
+    Returns:
+        None
+    
+    Notes: A properly formatted directory will contain the intermediate pickle
+        files for each experiment as well as the results directories which contain 
+        the reference energy parameters that are needed. For each experiment, there
+        should exist a pickle file named analysis_{exp_name}_RESULT.p and an
+        associated directory which is {exp_name}_RESULT. A check is implemented
+        to ensure that this is the case.
+    """
+    all_files = os.listdir(direc_path)
+    directories = list(filter(lambda x : os.path.isdir(os.path.join(direc_path, x)), all_files))
+    non_directories = [elem for elem in all_files if elem not in directories]
+    
+    assert(len(non_directories) + len(directories) == len(all_files))
+    #Exclude the pickle files from the reference sets if they are present
+    exclude = ['analysis_auorg-1-1.p', 'analysis_mio-0-1.p']
+    molecule_p_files = [file_name for file_name in non_directories if ('.p' in file_name) and (file_name not in exclude)]
+    
+    header = [['Experiment', 'Number outliers removed', 'MAE energy']]
+    
+    for molecule_file in molecule_p_files:
+        print(f"Performing correction for {molecule_file}")
+        full_molecule_path = os.path.join(direc_path, molecule_file)
+        results_direc_name = "_".join(molecule_file.split("_")[1:]).split(".")[0]
+        ref_params_path = os.path.join(direc_path, results_direc_name, 'ref_params.p')
+        molecule_set = pickle.load(open(full_molecule_path, 'rb'))
+        ref_params = pickle.load(open(ref_params_path, 'rb'))
+        coef, intercept, atype_ordering = ref_params['coef'], ref_params['intercept'], ref_params['atype_ordering']
+        diffs, error = compute_results_torch_newrep(molecule_set, "Etot", list(atype_ordering), 
+                                                    atype_ordering, coef, intercept, error_metric, per_heavy_atom = True)
+        original_len = len(diffs)
+        if error_metric == 'MAE':
+            diffs = np.abs(diffs)
+        elif error_metric == 'RMS':
+            diffs = np.square(diffs)
+        pruned_diffs = sequential_outlier_exclusion(diffs, 20) #20 is exclusion threshold number of stddevs
+        final_len = len(pruned_diffs)
+        combined_error = np.mean(pruned_diffs) if error_metric == "MAE" else np.sqrt(np.mean(pruned_diffs))
+        combined_err_kcal = combined_error * 627.5 #Convert to kcal/mol
+        header.append([molecule_file, final_len - original_len, combined_err_kcal])
+    
+    with open(os.path.join(direc_path, "per_atom_corrected.p"), "wb") as handle:
+        pickle.dump(header, handle)
+    
+    print(f"Finished per heavy atom correction for {direc_path}")
+
+def compute_targets_preds(dataset: List[Dict], target: str, atypes: tuple, coefs: Array, intercept: float):
+    r"""Returns the predicted energies after being corrected by the reference energy term
+    
+    Arguments:
+        dataset (list[Dict]): The list of molecule dictionaries that have had the
+            DFTB+ results added to them.
+        target (str): The energy target that is being aimed for
+        atypes (tuple): The ordering of the elements to be used for constructing 
+            the reference energy matrix
+        coefs (Array): The reference energy coefficients
+        intercept (Array): The reference energy intercept
+    
+    Returns: 
+        predicted_target (Array): The corrected predicted energies
+        true_target (Array): The true energies
+    """
+    XX = generate_linear_ref_mat(dataset, atypes)
+    predicted_dt = np.array([molec['pzero']['t'] for molec in dataset])
+    predicted_target = predicted_dt + (np.dot(XX, coefs) + intercept)
+    true_target = np.array([molec['targets'][target] for molec in dataset])
+    return predicted_target, true_target
 
 #%% Analysis for additional physical targets
 
