@@ -64,6 +64,8 @@ def single_fold_precompute(s, molecs: List[Dict], par_dict: Dict) -> (List[Dict]
             losses[loss] = s.target_accuracy_convex
         elif loss == 'monotonic':
             losses[loss] = s.target_accuracy_monotonic
+        elif loss == 'smooth':
+            losses[loss] = s.target_accuracy_smooth
         else:
             raise ValueError("Unsupported loss type")
             
