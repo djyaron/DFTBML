@@ -57,6 +57,45 @@ def read_skf_set(skf_dir: str) -> SKFSet:
     skfset = SKFSet.from_dir(skf_dir)
     return skfset
 
+def generate_plot_title(elem_pair: tuple, operator: str, int_name: str) -> str:
+    r"""Generates a more appropriate string for the plot based on the given
+        element pair, quantum operator, and integral name. Also takes advantage of the 
+        math typesetting of matplotlib.
+    
+    Arguments:
+        elem_pair (tuple): The element pair involved in the interaction
+        operator (str): The quantum operator, one of 'H' or 'S'
+        int_name (str): The form of the integral (SEE NOTES)
+        
+    Notes:
+        The int_name parameter contains a lot of information about the interaction.
+            Based on the documentation about the slater-koster file format, 
+            the intereaction consists of 4 letters in the following order:
+                [operator][element1 orbital][element2 orbital][sigma(0)/pi(1)]
+            This needs to be parsed out and handled appropriately.
+    """
+    inverted_nums = {v : k for k, v in nums.items()}
+    atom_1, atom_2 = elem_pair
+    atom_1, atom_2 = inverted_nums[atom_1], inverted_nums[atom_2]
+    assert(operator == int_name[0])
+    atom1_orb, atom2_orb = int_name[1], int_name[2]
+    interaction_type = r"\sigma" if int_name[3] == '0' else r"\pi"
+    if atom_1 != 'H':
+        atom1_orb = '{2' + atom1_orb + '}'
+    else:
+        atom1_orb = '{1' + atom1_orb + '}'
+    if atom_2 != 'H':
+        atom2_orb = '{2' + atom2_orb + '}'
+    else:
+        atom2_orb = '{1' + atom2_orb + '}'
+    if operator == 'H':
+        oper = r'\mathcal{H}'
+        title = fr"({atom_1}$_{atom1_orb}$|${oper}$|{atom_2}$_{atom2_orb}$)$_{interaction_type}$"
+        return title
+    elif operator == 'S':
+        title = fr"({atom_1}$_{atom1_orb}$|{atom_2}$_{atom2_orb}$)$_{interaction_type}$"
+        return title
+
 def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, label: str = None,
                  mode: str = 'scatter', xlow: Union[int, float] = None, 
                  xhigh: Union[int, float] = None) -> None:
@@ -108,7 +147,7 @@ def empty_int(int_series) -> bool:
     return int_series.max() == int_series.min() == 0
 
 def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
-                        x_major: int = 1, x_minor: float = 0.1) -> None:
+                        x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None) -> None:
     r"""Plots all the integrals of a single skf set
     
     Arguments:
@@ -121,24 +160,36 @@ def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
              for major tick marks)
         x_minor (float): the argument used for minor multiple locator (increments
              for minor tick marks)
+        range_dict (Dict): The dictionary for confining the plotting of a spline
+            to the physically relevant region
     
     Returns:
         None
     """
     all_ops = ['H', 'S'] #Hamiltonian and overlap operators
     for elem_pair in skf_set.keys():
+        elem_rev = tuple(reversed(elem_pair))
+        xlow, xhigh = None, None
+        if (range_dict is not None):
+            if elem_pair in range_dict:
+                xlow, xhigh = range_dict[elem_pair]
+            elif elem_rev in range_dict:
+                xlow, xhigh = range_dict[elem_rev]
         for op in all_ops:
             for int_name in getattr(skf_set[elem_pair], op).keys():
                 if (not empty_int(getattr(skf_set[elem_pair], op)[int_name]) ):
                     fig, axs = plt.subplots()
-                    title = f"{elem_pair}, {op}, {int_name}"
+                    raw_title = f"{elem_pair}, {op}, {int_name}"
+                    print(f"Plotting {raw_title}")
+                    #Use new title generating function
+                    title = generate_plot_title(elem_pair, op, int_name)
                     axs.set_title(title)
-                    axs.set_xlabel("Angstroms")
+                    axs.set_xlabel(r"Angstroms ($\AA$)")
                     if op == 'H':
-                        axs.set_ylabel("Hartrees")
+                        axs.set_ylabel(r"Hartrees (Ha)")
                     elif op == 'S':
                         axs.set_ylabel("A.U.")
-                    plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode)
+                    plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode, xlow = xlow, xhigh = xhigh)
                     #In plotting these graphs, the distance along the x-axis is
                     #   going to be important for figuring out spline
                     #   differences. y-axis vlaues
@@ -146,7 +197,8 @@ def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
                     axs.xaxis.set_major_locator(MultipleLocator(x_major))
                     axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
                     if (dest is not None):
-                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                        #Save at a higher resolution
+                        fig.savefig(os.path.join(dest, f"{raw_title}_skf.png"), dpi = 1000)
                     plt.show()
 
 def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
@@ -647,6 +699,7 @@ def compare_differences(skset_1_name: str, skset_2_name: str, dest: str,
     print("Plots generated")
     pass
 
+#This function needs some reworking to be more versatile
 def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float] = 1,
                         x_minor: Union[int, float] = 0.1) -> None:
     r"""Plots just the distance distribution for a specific dataset of molecules
@@ -665,14 +718,15 @@ def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float]
         None
     """
     all_files = os.listdir(dset_dir)
-    pattern = r"Fold[0-9]+_molecs.p"
-    pattern2 = r"test_set.p" #Include the test_set.p in the distribution
-    fold_file_names = list(filter(lambda x : re.match(pattern, x) or re.match(pattern2, x), all_files))
+    pattern = r"Fold0_molecs.p" #For debugging purposes, just want to look at the training set
+    # pattern2 = r"test_set.p" #Include the test_set.p in the distribution
+    fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
     mols_2D = [pickle.load(open(os.path.join(dset_dir, name), 'rb')) for name in fold_file_names]
     if len(mols_2D) > 1:
         all_mols = list(reduce(lambda x, y : x + y, mols_2D))
     else:
         all_mols = mols_2D[0]
+        assert(len(all_mols) == 2500)
     
     d_distr = get_dist_distribution(all_mols)
     
