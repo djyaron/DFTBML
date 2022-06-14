@@ -293,7 +293,10 @@ class ModelPenalty:
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv, dtype = c.dtype, device = c.device), torch.tensor(consts, dtype = c.dtype, device = c.device)
         pred_third_der = torch.matmul(deriv, c) + consts
-        L2_norm = torch.sqrt(torch.sum(torch.square(pred_third_der)))
+        # L2_norm = torch.sqrt(torch.sum(torch.square(pred_third_der)))
+        #Make this definition more consistent with other penalties
+        L2_norm = torch.matmul(pred_third_der, pred_third_der) / pred_third_der.shape[0]
+        L2_norm = torch.sqrt(L2_norm)
         return L2_norm
             
     
