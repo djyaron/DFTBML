@@ -129,7 +129,7 @@ def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, lab
     if mode == 'scatter':
         axs.scatter(rgrid, curr_data, label = label)
     elif mode == 'plot':
-        axs.plot(rgrid, curr_data, label = label)
+        axs.plot(rgrid, curr_data, label = label, linewidth = 0.5) #Manually toggle this parameter
 
 def empty_int(int_series) -> bool:
     r"""Tests if an integral is zero or not
@@ -302,11 +302,12 @@ def plot_multi_overlay_skf_sets(set_names: List[str], set_labels: List[str], des
                 if set(int_tst_result) == {False}: #All series have to be false to proceed
                     #Do drawing logic here.
                     fig, axs = plt.subplots()
-                    title = f"{elem_pair}, {op}, {int_name}"
+                    raw_title = f"{elem_pair}, {op}, {int_name}"
+                    title = generate_plot_title(elem_pair, op, int_name)
                     axs.set_title(title)
-                    axs.set_xlabel("Angstroms")
+                    axs.set_xlabel("Angstroms ($\AA$)")
                     if op == 'H':
-                        axs.set_ylabel("Hartrees")
+                        axs.set_ylabel("Hartrees (Ha)")
                     elif op == 'S':
                         axs.set_ylabel("A.U.")
                     for i, skset in enumerate(all_sets):
@@ -316,7 +317,7 @@ def plot_multi_overlay_skf_sets(set_names: List[str], set_labels: List[str], des
                     axs.xaxis.set_major_locator(MultipleLocator(x_major))
                     axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
                     if (dest is not None):
-                        fig.savefig(os.path.join(dest, f"{title}_skf.png"))
+                        fig.savefig(os.path.join(dest, f"{raw_title}_skf.png"), dpi = 1000)
                     plt.show()
                     
 def correct_elem_key(key: str) -> tuple:
