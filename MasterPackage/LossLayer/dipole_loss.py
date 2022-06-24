@@ -72,11 +72,12 @@ class DipoleLoss(LossModel):
                 #Also need to pull the dipoles from the molecules for comparison
                 #Trick is going to be here
                 for bsize, glabels in feed['glabels'].items():
-                    curr_molec_rs = [molecs[x]['coordinates'].T for x in glabels]
-                    curr_molec_charges = [molecs[x]['targets']['charges'] for x in glabels]
-                    assert(len(curr_molec_rs) == len(curr_molec_charges))
-                    indices = [i for i in range(len(curr_molec_rs))]
-                    results = list(map(lambda x : np.matmul(curr_molec_rs[x], curr_molec_charges[x]), indices))
+                    # curr_molec_rs = [molecs[x]['coordinates'].T for x in glabels]
+                    # curr_molec_charges = [molecs[x]['targets']['charges'] for x in glabels]
+                    # assert(len(curr_molec_rs) == len(curr_molec_charges))
+                    # indices = [i for i in range(len(curr_molec_rs))]
+                    # results = list(map(lambda x : np.matmul(curr_molec_rs[x], curr_molec_charges[x]), indices))
+                    results = [molecs[x]['targets']['dipole'] for x in glabels]
                     real_dipvecs[bsize] = np.array(results)
                 feed['dipole_mat'] = dipole_mats
                 feed['dipoles'] = real_dipvecs
