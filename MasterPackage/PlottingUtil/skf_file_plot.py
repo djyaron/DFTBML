@@ -23,19 +23,22 @@ from MasterConstants import ANGSTROM2BOHR, Model
 import matplotlib.pyplot as plt
 from typing import Dict, List, Union
 from Spline import get_dftb_vals
-import numpy as np
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from .util import get_dist_distribution
 import numpy as np
+Array = np.ndarray
 from .pardict_gen import generate_pardict
 from functools import reduce
 import re
+from SKF import SkfInfo
 
 nums = { #Switch this out with MasterConstants later
         'H' : 1,
         'C' : 6,
         'N' : 7,
-        'O' : 8
+        'O' : 8,
+        'Au' : 79,
+        'S': 16
         }
 
 
@@ -56,6 +59,24 @@ def read_skf_set(skf_dir: str) -> SKFSet:
     """
     skfset = SKFSet.from_dir(skf_dir)
     return skfset
+
+def visualize_xknot_locations(axs, xknots) -> None:
+    r"""Takes in a sequence of knots and an axes object and plots the location
+        of the knots on top of the spline plot.
+    
+    Arguments:
+        axes (Axes): Axes object of matplotlib that the spline is being plotted on
+        xknots (Array): Sequence of knot locations
+    
+    Returns:
+        None
+    
+    Notes:
+        Knots are visualized as vertical lines at the corresponding location for 
+        each knot.
+    """
+    for location in xknots:
+        axs.axvline(location, linewidth = 0.25)
 
 def generate_plot_title(elem_pair: tuple, operator: str, int_name: str) -> str:
     r"""Generates a more appropriate string for the plot based on the given
@@ -147,7 +168,8 @@ def empty_int(int_series) -> bool:
     return int_series.max() == int_series.min() == 0
 
 def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
-                        x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None) -> None:
+                        x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None,
+                        xknots: Array = None) -> None:
     r"""Plots all the integrals of a single skf set
     
     Arguments:
@@ -162,6 +184,8 @@ def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
              for minor tick marks)
         range_dict (Dict): The dictionary for confining the plotting of a spline
             to the physically relevant region
+        xknots (Dict): Dictionary mapping the model specification to the 
+            xknots series that is needed.
     
     Returns:
         None
@@ -190,6 +214,8 @@ def plot_single_skf_set(skf_set: SKFSet, dest: str, mode: str,
                     elif op == 'S':
                         axs.set_ylabel("A.U.")
                     plot_skf_int(elem_pair, op, int_name, skf_set, axs, mode = mode, xlow = xlow, xhigh = xhigh)
+                    if xknots is not None:
+                        visualize_xknot_locations(axs, xknots)
                     #In plotting these graphs, the distance along the x-axis is
                     #   going to be important for figuring out spline
                     #   differences. y-axis vlaues
@@ -324,7 +350,50 @@ def correct_elem_key(key: str) -> tuple:
     elem_1, elem_2 = key.split("-")
     elem_1, elem_2 = nums[elem_1], nums[elem_2]
     return (int(elem_1), int(elem_2))
-                    
+
+def generate_inhouse_par_dict(param_path: str) -> Dict:
+    r"""Generates a par_dict object from a set of trained SKF files
+    
+    Arguments:
+        param_path (str): The path to the directory containing the trained 
+            skf files.
+    
+    Returns:
+        par_dict (Dict): The parameter dictionary generated from the given skf set
+    
+    Notes:
+        The in-house SKF files are all going to be ['C', 'H', 'N', 'O'] exclusive. 
+        This is guaranteed. Going to also use the SkfInfo class.
+    """
+    elements = ['H', 'C', 'N', 'O']
+    par_dict = {el1 + '-' + el2: SkfInfo(el1 + '-' + el2, paramPath = param_path)
+               for el1 in elements for el2 in elements}
+    # Spin constants (parameter W, doublju)
+    # H:
+    #      -0.07174
+    par_dict['H-H'].SetAtomProp('Wss', -0.07174)
+    # C:
+    #      -0.03062     -0.02505
+    #      -0.02505     -0.02265
+    par_dict['C-C'].SetAtomProp('Wss', -0.03062)
+    par_dict['C-C'].SetAtomProp('Wsp', -0.02505)
+    par_dict['C-C'].SetAtomProp('Wpp', -0.02265)
+    # N:
+    #      -0.03318     -0.02755
+    #      -0.02755     -0.02545
+    par_dict['N-N'].SetAtomProp('Wss', -0.03318)
+    par_dict['N-N'].SetAtomProp('Wsp', -0.02755)
+    par_dict['N-N'].SetAtomProp('Wpp', -0.02545)
+    # O:
+    #      -0.03524     -0.02956
+    #      -0.02956     -0.02785
+    par_dict['O-O'].SetAtomProp('Wss', -0.03524)
+    par_dict['O-O'].SetAtomProp('Wsp', -0.02956)
+    par_dict['O-O'].SetAtomProp('Wpp', -0.02785)
+    return par_dict
+
+
+
 def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict, 
                            data_1_label: str, data_2_label: str, dest: str,
                            x_major: int = 1, x_minor: float = 0.1) -> None:
