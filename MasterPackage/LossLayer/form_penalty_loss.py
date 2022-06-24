@@ -106,12 +106,13 @@ class FormPenaltyLoss(LossModel):
                     #UNCOMMENT THIS LATER!!!
                     rlow, rhigh = current_model.pairwise_linear_model.r_range()
                     # rlow, rhigh = 0, 10.0
-                    # xgrid = np.linspace(rlow, rhigh, self.density)
+                    xgrid = np.linspace(rlow, rhigh, self.density)
                     #Enforce that the second derivative has the right sign 
                     #   at the knots only
-                    xgrid = current_model.pairwise_linear_model.xknots
+                    # xgrid = current_model.pairwise_linear_model.xknots
                     #We only need the first and second derivative for the dgrids
                     #Including the constants, especially important for the joined splines!
+                    print(f"xgrid: {rlow}, {rhigh}, {len(xgrid)}")
                     dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1), #monotonic
                               current_model.pairwise_linear_model.linear_model(xgrid, 2), #convex
                               current_model.pairwise_linear_model.linear_model(xgrid, 3)] #smooth
