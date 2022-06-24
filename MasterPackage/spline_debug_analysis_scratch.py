@@ -19,22 +19,22 @@ Created on Tue Jul 20 19:28:33 2021
 
 #%% Plotting out splines over distance distributions 
 
-import pickle, os
-from PlottingUtil import plot_skf_dist_overlay, read_skf_set
-from DFTBrepulsive import SKFSet
+# import pickle, os
+# from PlottingUtil import plot_skf_dist_overlay, read_skf_set
+# from DFTBrepulsive import SKFSet
 
-mols0 = pickle.load(open("comparison_dset_2/Fold0_molecs.p", "rb"))
-mols1 = pickle.load(open("comparison_dset_2/Fold1_molecs.p","rb"))
-dset = mols0 + mols1
+# mols0 = pickle.load(open("comparison_dset_2/Fold0_molecs.p", "rb"))
+# mols1 = pickle.load(open("comparison_dset_2/Fold1_molecs.p","rb"))
+# dset = mols0 + mols1
 
-skf_path = "comparison_dset_2_result"
-dest = skf_path + "/skf_plots"
-if (not os.path.isdir(dest)):
-    os.mkdir(dest)
+# skf_path = "comparison_dset_2_result"
+# dest = skf_path + "/skf_plots"
+# if (not os.path.isdir(dest)):
+#     os.mkdir(dest)
 
-skfset = read_skf_set(skf_path)
+# skfset = read_skf_set(skf_path)
 
-plot_skf_dist_overlay(skfset, dest = None, mode = 'plot', dset = dset)
+# plot_skf_dist_overlay(skfset, dest = None, mode = 'plot', dset = dset)
 
 ##############################################################################
 
@@ -1039,8 +1039,8 @@ from PlottingUtil import read_skf_set, plot_overlay_skf_sets, compare_difference
 import os
 import pickle
 
-# skset1 = read_skf_set(os.path.join(os.getcwd(), "comparison_dset_1_identical_run_2")) #Vanishing boundary conditions
-# skset2 = read_skf_set(os.path.join(os.getcwd(), "Experiments_and_graphs", "comparison_dset_2_result"))
+skset1 = os.path.join(os.getcwd(), "comparison_dset_1_last_only_bcond_result") #Vanishing boundary conditions
+skset2 = os.path.join(os.getcwd(), "comparison_dset_2_last_only_bcond_result")
 
 range_dict = {
     "1,1" : 0.500,
@@ -1061,9 +1061,7 @@ range_dict = {(int(k[0]), int(k[2])) : (v, universal_ceil) for k, v in range_dic
 
 print(range_dict)
 
-dest = os.path.join(os.getcwd(), "comparison_dset_1_identical_run_2/auorg_mio_comp")
-if not os.path.exists(dest):
-    os.mkdir(dest)
+dest = None
 
 # plot_overlay_skf_sets(skset1, skset2, 'cdr1', 'cdr2', None, 'plot', range_dict = range_dict)
 # compare_differences(os.path.join(os.getcwd(), "comparison_dset_1_identical_run_1"),
@@ -1073,9 +1071,12 @@ if not os.path.exists(dest):
 # assert(len(dset) == 2210 + 553)
 # plot_skf_dist_overlay(skset1, dest, 'plot', dset, range_dict = range_dict)
 
-names = ["comparison_dset_1_identical_run_2", "Auorg_1_1/auorg-1-1", "MIO_0_1/mio-0-1"]
-labels = ["DFTBML", "Auorg", "MIO"]
-plot_multi_overlay_skf_sets(names, labels, dest, 'plot', range_dict = range_dict)
+# names = ["comparison_dset_1_identical_run_2", "Auorg_1_1/auorg-1-1", "MIO_0_1/mio-0-1"]
+# labels = ["DFTBML", "Auorg", "MIO"]
+# plot_multi_overlay_skf_sets(names, labels, dest, 'plot', range_dict = range_dict)
+
+compare_differences(skset1, skset2, None,
+                        "plot", units = "kcal", range_dict = range_dict)
 
 #%% Generating transfer_dataset that is train on < 4/6 heavy atoms, validate + test on heavy
 
@@ -1313,32 +1314,394 @@ with open("DFT_dset/Fold1_molecs.p", "wb") as handle:
 print("Data saved to DFT_dset")
 
 
+#%% Looking at the third derivative of fifth order splines
+
+from Spline import get_dftb_vals, spline_linear_model
+from MasterConstants import *
+import numpy as np
+import matplotlib.pyplot as plt
+from Auorg_1_1 import ParDict
+
+par_dict = ParDict()
+
+tst_model = Model(oper = "H", Zs = (6,6), orb = "ss")
+ngrid = 15
+rlow, rhigh = 1.04, 4.5
+rgrid = np.linspace(rlow, rhigh, ngrid)
+ygrid = get_dftb_vals(tst_model, par_dict, rgrid)
+bconds = [Bcond(0, 2, 0.0), Bcond(-1, 2, 0.0)]
+spline_dict = spline_linear_model(rgrid, None, (rgrid, ygrid), bconds, max_der=4, deg=5)
+
+#Double-check that the predicted values agree with the interpolated values
+interpolated_values = np.dot(spline_dict['X'][0], spline_dict['coefs']) + spline_dict['const'][0]
+diffs = ygrid - interpolated_values
+error = np.mean(np.abs(diffs))
+print(f"Initial interpolation error with spline degree 5 is: {error}")
+
+#Now try to analyze the derivatives
+interp_second_der = np.dot(spline_dict['X'][2], spline_dict['coefs']) + spline_dict['const'][2]
+interp_third_der = np.dot(spline_dict['X'][3], spline_dict['coefs']) + spline_dict['const'][3]
 
 
+#Emulate the process that a spline model goes through to generate predictions and see what happens
+
+# spline_dict = spline_linear_model(xknots, xeval, xyfit, bconds, max_der=2, deg=3)
+
+# spline_linear_model(rgrid, None, (rgrid, ygrid), bcond)
+
+#%% Reduced framework for analyzing the movement of splines through the code
+
+from Spline import get_dftb_vals, spline_linear_model, SplineModel
+from MasterConstants import *
+import numpy as np
+import matplotlib.pyplot as plt
+from Auorg_1_1 import ParDict
+import pickle
+from InputLayer import Input_layer_pairwise_linear
+import torch
+
+def chebyshev_nodes(a, b, n):
+    r"""
+    Creates a knot sequence following the Chebyshev node sequence on the interval
+    [a, b]. Equation is taken from https://en.wikipedia.org/wiki/Chebyshev_nodes
+    """
+    nodes = []
+    operands = [
+        (((2 * k) - 1) * np.pi) / (2 * n)\
+            for k in range(1, n + 1)
+        ]
+    second_terms = (0.5 * (b - a)) * np.cos(operands)
+    cheby_nodes = (0.5 * (a + b)) + second_terms
+    assert(len(cheby_nodes) == n)
+    #reverse the cheby_nodes so that the order goes from smallest to largest
+    cheby_nodes = np.flip(cheby_nodes)
+    #Check that nodes are sorted from low to high
+    assert(np.all(np.diff(cheby_nodes) >= 0) )
+    return cheby_nodes
 
 
+#Use some actual results to verify proper spline model construction
+saved_mod_path = "cat_results/results/master_dset_expanded_cc_first_half_result/Split0/saved_models.p"
+mods = pickle.load(open(saved_mod_path, 'rb'))
 
+tst_model_spec = Model(oper = "H", Zs = (6,6), orb = "ss")
+num_knots = 100
+target_upper_bound = 4.5
+target_knots = 100
+rlow, rhigh = (1.04, 4.5)
+xknots = np.linspace(rlow, rhigh, num_knots)
+remaining_diff = target_upper_bound - xknots[-1]
+starting_val = xknots[-1]
+knot_spacing = remaining_diff / (target_knots - num_knots)
+remaining_knots = []
+for i in range(target_knots - num_knots):
+    remaining_knots.append(starting_val + ((i + 1) * knot_spacing))
 
+# xknots = np.append(xknots, remaining_knots)
 
+xknots = np.linspace(rlow, rhigh, num_knots)
 
-        
+# TODO: end knot spacings should be played around with (uniform spacing between all knots does not work)
 
+par_dict = ParDict()
+device = 'cpu'
+dtype = torch.double
+tst_bconds = [Bcond(-1, 0, 0), Bcond(-1, 1, 0), Bcond(-1, 2, 0), Bcond(-1, 3, 0),
+              Bcond(-1, 4, 0)]
+tst_bconds_2 = [Bcond(0, 2, 0), Bcond(-1, 2, 0), 
+                Bcond(0, 3, 0), Bcond(-1, 3, 0),
+                Bcond(0, 4, 0), Bcond(-1, 4, 0)]
+tst_bconds_3 = [Bcond(-1, 0, 0), Bcond(-1, 1, 0), Bcond(-1, 2, 0)]
+tst_bcond_5 = [Bcond(-1, 1, 0)]
+#Assert that the knot construction is correct
+# assert(np.allclose(mods[tst_model_spec].pairwise_linear_model.xknots, xknots))
+# assert(xknots[-1] == mods[tst_model_spec].pairwise_linear_model.xknots[-1])
+# assert(xknots[0] == mods[tst_model_spec].pairwise_linear_model.xknots[0])
+#Check the boundary condition is correct for the trained model for comparison purposes
+# assert(mods[tst_model_spec].pairwise_linear_model.bconds == [Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0)])
 
+config = {
+    'xknots' : xknots,
+    'equal_knots' : False, #Do not assert equal knot distributions (only for joined splines I think)
+    'cutoff' : xknots[-1],
+    'bconds' : 'last_only',
+    'deg' : 5, #fourth degree splines
+    'max_der' : 4 #asking for the third derivative max
+    }
 
+spline = SplineModel(config)
+model = Input_layer_pairwise_linear(tst_model_spec, spline, par_dict, config['cutoff'], device, dtype,
+                                    )
 
+#Imagine getting the first, second, and third derivative values
+xgrid = model.pairwise_linear_model.xknots
+# assert(np.allclose(xgrid, xknots))
+zero_der = model.pairwise_linear_model.linear_model(xgrid, 0) #len spline_dict['X'] = 5 here
+first_der = model.pairwise_linear_model.linear_model(xgrid, 1) #len spline_dict['X'] = 1 here
+second_der = model.pairwise_linear_model.linear_model(xgrid, 2) #len spline_dict['X'] = 2 here
+third_der = model.pairwise_linear_model.linear_model(xgrid, 3) #len spline_dict['X'] - 3 here
+# fourth_der = model.pairwise_linear_model.linear_model(xgrid, 4)
+#len_spline_dict['X'] = 4 here
 
+#Assert lengths/assumptions about how linear_model works
+assert(len(first_der) == 2)
+assert(len(second_der) == 2)
+assert(len(third_der) == 2)
 
+#At this point, we can start looking at the evaluation of the derivatives. In the code, this is done
+#   through the ModelPenalty class method
+m = torch.nn.ReLU() #use the ReLU activation to filter out positive/negative values
+c = model.get_variables().detach().numpy()
+der2_A, der2_b = second_der[0], second_der[1]
+pred_second_der = np.dot(der2_A, c) + der2_b
 
+der3_A, der3_b = third_der[0], third_der[1]
+pred_third_der = np.dot(der3_A, c) + der3_b
 
+der0_A, der0_b = zero_der[0], zero_der[1]
+pred_zero_der = np.dot(der0_A, c) + der0_b
 
+pred_first_der = np.dot(first_der[0], c) + first_der[1]
 
+# pred_fourth_der = np.dot(fourth_der[0], c) + fourth_der[1]
 
+for elem in [ pred_second_der, pred_third_der, pred_zero_der, pred_first_der]: #2, 3, 0, 1
+    fig, axs = plt.subplots()
+    axs.scatter(xgrid, elem)
+    # for val in xknots:
+    #     axs.axvline(x = val)
+    axs.set_title("Using boundary condition last only")
+    plt.show()
 
+# with open("tmp_result_fifth_order.p", "wb") as handle:
+#     pickle.dump(pred_second_der, handle)
 
+# Comparing 2nd derivative predictions for fifth order versus third order
+# with open("tmp_result_fifth_order.p", "rb") as handle:
+#     fifth_order_2nd_der = pickle.load(handle)
+    
+#     fig, axs = plt.subplots()
+#     axs.plot(pred_second_der, label = "Third order")
+#     axs.plot(fifth_order_2nd_der, label = "Fifth order")
+#     axs.legend()
 
+#%% Comparing the second derivative of a trained model against the initial model (should be used in tandem with previous cell)
+trained_model = mods[tst_model_spec]
+#Set xgrid to xknots, as is done in the form penalty
+xgrid = trained_model.pairwise_linear_model.xknots
+trained_second_der = trained_model.pairwise_linear_model.linear_model(xgrid, 2)
+trained_zero_der = trained_model.pairwise_linear_model.linear_model(xgrid, 0)
+trained_first_der = trained_model.pairwise_linear_model.linear_model(xgrid, 1)
+tder2_A, tder2_b = trained_second_der[0], trained_second_der[1]
+tder0_A, tder0_b = trained_zero_der[0], trained_zero_der[1]
+tder1_A, tder1_b = trained_first_der[0], trained_first_der[1]
+c = trained_model.get_variables().detach().numpy()
+trained_pred_der2 = np.dot(tder2_A, c) + tder2_b
+trained_pred_der0 = np.dot(tder0_A, c) + tder0_b
+trained_pred_der1 = np.dot(tder1_A, c) + tder1_b
+#Try overlaying the second derivative and the zero derivative
+fig, axs = plt.subplots()
+axs.plot(xgrid, trained_pred_der0)
+axs2 = axs.twinx()
+axs2.plot(xgrid, trained_pred_der2)
+axs.legend()
+plt.show()
 
+#%% Testing out third derivative penalty without spacing end knots 
 
+'''
+It might be the case that we have to space the end knots as a numerical stability
+measure. However, let's see if things work without it
+'''
+import pickle
+from MasterConstants import Model
+import numpy as np
+import matplotlib.pyplot as plt
+import math
 
+result_saved_mod = "cat_results/base_dset_wt_no_inflect_RESULT/Split0/saved_models.p"
+mods = pickle.load(open(result_saved_mod, 'rb'))
+splines = [mod_spec for mod_spec in mods if (isinstance(mod_spec, Model)) and (len(mod_spec.Zs) == 2) and (mod_spec.oper in ["H", "S"])]
+tst_model_spec = Model(oper='S', Zs=(6,6), orb='pp_sigma')
+#These splines should be fifth order
+trained_mod = mods[tst_model_spec]
+# assert(trained_mod.pairwise_linear_model.deg == 5)
+xgrid = np.linspace(1.04, 4.5, 500)
+#print xgrid to ensure that all the knots are evenly spaced (should be the case)
+print(xgrid)
+# xgrid = np.linspace(trained_mod.pairwise_linear_model.xknots[0], trained_mod.pairwise_linear_model.xknots[-1], 10_000)
+
+zero_der = trained_mod.pairwise_linear_model.linear_model(xgrid, 0) #len spline_dict['X'] = 5 here
+first_der = trained_mod.pairwise_linear_model.linear_model(xgrid, 1) #len spline_dict['X'] = 1 here
+second_der = trained_mod.pairwise_linear_model.linear_model(xgrid, 2) #len spline_dict['X'] = 2 here
+third_der = trained_mod.pairwise_linear_model.linear_model(xgrid, 3) #len spline_dict['X'] - 3 here
+
+assert(len(first_der) == 2)
+assert(len(second_der) == 2)
+assert(len(third_der) == 2)
+
+c = trained_mod.get_variables().detach().numpy()
+
+resulting_vals = []
+
+inflect_val = trained_mod.get_inflection_pt()
+rlow, rhigh = trained_mod.pairwise_linear_model.r_range()
+first_term = (rhigh - rlow) / 2
+const = math.pi / 2
+second_term = (math.atan(inflect_val) / const) + 1
+position = rlow + (first_term * second_term)
+
+for pair in [(0, zero_der), (1, first_der), (2, second_der), (3, third_der)]:
+    print(f"Evaluating {pair[0]}")
+    derA, derb = pair[1]
+    pred_der = np.dot(derA, c) + derb
+    resulting_vals.append((pair[0], pred_der))
+    fig, axs = plt.subplots()
+    axs.plot(xgrid, pred_der)
+    axs.axvline(position)
+    axs.set_title(f"Predictions of derivative {pair[0]}")
+    plt.show()
+
+# fig, axs = plt.subplots()
+# axs.plot(xgrid, resulting_vals[-1][1], label = 'third deriv')
+# axs2 = axs.twinx()
+# axs2.plot(xgrid, resulting_vals[-2][1], label = 'second_deriv')
+# axs.legend()
+# plt.show()
+
+#%% Inflection point analysis
+'''
+Experimenting with the effect of the grid density on the inflection point
+position.
+
+Theoretically, if the inflection point gets caught between two knots, then
+the convex penalty is not affected and the result is that the inflection 
+point does not move.
+
+Here will take a look at the evolution of the inflection point penalty on the 
+(C|C) pp_sigma model as a function of the xgrid used to evaluate the penalties.
+Using the experiments from EXP_SET_5. The inflection point was initialized, 
+for this set of experiments, at 1/10 the range. The xgrid for evaluation was 
+over just the knots
+'''
+import pickle
+from MasterConstants import *
+import math
+import os
+import numpy as np
+
+def solve_for_inflect_var(rlow: float, rhigh: float, r_target: float) -> float:
+    r"""Solves the inflection point equation for the variable x
+    
+    Arguments:
+        rlow (float): lower bound of distance range
+        rhigh (float): upper bound of distance range
+        r_target (float): The target starting guess for the inflection point
+    
+    Returns:
+        x_val (float): The value of the variable for computing the inflection point
+    
+    Notes: This function solves the following equation for x:
+        r_target = rlow + ((rhigh - rlow) / 2) * ((atan(x)/pi/2) + 1)
+    """
+    first_term = r_target - rlow
+    second_term = 2 / (rhigh - rlow)
+    pi_const = math.pi / 2
+    operand = ((first_term * second_term) - 1) * pi_const
+    x_val = math.tan(operand)
+    return x_val
+
+def compute_inflection_point(rlow, rhigh, x_val):
+    first_term = (rhigh - rlow) / 2
+    const = math.pi / 2
+    second_term = (math.atan(x_val) / const) + 1
+    return rlow + (first_term * second_term)
+
+#Ensure that the calculations are correct and that the two operations and 
+#   interchangeable
+rlow, rhigh = 1.04, 4.5 #for all C-C interactions
+target = rlow + ((rhigh - rlow) / 10)
+x_val_1 = solve_for_inflect_var(rlow, rhigh, target)
+calculated_target = compute_inflection_point(rlow, rhigh, x_val_1)
+assert(abs(calculated_target - target) < 1E-12)
+
+target = rlow + ((rhigh - rlow) / 5)
+x_val_1 = solve_for_inflect_var(rlow, rhigh, target)
+calculated_target = compute_inflection_point(rlow, rhigh, x_val_1)
+assert(abs(calculated_target - target) < 1E-12)
+
+tst_spec = Model("S", (6,6), 'pp_sigma')
+
+all_files = os.listdir("POSTPROCESSING_SCRATCH/KNOT_EXPERIMENTS_SET_5/")
+result_directories = list(filter(lambda x : os.path.isdir(f"POSTPROCESSING_SCRATCH/KNOT_EXPERIMENTS_SET_5/{x}"), all_files))
+print("Using the following results")
+print(result_directories)
+
+cc_directories = [elem for elem in result_directories if ('wt' not in elem) and ('cc' not in elem)]
+
+model_dictionaries = []
+for directory in cc_directories:
+    print(f"Loading  POSTPROCESSING_SCRATCH/KNOT_EXPERIMENTS_SET_5/{directory}/Split0/saved_models.p")
+    model_dict = pickle.load(open(f"POSTPROCESSING_SCRATCH/KNOT_EXPERIMENTS_SET_5/{directory}/Split0/saved_models.p", 'rb'))
+    model_dictionaries.append(model_dict)
+
+assert(len(model_dictionaries) == len(cc_directories))
+
+tst_mods = [d[tst_spec] for d in model_dictionaries]
+knot_numbers = [int(elem.split("_")[2]) for elem in cc_directories]
+inflect_values = [mod.get_inflection_pt().detach()[0].item() for mod in tst_mods]
+inflect_locations = [compute_inflection_point(1.04, 4.5, x) for x in inflect_values]
+target = 1.04 + ((4.5 - 1.04) / 10)
+differences = [abs(elem - target) for elem in inflect_locations]
+import matplotlib.pyplot as plt
+plt.scatter(knot_numbers, differences)
+plt.show()
+
+#Do some knot analysis
+start_val = 1.04 + ((4.5 - 1.04) / 10)
+for num_knots, final_x in zip(knot_numbers, inflect_locations):
+    xgrid = np.linspace(rlow, rhigh, num_knots)
+    fig, axs = plt.subplots()
+    for xknot in xgrid:
+        axs.axvline(xknot, color = 'blue')
+    axs.axvline(start_val, color = 'red', linestyle = '-.')
+    axs.axvline(final_x, color = 'green', linestyle = '-.')
+    axs.set_title(f"For {num_knots} knots")
+    plt.show()
+
+#Do the 500 grid
+mod_dict = pickle.load(open("cat_results/dense_grid_for_penalties/results/base_dset_RESULT/Split0/saved_models.p", 'rb'))
+tst_mod_500 = mod_dict[tst_spec]
+inflect_var = tst_mod_500.get_inflection_pt().detach()[0].item()
+x_val_500 = compute_inflection_point(1.04, 4.5, inflect_var)
+start_val = 1.04 + ((4.5 - 1.04) / 5)
+xgrid_500 = np.linspace(1.04, 4.5, 500)
+fig, axs = plt.subplots()
+for elem in xgrid_500:
+    axs.axvline(elem, color = 'blue', linewidth = 0.5)
+knots = tst_mod_500.pairwise_linear_model.xknots
+for k in knots:
+    axs.axvline(k, color = 'brown', linewidth = 0.75)
+axs.set_title("For 500 grid points")
+axs.axvline(start_val, color = 'red', linewidth = 0.75, linestyle = '-.')
+axs.axvline(x_val_500, color = 'green', linewidth = 0.75, linestyle = '-.')
+plt.show()
+
+#%% More inflection point analysis
+'''
+Performing another inflection point analysis on the results contained in 
+EXP_SET_8 and EXP_SET_7
+'''
+import matplotlib.pyplot as plt
+import numpy as np
+import pickle
+from PostProcessing import generate_master_table
+
+EXP_SET_7_path = "D:DFTBTORCH_DATA_REPOSITORY/EXP_SET_7/analysis_dir/analysis_files"
+EXP_SET_8_path = "D:DFTBTORCH_DATA_REPOSITORY/EXP_SET_8/analysis_dir/analysis_files"
+
+generate_master_table(EXP_SET_7_path)
+generate_master_table(EXP_SET_8_path)
 
 
 
