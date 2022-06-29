@@ -72,7 +72,7 @@ def run_dftbpy(pardict: Dict, cart: Array, charge: int = 0, mult: int = 1) -> Di
         res['conv'] = True
     except Exception:
         res['conv'] = False
-    return res
+    return res, dftb_us, eorbs
 
 def dftbpy_compare_skf_sets(set1_base: str, set2_shifted: str, test_set: str) -> List[Dict]:
     r"""Runs dftbpy on a given test set of molecules using two different skf sets.

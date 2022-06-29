@@ -73,6 +73,7 @@ class Loss1:
         self.ytarget = ytarget
         self.A, self.b = splineModel.linear_model(xtarget)
         self.wconvex = None
+        self.wlinear = None
     def add_convex(self,ngrid,weight):
         self.wconvex = weight
         self.xgrid = np.linspace(np.min(self.xtarget), np.max(self.xtarget),
@@ -82,6 +83,10 @@ class Loss1:
         self.wconvex = weight
         self.xgrid = xgrid
         self.A2, self.b2 = self.splineModel.linear_model(xgrid,2)
+    def add_linear_at_xgrid(self,xgrid,weight,tol):
+        self.wlinear = weight
+        self.lgrid = xgrid
+        self.A1, self.b1 = self.splineModel.linear_model(xgrid,1)
     def nvars(self):
         return self.A.shape[1]
     def errs(self, coefs):
@@ -93,53 +98,78 @@ class Loss1:
             diffs = np.concatenate([diffs,cost2],0)
         return diffs
 
+
+#%% Penalties based on fits to alternate spline forms
+#  for model being fit:  y1  = A1 * coefs + b1
+ider = 0
+A1, b1 = sm1,xtarget, ider=0)
+coef1_test, _, _, _ = np.linalg.lstsq(A1, yvals - b1, rcond=None)
+
+coef1 = 
+
+return coefs, A, b
+
+
 #%% Compare fitting of spline 1 and spline 2, with and without convex constraint
 #%matplotlib qt
-for imod,(smod,xknot) in enumerate([(sm1,xk1),(sm2,xk2)]):
-    l1 = Loss1(smod,xtarget,ytarget)
-    c1,_,_ = fit_linear_model(smod, xtarget, ytarget)
+if False:
+    fit0 = [None, None]
+    fit1 = [None, None]
+    for imod,(smod,xknot) in enumerate([(sm1,xk1),(sm2,xk2)]):
+        l1 = Loss1(smod,xtarget,ytarget)
+        c1,_,_ = fit_linear_model(smod, xtarget, ytarget)
+        
+        cguess = c1 + 0.2* np.random.randn(c1.shape[0])
+        
+        lsq1 = scipy.optimize.least_squares(l1.errs, cguess, method='lm')
+        cfit1 = lsq1['x']
     
-    cguess = c1 + 0.01* np.random.randn(c1.shape[0])
+        if not lsq1['success']:
+            print('Warning: unconstrained optimization failed for model '+str(imod))
     
-    lsq1 = scipy.optimize.least_squares(l1.errs, cguess, method='lm')
-    cfit1 = lsq1['x']
+        
+        cpoints = 25
+        cweight = 100.0
+        l1.add_convex(cpoints, cweight)
+        #l1.add_convex_at_xgrid(xknot, cweight)
+        lsq2 = scipy.optimize.least_squares(l1.errs, cguess, method='lm')
+        cfit2 = lsq2['x']
+        
+        if not lsq2['success']:
+            print('Warning: constrained optimization failed for model '+str(imod))
+        
+        plt.figure(10)
+        plt.subplot(4,2, imod + 1)
+        plt.plot(xknot,     bend(xknot),'kx', label='knots')
+        plt.plot(xtarget, ytarget,  'k-', label='target')
+        plt.plot(xtarget, smod.vals(cguess,xtarget),       'g-', label='guess')
+        plt.plot(xtarget, smod.vals(cfit1,xtarget),       'b-', label='no constraint')
+        plt.plot(xtarget, smod.vals(cfit2,xtarget),       'r-', label='convex constraint')
+        plt.title("fit "+str(imod+1)+"convex ngrid: " + str(cpoints) +
+                  " weight: " + str(cweight))
+        plt.legend()
+        
+        plt.subplot(4,2, imod +3)
+        plt.plot(xtarget, smod.vals(cguess,xtarget)-ytarget,       'g-', label='guess')
+        plt.plot(xtarget, smod.vals(cfit1,xtarget)-ytarget,'b-', label='err no constraint')
+        plt.plot(xtarget, smod.vals(cfit2,xtarget)-ytarget,'r-', label='err convex')
+        plt.legend()
+        
+        plt.subplot(4,2, imod + 5)
+        plt.plot(xtarget, smod.vals(cguess,xtarget,1),       'g-', label='guess')
+        plt.plot(xtarget, smod.vals(cfit1,xtarget,1),'b-', label='1st der no constraint')
+        plt.plot(xtarget, smod.vals(cfit2,xtarget,1),'r-',label='1st der convex')
+        plt.legend()
     
-    cpoints = 25
-    cweight = 100.0
-    l1.add_convex(cpoints, cweight)
-    #l1.add_convex_at_xgrid(xknot, cweight)
-    lsq2 = scipy.optimize.least_squares(l1.errs, cguess, method='lm')
-    cfit2 = lsq2['x']
+        plt.subplot(4,2, imod + 7)
+        plt.plot(xtarget, smod.vals(cguess,xtarget,2),       'g-', label='guess')
+        plt.plot(xtarget, smod.vals(cfit1,xtarget,2),'b-', label='2nd der no constraint')
+        plt.plot(xtarget, smod.vals(cfit2,xtarget,2),'r-',label='2nd der convex')
+        plt.legend()
     
-    plt.figure(10)
-    plt.subplot(4,2, imod + 1)
-    plt.plot(xknot,     bend(xknot),'kx', label='knots')
-    plt.plot(xtarget, ytarget,  'k-', label='target')
-    plt.plot(xtarget, smod.vals(cguess,xtarget),       'g-', label='guess')
-    plt.plot(xtarget, smod.vals(cfit1,xtarget),       'b-', label='no constraint')
-    plt.plot(xtarget, smod.vals(cfit2,xtarget),       'r-', label='convex constraint')
-    plt.title("fit "+str(imod+1)+"convex ngrid: " + str(cpoints) +
-              " weight: " + str(cweight))
-    plt.legend()
+        fit0[imod] = lsq1 # unconstrained fit results
+        fit1[imod] = lsq2 # constrained fit results
     
-    plt.subplot(4,2, imod +3)
-    plt.plot(xtarget, smod.vals(cguess,xtarget)-ytarget,       'g-', label='guess')
-    plt.plot(xtarget, smod.vals(cfit1,xtarget)-ytarget,'b-', label='err no constraint')
-    plt.plot(xtarget, smod.vals(cfit2,xtarget)-ytarget,'r-', label='err convex')
-    plt.legend()
-    
-    plt.subplot(4,2, imod + 5)
-    plt.plot(xtarget, smod.vals(cguess,xtarget,1),       'g-', label='guess')
-    plt.plot(xtarget, smod.vals(cfit1,xtarget,1),'b-', label='1st der no constraint')
-    plt.plot(xtarget, smod.vals(cfit2,xtarget,1),'r-',label='1st der convex')
-    plt.legend()
-
-    plt.subplot(4,2, imod + 7)
-    plt.plot(xtarget, smod.vals(cguess,xtarget,2),       'g-', label='guess')
-    plt.plot(xtarget, smod.vals(cfit1,xtarget,2),'b-', label='2nd der no constraint')
-    plt.plot(xtarget, smod.vals(cfit2,xtarget,2),'r-',label='2nd der convex')
-    plt.legend()
-
 
 #%% disagreement between spline 1 and spline 2
 if False:

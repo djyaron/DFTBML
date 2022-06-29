@@ -11,5 +11,5 @@ corresponding SKF files
 
 from .skf_energy_shift import shift_set_eners
 from .energy_analysis import analyze_ener_diffs, determine_nelectrons
-from .dftbpy_analysis import dftbpy_compare_skf_sets
+from .dftbpy_analysis import dftbpy_compare_skf_sets, run_dftbpy
 
