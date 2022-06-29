@@ -92,7 +92,8 @@ def dftbpy_compare_skf_sets(set1_base: str, set2_shifted: str, test_set: str) ->
     set1_base_pardict = generate_pardict(set1_base, elements)
     set2_shifted_pardict = generate_pardict(set2_shifted, elements)
     test_set = pickle.load(open(test_set, 'rb'))
-    for mol in test_set:
+    for i, mol in enumerate(test_set):
+        print(f"Starting {i} {mol['name']}")
         cart = cartesian_conversion(mol)
         base_result = run_dftbpy(set1_base_pardict, cart)
         shifted_result = run_dftbpy(set2_shifted_pardict, cart)
