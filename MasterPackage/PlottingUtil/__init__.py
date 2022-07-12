@@ -14,5 +14,5 @@ from .skf_file_plot import plot_single_skf_set, read_skf_set, plot_overlay_skf_s
     plot_skf_dist_overlay, skf_interpolation_plot, compare_differences, plot_distance_histogram,\
         compare_electronic_values, plot_multi_overlay_skf_sets, convert_to_range_dict,\
             generate_inhouse_par_dict
-from .util import get_dist_distribution
+from .util import get_dist_distribution, generate_molec_dist_dict
 from .pardict_gen import generate_pardict
