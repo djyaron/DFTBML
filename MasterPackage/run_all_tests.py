@@ -17,68 +17,125 @@ from Tests import *
 import platform
 
 def run_all_tests():
+    tests_passed = []
+    tests_failed = []
     
     print("Conducting unit tests")
     
     print()
     
     print("Testing InputParser...")
-    run_parser_tests()
-    print("InputParser tests passed.")
+    try:
+        run_parser_tests()
+    except Exception as e :
+        print(f"InputParser tests failed with error: {e}")
+        tests_failed.append(("InputParser", e))
+    else:
+        print("InputParser tests passed.")
+        tests_passed.append("InputParser")
     
     print() 
     
     print("Testing spline backend...")
-    run_spline_tests()
-    print("Spline backend tests completed.")
+    try:
+        run_spline_tests()
+    except Exception as e:
+        print(f"Spline backend tests failed with error: {e}")
+        tests_failed.append(("Spline backend", e))
+    else:
+        tests_passed.append("Spline backend")
+        print("Spline backend tests completed.")
     
     print()
     
     print("Testing batch...")
-    run_batch_tests()
-    print("Batch tests passed.")
+    try:
+        run_batch_tests()
+    except Exception as e:
+        print(f"Batch tests failed with error: {e}")
+        tests_failed.append(("Batch", e))
+    else:
+        print("Batch tests passed.")
+        tests_passed.append("Batch")
     
     print()
     
     print("Testing fold generation, saving, precomputation, and saving...")
-    run_fold_precomp_tests(False)
-    print("fold generation, saving, precomputation tests complete.")
+    try:
+        run_fold_precomp_tests(False)
+    except Exception as e:
+        print("Fold precomp tests failed.")
+        tests_failed.append(("Fold precomp", e))
+    else:
+        print("fold generation, saving, precomputation tests complete.")
+        tests_passed.append("Fold precomp")
     
     print()
     
     print("Testing h5handler...")
-    run_h5handler_tests()
-    print("h5handler tests passed.")
+    try:
+        run_h5handler_tests()
+    except Exception as e:
+        print(f"h5handler tests failed with error: {e}")
+        tests_failed.append(("h5handler", e))
+    else:
+        print("h5handler tests passed.")
+        tests_passed.append("h5handler")
     
     print()
     
     print("Testing rotation operator...")
-    run_rotation_test()
-    print("Rotation test passed.")
+    try:
+        run_rotation_test()
+    except Exception as e:
+        print(f"Rotation operator tests failed with error: {e}")
+        tests_failed.append(("Rotation operator", e))
+    else:
+        print("Rotation test passed.")
+        tests_passed.append("Rotation operator")
     
     print()
     
     print("Testing dispersion...")
-    run_dispersion_tests()
-    print("Dispersion tests passed.")
+    try:
+        run_dispersion_tests()
+    except Exception as e:
+        print("Dispersion tests failed.")
+        tests_failed.append(("Dispersion", e))
+    else:
+        print("Dispersion tests passed.")
+        tests_passed.append("Dispersion")
     
     print()
     
     print("Testing Dftbplus...")
-    run_dftbplus_tests()
-    print("Dftbplus tests passed")
+    try:
+        run_dftbplus_tests()
+    except Exception as e:
+        print(f"Dftbplus tests failed: {e}")
+        tests_failed.append(("Dftbplus", e))
+    else:
+        print("Dftbplus tests passed")
+        tests_passed.append("Dftbplus")
     
     print()
-    
-    print("Testing DFTB Layer...")
-    run_layer_tests()
-    print("DFTB Layer tests passed")
+
+    # Layer tests are not functional    
+    # print("Testing DFTB Layer...")
+    # run_layer_tests()
+    # print("DFTB Layer tests passed")
     
     print()
     
     print("Testing DFTBrepulsive...")
-    run_repulsive_tests()
-    print("DFTBrepulsive tests passed")
+    try:
+        run_repulsive_tests()
+    except Exception as e:
+        print(f"Repulsive tests failed: {e}")
+        tests_failed.append(("Repulsive", e))
+    else:
+        print("DFTBrepulsive tests passed")
+        tests_passed.append("Repulsive")
     
     print()
     
@@ -89,34 +146,64 @@ def run_all_tests():
     # print()
     
     print("Testing skf writer functionalities...")
-    run_skf_tests(True)
-    print("SKF functionality tests passed")
+    try:
+        run_skf_tests(True)
+    except Exception as e:
+        print(f"SKF tests failed: {e}")
+        tests_failed.append(("SKF", e))
+    else:
+        print("SKF functionality tests passed")
+        tests_passed.append("SKF")
     
     print()
     
     print("Testing gammas construction")
-    run_gammas_tests()
-    print("Gammas tests passed")
+    try:
+        run_gammas_tests()
+    except Exception as e:
+        print(f"Gammas tests failed: {e}")
+        tests_failed.append(("Gammas", e))
+    else:
+        print("Gammas tests passed")
+        tests_passed.append("Gammas")
     
     print()
     
     print("Testing data invariants...")
-    run_invariant_tests()
-    print("Data invariant tests passed successfully")
+    try:
+        run_invariant_tests()
+    except Exception as e:
+        print(f"Invariant tests failed: {e}")
+        tests_failed.append(("Invariants", e))
+    else:
+        print("Data invariant tests passed successfully")
+        tests_passed.append("Invariants")
     
     print()
     
     if platform.platform().lower().startswith("linux"):
     
         print("Testing regex parsing consistency...")
-        run_re_tests()
-        print("Regex parsing tests passed")
+        try:
+            run_re_tests()
+        except Exception as e:
+            print(f"Regex tests failed: {e}")
+            tests_failed.append(("Regex", e))
+        else:
+            print("Regex parsing tests passed")
+            tests_passed.append("Regex")
     
         print()
     
-    print("All unit tests passed successfully")
+    
+    if tests_failed:
+        print("Tests failed:")
+        for test_name, err in tests_failed:
+            print(f"\t{test_name}: {err}")
+    
+    print(f"Tests passed: {tests_passed}")
+    print(f"{len(tests_passed)}/{len(tests_passed) + len(tests_failed)} tests passed.")
+
 
 if __name__ == "__main__":
     run_all_tests()
-
-
