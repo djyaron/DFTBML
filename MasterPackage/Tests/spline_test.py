@@ -7,10 +7,12 @@ Created on Mon Jun  7 17:17:15 2021
 This file runs the test_join function originally implemented in tfspline
 """
 #%% Imports, definitions
-import numpy as np
+
 import matplotlib.pyplot as plt
-from Spline import construct_joined_splines, spline_new_xvals, plot_spline_basis,\
-    plot_spline, spline_vals, maxabs, merge_splines, merge_splines_new_xvals
+import numpy as np
+from Spline import (construct_joined_splines, maxabs, merge_splines,
+                    merge_splines_new_xvals, plot_spline, plot_spline_basis,
+                    spline_new_xvals, spline_vals)
 
 #%% Code behind
 

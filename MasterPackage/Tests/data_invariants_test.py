@@ -17,10 +17,12 @@ invalid if this invariant is not true. It seems like everything's fine so far, b
 check with this formalized test.
 """
 #%% Imports, definitions
-from FoldManager import get_ani1data
-import numpy as np
+
 import random
 from typing import Dict
+
+import numpy as np
+from FoldManager import get_ani1data
 
 
 #%% Code behind

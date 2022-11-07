@@ -10,18 +10,26 @@ Lennard-Jones style potential is implemented for dispersion corrections.
 Will also have a few test cases for the geometric mean
 """
 #%% Imports, definitions
-from Dispersion import LJ_Dispersion, torch_geom_mean, np_geom_mean
+
+import os
+import pickle
+
+import torch
 from DataManager import load_combined_fold
 from DFTBLayer import DFTB_Layer
-from Dispersion import LJ_Dispersion
 from DFTBPlus import add_dftb
-import torch
-import pickle, os
+from Dispersion import LJ_Dispersion, np_geom_mean, torch_geom_mean
+
 Tensor = torch.Tensor
 import numpy as np
+
 Array = np.ndarray
 from functools import reduce
+
 import Auorg_1_1
+
+from .helpers import test_data_dir
+
 
 #%% Code behind
 class dummy:
@@ -72,7 +80,7 @@ def test_lj_dispersion():
     """
     print("Testing dispersion functionality...")
     
-    tst_feed_path = "test_files/tst_feed.p"
+    tst_feed_path = os.path.join(test_data_dir, "tst_feed.p")
     device, dtype = None, torch.double
     dispersion = LJ_Dispersion(device, dtype)
     
@@ -106,7 +114,7 @@ def test_lj_dispersion_against_dftbplus():
     s.run_check = False
     fold_mapping = {0 : [[0],[1]]}
     fold_num = 0
-    top_level_fold_path = "test_files/fold_molecs_test_8020"
+    top_level_fold_path = os.path.join(test_data_dir, "fold_molecs_test_8020")
     skf_dir = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
     pardict = Auorg_1_1.ParDict()

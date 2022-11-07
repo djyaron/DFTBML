@@ -5,13 +5,15 @@ Created on Tue Jun  8 17:33:44 2021
 @author: fhu14
 """
 #%% Imports, definitions
-from typing import List, Dict
-import pickle
-import numpy as np
+
 import os
-from DataManager import total_feed_combinator
-import Geometry.geometry
+import pickle
 import re
+from typing import Dict, List
+
+import Geometry.geometry
+import numpy as np
+from DataManager import total_feed_combinator
 
 #%% Code behind
 

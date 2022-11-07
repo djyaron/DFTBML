@@ -21,25 +21,30 @@ the dftb_layer against DFTB+
 
 TODO: THE CODE IS CURRENTLY BROKEN, NOT GOING TO RUN
 """
-
 #%% Imports, definitions
-import torch
+
 import numpy as np
+import torch
+
 Tensor = torch.Tensor
 Array = np.ndarray
-from typing import Union, List, Dict
-from DFTBLayer import DFTB_Layer, model_loss_initialization, feed_generation,\
-    total_type_conversion
+import json
+import os
+import os.path
+import pickle
+from statistics import mean
+from typing import Dict, List, Union
+
+import Auorg_1_1
+import MIO_0_1
+import TestSKF
+from DFTBLayer import (DFTB_Layer, feed_generation, model_loss_initialization,
+                       total_type_conversion)
+from DFTBPlus import add_dftb
+from DFTBpy import _Gamma12
 from FoldManager import get_ani1data, single_fold_precompute
 from InputLayer import Input_layer_hubbard, repulsive_energy
-import os, os.path
-import pickle, json
-from statistics import mean
-from DFTBpy import _Gamma12
-from DFTBPlus import add_dftb
-from InputParser import parse_input_dictionaries, collapse_to_master_settings
-import Auorg_1_1, MIO_0_1, TestSKF
-
+from InputParser import collapse_to_master_settings, parse_input_dictionaries
 
 #%% Code behind
 
