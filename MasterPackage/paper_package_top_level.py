@@ -33,15 +33,15 @@ TODO:
 """
 #%% Generate and precompute dataset (with and without reference)
 
-from PaperPackage import create_datasets
-from precompute_check import precompute_settings_check
-from PaperPackage import split_to_comparative_dset, comparative_dset_check
-from PaperPackage import precompute_comparative_datasets, expand_dataset
+# from PaperPackage import create_datasets
+# from precompute_check import precompute_settings_check
+# from PaperPackage import split_to_comparative_dset, comparative_dset_check
+# from PaperPackage import precompute_comparative_datasets, expand_dataset
 
-if __name__ == "__main__":
-
-    settings_filename = "PaperPackage/dset_settings.json"
-    defaults_filename = "PaperPackage/refactor_default_tst.json"
+# if __name__ == "__main__":
+ 
+    # settings_filename = "PaperPackage/dset_settings.json"
+    # defaults_filename = "PaperPackage/refactor_default_tst.json"
     # num_train_valid = 150
     # mode = 'no_ref'
     # ref_dir = None
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     
     # create_datasets(settings_filename, defaults_filename, num_train_valid, mode, ref_dir)
     
-    expand_dataset(settings_filename, defaults_filename, "PaperPackage/master_dset_wt_ener_target")
+    # expand_dataset(settings_filename, defaults_filename, "PaperPackage/master_dset_wt_ener_target")
     
     # split_to_comparative_dset("PaperPackage/master_dset_expanded_cc")
     
@@ -283,9 +283,9 @@ locally
 from PaperPackage import check_dset_inheritance, test_strict_molecule_set_equivalence, non_overlap_with_test
 import os
 
-parent_cc_dset = "PaperPackage/all_dsets/master_dset"
+parent_cc_dset = "benchtop_wdir/dsets/master_dset"
 parent_cc_test_set = os.path.join(parent_cc_dset, 'test_set.p')
-parent_wt_dset = "PaperPackage/all_dsets/master_dset_wt_ener_target"
+parent_wt_dset = "benchtop_wdir/dsets/master_dset_wt_ener_target"
 parent_wt_test_set = os.path.join(parent_wt_dset, 'test_set.p')
 
 child_cc_dsets = ["master_dset_expanded_cc", "master_dset_expanded_cc_first_half", 
@@ -295,10 +295,10 @@ child_wt_dsets = ["master_dset_expanded_wt", "master_dset_reduced_300_wt_ener_ta
                   "master_dset_reduced_1000_wt_ener_target","max_config_100_wt_dset_no_transfer"]
 
 for i in range(len(child_cc_dsets)):
-    child_cc_dsets[i] = "PaperPackage/all_dsets/" + child_cc_dsets[i]
+    child_cc_dsets[i] = "benchtop_wdir/dsets/" + child_cc_dsets[i]
 
 for i in range(len(child_wt_dsets)):
-    child_wt_dsets[i] = "PaperPackage/all_dsets/" + child_wt_dsets[i]
+    child_wt_dsets[i] = "benchtop_wdir/dsets/" + child_wt_dsets[i]
 
 #Verify test set equivalence for these datasets
 for child_set in child_cc_dsets:
@@ -312,13 +312,13 @@ for child_set in child_wt_dsets:
     test_strict_molecule_set_equivalence(parent_wt_test_set, child_test_set, include_targets = True)
 
 #Verify some inheritance properties between a select few datasets
-check_dset_inheritance(parent_cc_dset, "PaperPackage/all_dsets/max_config_100_cc_dset_no_transfer", 'same_emp_forms')
-check_dset_inheritance(parent_wt_dset, "PaperPackage/all_dsets/max_config_100_wt_dset_no_transfer", 'same_emp_forms')
+check_dset_inheritance(parent_cc_dset, "benchtop_wdir/dsets/max_config_100_cc_dset_no_transfer", 'same_emp_forms')
+check_dset_inheritance(parent_wt_dset, "benchtop_wdir/dsets/max_config_100_wt_dset_no_transfer", 'same_emp_forms')
 
 #Verify that all datasets do not have any overlaps between their
 #   training/validation sets and their test sets
-all_files = os.listdir("PaperPackage/all_dsets/")
-all_files = list(map(lambda x : "PaperPackage/all_dsets/" + x, all_files))
+all_files = os.listdir("benchtop_wdir/dsets/")
+all_files = list(map(lambda x : "benchtop_wdir/dsets/" + x, all_files))
 all_directories = list(filter(lambda x : os.path.isdir(x), all_files))
 # bad_dirs = ["PaperPackage/__pycache__", "PaperPackage/dummy", "PaperPackage/past_runs", "PaperPackage/all_dsets"]
 # for elem in bad_dirs:

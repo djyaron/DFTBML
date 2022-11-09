@@ -86,10 +86,10 @@ def run_training(settings_filename: str, defaults_filename: str, skf_method: str
         model_variables_keys = set(model_variables.keys())
         for elem in all_models_keys - model_variables_keys:
             assert(elem.oper == "G" and (len(elem.Zs) == 2 or (elem.orb[0] != elem.orb[-1])))
-        for elem in model_variables_keys - all_models_keys:
-            assert(elem.oper == "S" and 'inflect' in elem.orb)
-        assert(len(all_models_keys - model_variables_keys) == 31)
-        assert(len(model_variables_keys - all_models_keys) == 34)
+        #for elem in model_variables_keys - all_models_keys:
+        #    assert(elem.oper == "S" and 'inflect' in elem.orb)
+        #assert(len(all_models_keys - model_variables_keys) == 31)
+        #assert(len(model_variables_keys - all_models_keys) == 34)
         
         for model in all_models:
             if isinstance(all_models[model], Input_layer_pairwise_linear):

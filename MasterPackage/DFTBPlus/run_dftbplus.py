@@ -169,8 +169,11 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
     """
     
     dftb_exec = exec_path
-
-    DFTBoptions = {'ShellResolvedSCC': True}
+    
+    if "mio" in skf_dir:
+        DFTBoptions = {'ShellResolvedSCC': False}
+    else:
+        DFTBoptions = {'ShellResolvedSCC': True}
     scratch_dir = "dftbscratch"
     if (not os.path.isdir(scratch_dir)):
         os.mkdir(scratch_dir)

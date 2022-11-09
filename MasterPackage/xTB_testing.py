@@ -2,15 +2,31 @@
 
 #%% Imports, definitions
 from DFTBPlus import run_xTB_dftbp
-import pickle, os
+import pickle, os, shutil
 import time
 import json
 import argparse
-from DFTBPlus import compute_results_torch
+from DFTBPlus import compute_results_torch, calc_format_target_reports
 from typing import List, Dict
 from MasterConstants import atom_nums
 from subprocess import call
 scratch_dir = "xtbscratch"
+
+#Some global variables for calc_format_target_reports
+error_metric = "MAE"
+tot_ener_targ = "Etot"
+#No dipole ESP
+pairwise_targs = [['dipole', 'dipole'],
+        ['charges', 'charges']]
+fit_fresh_ref_ener = True #Always, GFNn-xTB does not have a reference energy 
+allowed_Zs = [1,6,7,8] #C H N O
+dipole_conversion = True #Yes, parsed dipole is in units of Debye
+prediction_dipole_unit = "Debye" 
+target_dipole_unit = "eA" #For ANI-1 molecules it's eA
+exclusion_threshold = 20 #20 standard deviations for outlier exclusions
+num_failed_molecules = 0 #Assuming no molecules fail
+
+
 
 
 #%% Code behind
@@ -115,11 +131,25 @@ def run_xTB_calculation(method: str) -> None:
     assert(len(xyz_file_name) == 1)
     xyz_file_name = xyz_file_name[0]
     if method == 'GFN2-xTB':
-        res = call(['xtb', '--input', 'coord.inp', '--gfn', '2', '-s', xyz_file_name])
+        res = call(['xtb', '--input', 'coord.inp', '--gfn', '2', xyz_file_name])
     elif method == 'GFN1-xTB':
-        res = call(['xtb', '--input', 'coord.inp', '--gfn', '1', '-s', xyz_file_name])
+        res = call(['xtb', '--input', 'coord.inp', '--gfn', '1', xyz_file_name])
 
 def xTB_true_analysis(test_set_path: str, method: str, save_location: str) -> None:
+    r"""Runs an xTB analysis using the anaconda installation of xtb.
+
+    Arguments:
+        test_set_path (str): The path to the test set molecules saved as a pickle file
+        method (str): The xTB calculation method to use. Should be one of GFN1-xTB or GFN2-xTB
+        save_location (str): The name to save things with. This also doubles as the experiment label
+            when passing into calc_format_target_reports
+
+    Returns:
+        None
+
+    Notes: The entry point for calc_format_target_reports is right after the dataset has been augmented
+        with the values from xTB calculations. 
+    """
     
     assert(test_set_path != save_location)
 
@@ -137,21 +167,52 @@ def xTB_true_analysis(test_set_path: str, method: str, save_location: str) -> No
         print(f"Starting calculation for {(mol_dict['name'], mol_dict['iconfig'])}, molecule {i}")
         write_molecule_to_xyz(mol_dict, i) #Write molecule to correct input form
         run_xTB_calculation(method) #Run the calculation
-        
+        del_xyz_file(i) #remvoe the file right after to prevent overlaps
         #The output is a json file that can be treated as a dictionary. However, we will only focus on total energy right now
         #   although other properties are available
-        resulting_file = os.path.join(os.getcwd(), 'xtbout.json')
-        with open(resulting_file, 'r') as handle:
-            jdict = json.load(handle)
-        mol_dict['pzero'] = {}
-        mol_dict['pzero']['t'] = jdict['total energy']
-        mol_dict['pzero']['dipole'] = jdict['dipole']
-        del_xyz_file(i) #Delete the current iteration of the input file
+        resulting_file = 'xtbout.json'
+        if os.path.isfile(resulting_file):
+            with open(resulting_file, 'r') as handle:
+                jdict = json.load(handle)
+            #The pzero key is used because all the analysis code was built for DFTB+ previously
+            mol_dict['pzero'] = {}
+            mol_dict['pzero']['t'] = jdict['total energy']
+            mol_dict['pzero']['dipole'] = jdict['dipole']
+            mol_dict['pzero']['charges'] = jdict['partial charges']
+            mol_dict['pzero']['conv'] = True #Mark convergence
+            os.remove("xtbout.json")
+        else:
+            mol_dict['pzero'] = {}
+            mol_dict['pzero']['conv'] = False #Mark nonconvergence
+
 
     print("Analysis completed")
     end = time.time()
 
-    #Now analyze using the augmented dataset    
+    with open(save_location + ".p", "wb") as handle:
+        pickle.dump(dataset, handle)
+
+    original_len = len(dataset)
+    good_mols = [mol for mol in dataset if mol['pzero']['conv']]
+    final_len = len(good_mols)
+
+    #Entry point for calc_format_target_reports
+    #The destination can just be os.getcwd() because we did a chdir() call previously
+    calc_format_target_reports(save_location, os.getcwd(), good_mols, error_metric, tot_ener_targ, pairwise_targs, fit_fresh_ref_ener, 
+            allowed_Zs, ref_params = None, dipole_conversion = dipole_conversion, prediction_dipole_unit = prediction_dipole_unit,
+            target_dipole_unit = target_dipole_unit, exclusion_threshold = exclusion_threshold, num_failed_molecules = original_len - final_len)
+    
+    #Do some copy operations as well
+    #TODO: Do the copy operations after some simple testing
+    src = os.path.join(os.getcwd(), "analysis.txt")
+    dst = os.path.join(os.getcwd(), f"{save_location}.txt")
+    print("Copying over the analysis file")
+    shutil.copy(src, dst)
+
+    print("Analysis finished") 
+
+    #Old analysis code, comment it out
+    '''
     diffs, result = compute_results_torch(dataset, "Etot", [1,6,7,8], error_metric = "MAE") #Might need to expand to other elements beyond 1,6,7,8
     with open(save_location + ".p", "wb") as handle:
         pickle.dump(dataset, handle)
@@ -166,6 +227,7 @@ def xTB_true_analysis(test_set_path: str, method: str, save_location: str) -> No
         handle.write(f"The elapsed time for {len(dataset)} molecule calculations is {end - start} seconds")
 
     print("Numerical result saved")
+    '''
 
 #%% Main block
 
@@ -179,7 +241,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     test_set_path, xtb_version, method, save_location = args.test_set, args.xtb_version, args.method, args.out_name
     assert(method in ["GFN1-xTB", "GFN2-xTB"])
-    assert(xtb_version in ['old', 'new'])
+    assert(xtb_version == 'new')
 
     if xtb_version == 'old':
         print("Using DFTB+ implementation of xTB")

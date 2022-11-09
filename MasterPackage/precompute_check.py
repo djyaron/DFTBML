@@ -61,12 +61,15 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['batch_data_fields']['num_per_batch'] == 10)
     
     assert(d['training_settings']['losses'] == ["Etot", "dipole", "charges", "convex", "smooth"])
+    assert('convex' in d['training_settings']['losses'])
     assert(d['training_settings']['target_accuracy_energy'] == 6270)
     assert(d['training_settings']['target_accuracy_dipole'] == 100)
-    assert(d['training_settings']['target_accuracy_charges'] == 100)
+    assert(d['training_settings']['target_accuracy_charges'] == 1)
+    #assert(d['training_settings']['target_accuracy_charges'] == d['training_settings']['target_accuracy_dipole'])
     assert(d['training_settings']['target_accuracy_convex'] == 1000)
     assert(d['training_settings']['target_accuracy_monotonic'] == 1000)
     assert(d['training_settings']['target_accuracy_smooth'] == 10)
+    assert(d['training_settings']['nepochs'] == 2500)
     
     assert(d['tensor_settings']['tensor_device'] == 'cpu')
     assert(d['tensor_settings']['tensor_dtype'] == 'double')
@@ -94,7 +97,7 @@ def precompute_settings_check(settings_filename: str) -> None:
     assert(d['model_settings']['joined_cutoff'] == 4.5)
     assert(d['model_settings']['cutoff_dictionary'] is not None)
     assert(d['model_settings']['off_diag_opers'] == ["G"])
-    assert(d['model_settings']['include_inflect'] == True)
+    assert(d['model_settings']['include_inflect'] == True) 
     
     assert(d['repulsive_settings']['opts'] == {
         "nknots" : 50, #Try running with 50 knots over the short cutoff

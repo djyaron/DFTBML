@@ -250,10 +250,10 @@ if __name__ == "__main__":
     
     assert(fit_ref.upper() in ["Y", "N"])
     assert(batch.upper() in ["Y", "N"])
-    assert(fit_ref.upper() == "N")
-    assert(batch.upper() == "Y")
-    if dset_path.lower() != 'internal':
-        assert((("cc" in dset_path) and ("cc" in skf_dir)) or (("wt" in dset_path) and ("wt" in skf_dir)))
+    # assert(fit_ref.upper() == "N")
+    # assert(batch.upper() == "Y")
+    #if dset_path.lower() != 'internal':
+    #    assert((("cc" in dset_path) and ("cc" in skf_dir)) or (("wt" in dset_path) and ("wt" in skf_dir)))
     
     fit_ref = True if fit_ref.upper() == "Y" else False
     batch = True if batch.upper() == "Y" else False
