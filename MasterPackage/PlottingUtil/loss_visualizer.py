@@ -15,6 +15,18 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from typing import Union
 
+loss_conversion_units = {
+    "Etot" : 10,
+    "dipole" : 100,
+    'charges' : 1
+    }
+
+loss_yaxs_labels = {
+    "Etot" : r"Energy (kcal mol$^{-1}$ atom$^{-1}$)",
+    "dipole" : r"Dipole ($e\AA$)",
+    "charges" : r"Atomic charge ($e$)"
+    }
+
 #%% Code behind
 def exceeds_tick_limit(loss: Array, increment: Union[int, float], limit: int = 1000) -> bool:
     r"""Checks that using the proposed minor axis incrementation, the 
@@ -38,7 +50,8 @@ def exceeds_tick_limit(loss: Array, increment: Union[int, float], limit: int = 1
     return diff / increment > limit
 
 def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot', 
-                           scale: str = 'normal', y_major: Union[int, float] = 1,
+                           scale: str = 'normal', x_axis_mode: str = 'epochs',
+                           n_batch: int = None, y_major: Union[int, float] = 1,
                            y_minor: Union[int, float] = 0.1) -> None:
     r"""Reads in a loss tracker from a pickle file and generates graphs of
         the losses
@@ -54,6 +67,9 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
             'normal' or 'log', where 'normal' does not transform the values in
             any way but 'log' transforms the values by taking the base 10 logarithm
             of the loss. Defaults to 'normal'
+        x_axis_mode (str): The units of the x-axis. One of 'epochs' or 'grad_desc'
+        n_batch (int): The number of batches. Defaults to None, but should be a 
+            positive numerical value if x_axis_mode is set to 'grad_desc'
         y_major (Union[int, float]): The incrementation for the major tick marks
             on the y-axis. Defaults to 1.
         y_minor (Union[int, float]): The incrementation for the minor tick marks
@@ -61,6 +77,12 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
     
     Returns:
         None
+    
+    Notes: This method visualizes the losss trackers into learning curves for the 
+        different physical targets that are learned by DFTBML. This includes
+        total energy, dipoles, and charges. The number of batches is equal to the 
+        number of gradient descent steps since one gradient descent step is taken
+        for every batch seen. 
     """
     if (dest_dir is not None) and (not os.path.isdir(dest_dir)):
         os.mkdir(dest_dir)
@@ -70,19 +92,28 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
     
     for loss in loss_tracker:
         fig, axs = plt.subplots()
-        validation_loss = loss_tracker[loss][0]
-        training_loss = loss_tracker[loss][1]
+        unit = loss_conversion_units[loss] if loss in loss_conversion_units else 1
+        validation_loss = np.array(loss_tracker[loss][0]) / unit
+        training_loss = np.array(loss_tracker[loss][1]) / unit
         if scale == 'log':
-            validation_loss = np.log10(validation_loss)
-            training_loss = np.log10(training_loss)
-        axs.plot(validation_loss, label = "Validation loss")
-        axs.plot(training_loss, label = "Training loss")
+            validation_loss = np.log(validation_loss)
+            training_loss = np.log(training_loss)
+        if x_axis_mode == 'epochs':
+            x_vals = [i + 1 for i in range(len(validation_loss))]
+        elif x_axis_mode == 'grad_desc':
+            assert(n_batch is not None)
+            x_vals = [(i + 1) * n_batch for i in range(len(validation_loss))]
+        axs.plot(x_vals, validation_loss, label = "Validation loss")
+        axs.plot(x_vals, training_loss, label = "Training loss")
         axs.set_title(f"{loss} loss")
-        if scale == 'normal':
-            axs.set_ylabel("Average Epoch Loss (unitless)")
-        elif scale == 'log':
-            axs.set_ylabel("Log average epoch loss (unitless)")
-        axs.set_xlabel("Epoch")
+        if scale == 'log':
+            axs.set_ylabel('log loss')
+        elif scale == 'normal':
+            axs.set_ylabel(loss_yaxs_labels[loss] if loss in loss_yaxs_labels else "Loss")
+        if x_axis_mode == 'epochs':
+            axs.set_xlabel("Epochs")
+        elif x_axis_mode == 'grad_desc':
+            axs.set_xlabel("Number of gradient descent steps")
         if exceeds_tick_limit(validation_loss, y_minor) or\
             exceeds_tick_limit(training_loss, y_minor):
                 y_minor_temp = y_minor * 10
@@ -90,12 +121,12 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
                 axs.yaxis.set_minor_locator(MultipleLocator(y_minor_temp))
                 axs.yaxis.set_major_locator(MultipleLocator(y_major_temp))
         else:
-            axs.yaxis.set_minor_locator(MultipleLocator(y_minor))
-            axs.yaxis.set_major_locator(MultipleLocator(y_major))
+            axs.yaxis.set_minor_locator(AutoMinorLocator())
+            # axs.yaxis.set_major_locator(AutoMinorLocator())
         axs.xaxis.set_minor_locator(AutoMinorLocator())
         axs.legend()
         if dest_dir is not None:
-            fig.savefig(os.path.join(dest_dir, f"{loss}_loss.png"))
+            fig.savefig(os.path.join(dest_dir, f"{loss}_loss.png"), dpi = 2000)
         plt.show()
     
     total_val_loss = np.zeros(len(loss_tracker['Etot'][0]))
@@ -114,7 +145,7 @@ def visualize_loss_tracker(lt_filename: str, dest_dir: str, mode: str = 'plot',
     axs.xaxis.set_minor_locator(AutoMinorLocator())
     axs.legend()
     if dest_dir is not None:
-        fig.savefig(os.path.join(dest_dir, "Total_loss.png"))
+        fig.savefig(os.path.join(dest_dir, "Total_loss.png"), dpi = 2000)
     plt.show()
     
     if dest_dir is not None:

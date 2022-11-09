@@ -119,7 +119,7 @@ def generate_plot_title(elem_pair: tuple, operator: str, int_name: str) -> str:
 
 def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, label: str = None,
                  mode: str = 'scatter', xlow: Union[int, float] = None, 
-                 xhigh: Union[int, float] = None) -> None:
+                 xhigh: Union[int, float] = None, is_special: bool = False) -> None:
     r"""Plots a single SKF integral
     
     Arguments:
@@ -136,6 +136,8 @@ def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, lab
             to None.
         xhigh (Union[int, float]): The upper bound for the distance. Defaults
             to None.
+        is_special (bool): If the current potential plot is special, and in which case
+            a unique linestyle is used. Defaults to False.
     """
     curr_skf = skf_set[elems]
     int_table = getattr(curr_skf, op)
@@ -150,7 +152,7 @@ def plot_skf_int(elems: tuple, op: str, int_name: str, skf_set: SKFSet, axs, lab
     if mode == 'scatter':
         axs.scatter(rgrid, curr_data, label = label)
     elif mode == 'plot':
-        axs.plot(rgrid, curr_data, label = label, linewidth = 0.5) #Manually toggle this parameter
+        axs.plot(rgrid, curr_data, label = label, linewidth = 2.0 if is_special else 1.5, linestyle = '-.' if is_special else '-') #Manually toggle this parameter
 
 def empty_int(int_series) -> bool:
     r"""Tests if an integral is zero or not
@@ -298,15 +300,21 @@ def plot_overlay_skf_sets(set_1: SKFSet, set_2: SKFSet,
                     plt.show()
 
 def plot_multi_overlay_skf_sets(set_names: List[str], set_labels: List[str], dest: str, mode: str, 
-                                x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None) -> None:
+                                x_major: int = 1, x_minor: float = 0.1, range_dict: Dict = None,
+                                special_vec: List[bool] = None) -> None:
     r"""Overlays numerous SKF sets together. Refer to the documentation for 
         plot_overlay_skf_sets for more information. set_names and set_labels should have
         a 1:1 correspondence index-wise
+        
+        The special_vec boolean vector indicates how each SKF set should be plotted. If 
+        it is set to None, it defaults to a list of False. 
     """
     all_ops = ['H', 'S']
     assert(len(set_names) == len(set_labels))
     assert(len(set(set_names)) == len(set_names)) #No repeating set names
     all_sets = [read_skf_set( os.path.join(os.getcwd(), name) ) for name in set_names]
+    if special_vec is None:
+        special_vec = [False] * len(set_names)
     set_key_count = list(map(lambda x : len(x.keys()), all_sets ))
     min_index = set_key_count.index(min(set_key_count))
     iter_keys = list(all_sets[min_index].keys())
@@ -330,14 +338,15 @@ def plot_multi_overlay_skf_sets(set_names: List[str], set_labels: List[str], des
                     fig, axs = plt.subplots()
                     raw_title = f"{elem_pair}, {op}, {int_name}"
                     title = generate_plot_title(elem_pair, op, int_name)
-                    axs.set_title(title)
-                    axs.set_xlabel("Angstroms ($\AA$)")
+                    axs.set_title(title, fontsize = 14)
+                    axs.set_xlabel("Angstroms ($\AA$)", fontsize = 14)
                     if op == 'H':
-                        axs.set_ylabel("Hartrees (Ha)")
+                        axs.set_ylabel("Hartrees (Ha)", fontsize = 14)
                     elif op == 'S':
-                        axs.set_ylabel("A.U.")
+                        axs.set_ylabel("A.U.", fontsize = 14)
                     for i, skset in enumerate(all_sets):
-                        plot_skf_int(elem_pair, op, int_name, skset, axs, label = set_labels[i], mode = mode, xlow = xlow, xhigh = xhigh)
+                        plot_skf_int(elem_pair, op, int_name, skset, axs, label = set_labels[i], mode = mode, xlow = xlow, xhigh = xhigh,
+                                     is_special = special_vec[i])
                     axs.legend()
                     axs.yaxis.set_minor_locator(AutoMinorLocator())
                     axs.xaxis.set_major_locator(MultipleLocator(x_major))
@@ -396,7 +405,8 @@ def generate_inhouse_par_dict(param_path: str) -> Dict:
 
 def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict, 
                            data_1_label: str, data_2_label: str, dest: str,
-                           x_major: int = 1, x_minor: float = 0.1) -> None:
+                           x_major: int = 1, x_minor: float = 0.1,
+                           range_dict: Dict = None) -> None:
     r"""Extracts and plots the repulsive blocks of a set of SKFs in an overlay format
     
     Arguments:
@@ -410,6 +420,7 @@ def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict,
              for major tick marks)
         x_minor (float): the argument used for minor multiple locator (increments
              for minor tick marks)
+        range_dict (Dict): dictionary to constrain the ranges
     
     Returns:
         None
@@ -426,26 +437,36 @@ def plot_repulsive_overlay(pardict_1: Dict, pardict_2: Dict,
         assert( set(pardict_1.keys()) == set(pardict_2.keys()) )
     #Assume for now that pardict_1 has fewer element pairs than pardict_2
     for elems in pardict_1:
-        rs = np.linspace(0, 10, 500)
+        corrected_tup = correct_elem_key(elems)
+        reverse_tup = tuple(reversed(corrected_tup))
+        if range_dict is None:
+            rs = np.linspace(0, 10, 500)
+        else:
+            if corrected_tup in range_dict:
+                rlow, rhigh = range_dict[corrected_tup]
+            else:
+                rlow, rhigh = range_dict[reverse_tup]
+            rs = np.linspace(rlow, rhigh, 500)
         mod_spec = Model('R', correct_elem_key(elems), 'ss')
         vals_1 = get_dftb_vals(mod_spec, pardict_1, rs)
         vals_2 = get_dftb_vals(mod_spec, pardict_2, rs)
         fig, axs = plt.subplots()
-        title = f"{elems}, R"
-        axs.set_title(title)
-        axs.set_xlabel("Angstroms")
-        axs.set_ylabel("Hartrees")
+        title = f"{elems}, "
+        title += "$\mathbf{R}$"
+        axs.set_title(title, fontsize = 14)
+        axs.set_xlabel("Angstroms ($\AA$)", fontsize = 14)
+        axs.set_ylabel("Hartrees (Ha)", fontsize = 14)
         axs.plot(rs, vals_1, label = data_1_label)
-        axs.plot(rs, vals_2, label = data_2_label)
+        axs.plot(rs, vals_2, label = data_2_label, linestyle = '-.')
         axs.legend()
         #In plotting these graphs, the distance along the x-axis is
         #   going to be important for figuring out spline
         #   differences. y-axis vlaues
         axs.yaxis.set_minor_locator(AutoMinorLocator())
-        axs.xaxis.set_major_locator(MultipleLocator(x_major))
-        axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
+        # axs.xaxis.set_major_locator(MultipleLocator(x_major))
+        axs.xaxis.set_minor_locator(AutoMinorLocator())
         if (dest is not None):
-            fig.savefig(os.path.join(dest, f"{title}.png"))
+            fig.savefig(os.path.join(dest, f"{elems}.png"), dpi = 2000)
         plt.show()
 
 def plot_skf_dist_overlay(skf_set: SKFSet, dest: str, mode: str, dset: List[Dict],
@@ -788,7 +809,7 @@ def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float]
         None
     """
     all_files = os.listdir(dset_dir)
-    pattern = r"Fold0_molecs.p" #For debugging purposes, just want to look at the training set
+    pattern = r"five_heavies.p" #For debugging purposes, just want to look at the training set
     # pattern2 = r"test_set.p" #Include the test_set.p in the distribution
     fold_file_names = list(filter(lambda x : re.match(pattern, x), all_files))
     mols_2D = [pickle.load(open(os.path.join(dset_dir, name), 'rb')) for name in fold_file_names]
@@ -796,23 +817,28 @@ def plot_distance_histogram(dset_dir: str, dest: str, x_major: Union[int, float]
         all_mols = list(reduce(lambda x, y : x + y, mols_2D))
     else:
         all_mols = mols_2D[0]
-        assert(len(all_mols) == 2500)
+        print(len(all_mols))
+        # assert(len(all_mols) == 232310)
     
     d_distr = get_dist_distribution(all_mols)
+    inverted_nums = {v : k for k, v in nums.items()}
     
     for elem_pair in d_distr:
         fig, axs = plt.subplots()
         curr_data = d_distr[elem_pair]
         bins = np.arange( min(curr_data), max(curr_data) + x_minor, x_minor)
         axs.hist(curr_data, bins = bins, color = 'red', alpha = 0.75)
-        axs.set_ylabel("Frequency")
-        axs.set_xlabel("Angstroms")
+        axs.set_ylabel("Frequency", fontsize = 14)
+        axs.set_xlabel("Angstroms ($\AA$)", fontsize = 14)
         axs.xaxis.set_major_locator(MultipleLocator(x_major))
         axs.xaxis.set_minor_locator(MultipleLocator(x_minor))
-        title = f"{elem_pair} pairwise distance distribution"
-        axs.set_title(title)
+        atom_1, atom_2 = elem_pair
+        atom_1, atom_2 = inverted_nums[atom_1], inverted_nums[atom_2]
+        title = f"{atom_1}-{atom_2} pairwise distance distribution"
+        axs.set_title(title, fontsize = 14)
         if (dest is not None):
-            fig.savefig(os.path.join(dest, f"{elem_pair}_dist.png"))
+            fig.tight_layout()
+            fig.savefig(os.path.join(dest, f"{elem_pair}_dist.png"), dpi = 2000)
     print("All histogram plots generated")
     
 def compare_electronic_values(skset_1_name: str, skset_2_name: str,

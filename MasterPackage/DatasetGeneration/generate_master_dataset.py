@@ -25,9 +25,30 @@ from .util import shuffle_dict
 allowed_Z = [1,6,7,8]
 heavy_atoms = [1,2,3,4,5,6,7,8]
 max_config = int(10E6)
-target = {"cc" : "cc", "wt" : "wt",
-       "dipole" : "wb97x_dz.dipole",
-       "charges" : "wb97x_dz.cm5_charges"}
+# target = {"cc" : "cc", "wt" : "wt",
+#        "dipole" : "wb97x_dz.dipole",
+#        "charges" : "wb97x_dz.cm5_charges"}
+#Target to use for comparing different energy targets only
+#   this saves to the file full_energy_master_dset.p
+target = {'dt': 'dftb.energy',  # Dftb Total
+            'de': 'dftb.elec_energy',  # Dftb Electronic
+            'dr': 'dftb.rep_energy',  # Dftb Repulsive
+            'pt': 'dftb_plus.energy',  # dftb Plus Total
+            'pe': 'dftb_plus.elec_energy',  # dftb Plus Electronic
+            'pr': 'dftb_plus.rep_energy',  # dftb Plus Repulsive
+            'hd': 'hf_dz.energy',  # Hf Dz
+            'ht': 'hf_tz.energy',
+            'hq': 'hf_qz.energy',
+            'wd': 'wb97x_dz.energy',  # Wb97x Dz
+            'wt': 'wb97x_tz.energy',
+            'md': 'mp2_dz.energy',  # Mp2 Dz
+            'mt': 'mp2_tz.energy',
+            'mq': 'mp2_qz.energy',
+            'td': 'tpno_ccsd(t)_dz.energy',  # Tpno Dz
+            'nd': 'npno_ccsd(t)_dz.energy',  # Npno Dz
+            'nt': 'npno_ccsd(t)_tz.energy',
+            'cc': 'ccsd(t)_cbs.energy'}
+
 ani1_path = "ANI-1ccx_clean_fullentry.h5"
 exclude = []
 DESTINATION = "ALL_EXPERIMENT_DSETS"
@@ -40,7 +61,7 @@ def generate_master_dset() -> None:
     """
     dataset = get_ani1data(allowed_Z, heavy_atoms, max_config, target, ani1_path,
                            exclude)
-    full_path = os.path.join(os.getcwd(), DESTINATION, "full_master_dset.p")
+    full_path = os.path.join(os.getcwd(), DESTINATION, "full_energy_master_dset.p")
     with open(full_path, 'wb') as handle:
         pickle.dump(dataset, handle)
     print("Master dataset saved with both cc and wt energy targets")

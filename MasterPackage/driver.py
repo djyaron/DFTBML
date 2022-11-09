@@ -143,7 +143,7 @@ if __name__ == "__main__":
     
     # args = parser.parse_args()
     
-    settings = "settings_refactor_tst.json"
+    settings = "exp1.json"
     defaults = "refactor_default_tst.json"
     
     start = time.process_time()
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     
     print("Copying settings file")
     
-    shutil.copy("settings_refactor_tst.json", os.path.join(results_dest, "settings_refactor_tst.json"))
+    shutil.copy("exp1.json", os.path.join(results_dest, "exp1.json"))
     
     print("All information copied")
     

@@ -500,6 +500,7 @@ def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: L
     true_target = np.array([molec['targets'][target] for molec in dataset])
     #Perform the necessary per_heavy_atom_correction
     if per_heavy_atom:
+        print("Analyzing per heavy atom")
         heavy_counts = np.array([count_nheavy(molec) for molec in dataset])
         assert(heavy_counts.shape == predicted_target.shape == true_target.shape)
         true_target = true_target / heavy_counts
@@ -509,61 +510,125 @@ def compute_results_torch_newrep(dataset: List[Dict], target: str, allowed_Zs: L
     elif error_metric == "MAE":
         return true_target - predicted_target, np.mean(np.abs(true_target - predicted_target))
 
-def multi_per_atom_correction(direc_path: str, error_metric: str = "MAE") -> None:
-    r"""Performs the per heavy atom correction for the energy MAEs using 
-        intermediate results saved from the full DFTB+ analysis
+def generate_reference_energy_vector(molecules: List[Dict], ref_params: str) -> Array:
+    r"""Takes in a path to reference energy parameters and returns the reference
+        energy corrections as a vector
     
     Arguments:
-        direc_path (str): The path to the properly formatted directory containing
-            the necessary experiments to analyze (SEE NOTES)
-        error_metric (str): Metric to use, one of MAE or RMS. Defaults to MAE.
+        molecules (List[Dict]): The list of molecule dictionaries to perform the calculation for
+        ref_params (str): The path to the reference energy parameters 
+    
+    Returns:
+        rer_energy (Array): A vector of the reference energies
+    """
+    atomic_nums = [mol['atomic_numbers'] for mol in molecules]
+    atomic_nums = sorted(list(set(np.concatenate(atomic_nums))))
+    print(f"The following atomic numbers are being used in the set: {atomic_nums}")
+    if ref_params is not None:
+        ref_params = pickle.load(open(ref_params, 'rb'))
+        coef, intercept, atype_ordering = ref_params['coef'], ref_params['intercept'], ref_params['atype_ordering']
+        assert(list(atype_ordering) == atomic_nums)
+        XX = generate_linear_ref_mat(molecules, atype_ordering)
+        ref_ener_vec = np.dot(XX, coef) + intercept
+    elif ref_params is None:
+        #Generate quantities for reference energy
+        coefs, XX = fit_linear_ref_ener(molecules, 'Etot', atomic_nums)
+        ref_ener_vec = np.dot(XX, coefs)
+    return ref_ener_vec
+
+def per_atom_correction(molecule_set_path: str, per_atom_method: str, use_ref: bool, ref_params: str = None, error_metric: str = "MAE",
+                        check_convergence: bool = True, outlier_threshold: int = 20):
+    r"""Analyzes results per heavy atom or per heavy atom for a set of molecules that are outputted from
+        DFTB+ analysis or xTB analysis. The predictions are saved under the 'pzero' key
+        
+    Arguments:
+        molecule_set_path (str): The path to the molecule set to analyze, stored in a pickle file
+        per_atom_method (str): The method to use for analysis. One of 'per_heavy' or 'per_atom',
+            where 'per_heavy' divides the energy differences by the number of heavy atoms
+            and 'per_atom' divides the energy differences by the number of atoms (including H)
+        include_ref (bool): if True, use trained reference energy parameters. Otherwise,
+            use a fresh linear fit
+        ref_params (str): Path to the file containing the reference parameters. if include_ref is True,
+            then this cannot be None and must point to a pickle file containing the reference parameters.
+            If include_ref is False, then this is left as None
+        error_metric (str): Either "MAE" or "RMS"
+        check_convergence (bool): Whether or not to remove molecules that have not converged. 
+            This is relevant for DFTB+ but not for xTB methods since every molecule passes 
+            in that case.
+        outlier_threshold (int): Number of standard deviations to use for outlier exclusion
+            during analysis. Defaults to 20. 
     
     Returns:
         None
     
-    Notes: A properly formatted directory will contain the intermediate pickle
-        files for each experiment as well as the results directories which contain 
-        the reference energy parameters that are needed. For each experiment, there
-        should exist a pickle file named analysis_{exp_name}_RESULT.p and an
-        associated directory which is {exp_name}_RESULT. A check is implemented
-        to ensure that this is the case.
+    Notes: For comparison to other studies, the results of total molecular energy have to be given on a 
+        per-atom and per-heavy-atom basis. This is the case for both xTB benchmarks and Auorg/MIO.
+        
+        The check_convergence argument is included for DFTB+ results where those molecules which fail to converge
+        are excluded from the result. An outlier analysis is performed first on absolute total molecular energy and then 
+        the resulting difference in energy between those molecules is calculated and divided by either
+        the number of heavy atoms or the number of atoms. The function sequential_outlier_exclusion uses the 
+        .pop() method to destructively modify the list of molecules, so that takes care of outlier removal
+        implicitly. Checks are built in to account for this.
     """
-    all_files = os.listdir(direc_path)
-    directories = list(filter(lambda x : os.path.isdir(os.path.join(direc_path, x)), all_files))
-    non_directories = [elem for elem in all_files if elem not in directories]
+    #Some preliminary checks to ensure the function call is correct:
+    if use_ref:
+        assert(ref_params is not None)
+    else:
+        assert(ref_params is None)
+    assert(per_atom_method in ['per_heavy', 'per_atom'])
+    assert(outlier_threshold == 20)
     
-    assert(len(non_directories) + len(directories) == len(all_files))
-    #Exclude the pickle files from the reference sets if they are present
-    exclude = ['analysis_auorg-1-1.p', 'analysis_mio-0-1.p']
-    molecule_p_files = [file_name for file_name in non_directories if ('.p' in file_name) and (file_name not in exclude)]
+    additional_info = {}
     
-    header = [['Experiment', 'Number outliers removed', 'MAE energy']]
-    
-    for molecule_file in molecule_p_files:
-        print(f"Performing correction for {molecule_file}")
-        full_molecule_path = os.path.join(direc_path, molecule_file)
-        results_direc_name = "_".join(molecule_file.split("_")[1:]).split(".")[0]
-        ref_params_path = os.path.join(direc_path, results_direc_name, 'ref_params.p')
-        molecule_set = pickle.load(open(full_molecule_path, 'rb'))
-        ref_params = pickle.load(open(ref_params_path, 'rb'))
-        coef, intercept, atype_ordering = ref_params['coef'], ref_params['intercept'], ref_params['atype_ordering']
-        diffs, error = compute_results_torch_newrep(molecule_set, "Etot", list(atype_ordering), 
-                                                    atype_ordering, coef, intercept, error_metric, per_heavy_atom = True)
-        original_len = len(diffs)
-        if error_metric == 'MAE':
-            diffs = np.abs(diffs)
-        elif error_metric == 'RMS':
-            diffs = np.square(diffs)
-        pruned_diffs = sequential_outlier_exclusion(diffs, 20) #20 is exclusion threshold number of stddevs
-        final_len = len(pruned_diffs)
-        combined_error = np.mean(pruned_diffs) if error_metric == "MAE" else np.sqrt(np.mean(pruned_diffs))
-        combined_err_kcal = combined_error * 627.5 #Convert to kcal/mol
-        header.append([molecule_file, final_len - original_len, combined_err_kcal])
-    
-    with open(os.path.join(direc_path, "per_atom_corrected.p"), "wb") as handle:
-        pickle.dump(header, handle)
-    
-    print(f"Finished per heavy atom correction for {direc_path}")
+    #Load the molecules and remove any that are not converged
+    molecules = pickle.load(open(molecule_set_path, 'rb'))
+    if check_convergence:
+        original_len = len(molecules)
+        molecules = [mol for mol in molecules if mol['pzero']['conv']]
+        final_len = len(molecules)
+        print(f"Removed {original_len - final_len} molecules due to non-convergence")
+        additional_info['num_nonconverged'] = original_len - final_len
+    else:
+        additional_info['num_nonconverged'] = 0 #Assume full convergence if checking it.
+    #Manage the reference energy
+    ref_ener_vec = generate_reference_energy_vector(molecules, ref_params)
+    #Generate molecular predictions
+    predicted_ener = np.array([mol['pzero']['t'] for mol in molecules]) + ref_ener_vec
+    target_ener = np.array([mol['targets']['Etot'] for mol in molecules])
+    ener_diff = np.abs(predicted_ener - target_ener)
+    #Outlier exclusion based on molecular predictions, but we do not care about the
+    #   results here
+    starting_len = len(molecules)
+    corrected_molecular_diffs, bad_molecs = sequential_outlier_exclusion(ener_diff, molecules, threshold = outlier_threshold)
+    final_len = len(molecules)
+    assert(starting_len - final_len == len(bad_molecs))
+    assert(len(corrected_molecular_diffs) == final_len)
+    print(f"Removed {starting_len - final_len} molecules as outliers")
+    additional_info['num_outliers'] = starting_len - final_len
+    #Re-do the energy calculation on the remaining molecules 
+    ref_ener_vec = generate_reference_energy_vector(molecules, ref_params)
+    assert(len(ref_ener_vec) == final_len)
+    predicted_ener = np.array([mol['pzero']['t'] for mol in molecules]) + ref_ener_vec
+    target_ener = np.array([mol['targets']['Etot'] for mol in molecules])
+    ener_diff = np.abs(predicted_ener - target_ener)
+    #Get the final statistics
+    if per_atom_method == 'per_heavy':
+        divisor = np.array([count_nheavy(x) for x in molecules])
+    elif per_atom_method == 'per_atom':
+        divisor = np.array([len(mol['atomic_numbers']) for mol in molecules])
+    if error_metric == "MAE":
+        print(f"Using metric {error_metric} with method {per_atom_method}")
+        value = np.mean(ener_diff / divisor) * 627.5
+        print(f"Error is {value} kcal/mol")
+    if error_metric == "RMS":
+        print(f"Using metric {error_metric} with method {per_atom_method}")
+        value = np.sqrt(np.mean(np.square(ener_diff / divisor))) * 627.5
+        print(f"Error is {value} kcal/mol")
+    print(f"Cases of non-convergence: {additional_info['num_nonconverged']}")
+    print(f"Cases of outliers: {additional_info['num_outliers']}")
+    print(f"Final number of molecules: {len(molecules)}")
+    return value, additional_info['num_nonconverged'], additional_info['num_outliers']
 
 def compute_targets_preds(dataset: List[Dict], target: str, atypes: tuple, coefs: Array, intercept: float):
     r"""Returns the predicted energies after being corrected by the reference energy term

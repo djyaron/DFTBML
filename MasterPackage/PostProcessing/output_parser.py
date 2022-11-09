@@ -8,7 +8,7 @@ Module for parsing output text files into dictionaries for use by other
 modules. The structure of output text files should remain constant
 """
 #%% Imports, definitions
-import os, path, json
+import os, json
 from typing import Dict, Union
 
 #%% Code behind
