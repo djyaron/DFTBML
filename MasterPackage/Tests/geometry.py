@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
 
+import collections
 import math
 import numbers
-import numpy as np
-import collections
 from operator import itemgetter
+
+import numpy as np
+
 try:
     import matplotlib.pyplot as plt
 except:
     pass
 
 
-from Rotations import rotation_matrix_atom, rotation_matrix_bond, \
-    get_axis_rotation_matrix
 from Elements import ELEMENTS
+from Rotations import (get_axis_rotation_matrix, rotation_matrix_atom,
+                       rotation_matrix_bond)
+
 
 def to_cart(geom):
     return np.hstack([geom.z.reshape([-1,1]), geom.rcart.T])

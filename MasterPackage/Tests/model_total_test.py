@@ -9,19 +9,24 @@ should agree well with established benchmarks. This will be using the
 same settings as was used for the skf_8020_100knot run. 
 """
 #%% Imports, definitions
-from driver import run_training
-import shutil
+import os
 import pickle
+import shutil
+
 import numpy as np
+from driver import run_training
+
+from .helpers import test_data_dir
+
 
 #%% Code behind
 def test_total_model():
-    settings = "test_files/skf_8020_100knot/settings_refactor_tst.json"
-    defaults = "test_files/skf_8020_100knot/default_refactor_tst.json"
+    settings = os.path.join(test_data_dir, "skf_8020_100knot/settings_refactor_tst.json")
+    defaults = os.path.join(test_data_dir, "skf_8020_100knot/default_refactor_tst.json")
     reference_energy_params, loss_tracker, all_models, model_variables, times_per_epoch = run_training(settings, defaults)
     
     #Compare losses to benchmarks
-    benchmark_loss_path = "test_files/skf_8020_100knot/Split0/loss_tracker.p"
+    benchmark_loss_path = os.path.join(test_data_dir, "skf_8020_100knot/Split0/loss_tracker.p")
     true_lt = pickle.load(open(benchmark_loss_path, 'rb'))
     assert(set(true_lt.keys()) == set(loss_tracker.keys()))
     
@@ -55,7 +60,7 @@ def test_total_model():
     
     print("Total model tests passed")
     
-    shutil.rmtree("test_files/test_ignore")
+    shutil.rmtree(os.path.join(test_data_dir, "test_ignore"))
         
     
 def run_total_model_tests():

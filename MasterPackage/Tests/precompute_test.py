@@ -13,10 +13,16 @@ TODO: Incorporate gammas precompute into the precompute testing
 """
 #%% Imports, definittions 
 import os
-from FoldManager import generate_folds, save_folds, compute_graphs_from_folds, precompute_gammas, precompute_gammas_per_fold
-from InputParser import parse_input_dictionaries, collapse_to_master_settings, inflate_to_dict
-from .h5handler_test import run_safety_check
 import shutil
+
+from FoldManager import (compute_graphs_from_folds, generate_folds,
+                         precompute_gammas, precompute_gammas_per_fold,
+                         save_folds)
+from InputParser import (collapse_to_master_settings, inflate_to_dict,
+                         parse_input_dictionaries)
+
+from .h5handler_test import run_safety_check
+from .helpers import test_data_dir
 
 #%% Code behind
 
@@ -41,8 +47,8 @@ def run_fold_gen_test():
 
 def run_precompute_test(clear_direc: bool = True):
     print("Testing out precompute...")
-    settings_filename = "test_files/settings_refactor_tst.json"
-    defaults_filename = "test_files/refactor_default_tst_precomp_only.json"
+    settings_filename = os.path.join(test_data_dir, "settings_refactor_tst.json")
+    defaults_filename = os.path.join(test_data_dir, "refactor_default_tst_precomp_only.json")
     resulting_settings_obj = parse_input_dictionaries(settings_filename, defaults_filename)
     opts = inflate_to_dict(resulting_settings_obj)
     final_settings = collapse_to_master_settings(resulting_settings_obj)

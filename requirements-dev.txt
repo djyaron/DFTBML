@@ -1,0 +1,20 @@
+torch==1.13.0
+numpy
+h5py
+pandas
+scipy
+scikit-learn
+cvxopt
+matplotlib
+more-itertools
+bidict
+pyyaml
+molmass
+
+# Development dependencies
+tox
+pytest
+pytest-cov
+pytest-randomly
+black
+isort

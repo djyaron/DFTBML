@@ -15,13 +15,18 @@ This test is designed to assess the compute_gammas and the
 train_repulsive_model function, which is called in the framework of 
 DFTBRepulsiveModel. 
 """
-
 #%% Imports, definitions
-from DFTBrepulsive import compute_gammas
-from InputLayer import generate_gammas_input, DFTBRepulsiveModel
+
+import os
 import pickle
-from InputParser import parse_input_dictionaries, inflate_to_dict
 from functools import reduce
+
+from DFTBrepulsive import compute_gammas
+from InputLayer import DFTBRepulsiveModel, generate_gammas_input
+from InputParser import inflate_to_dict, parse_input_dictionaries
+
+from .helpers import test_data_dir
+
 
 #%% Code behind
 def test_repulsive():
@@ -33,14 +38,14 @@ def test_repulsive():
     
     tolerance = 0.0015
     #Dummy options dictionary
-    settings_filename = "test_files/settings_refactor_tst_new_rep.json"
-    defaults_filename = "test_files/refactor_default_tst_new_rep.json"
+    settings_filename = os.path.join(test_data_dir, "settings_refactor_tst_new_rep.json")
+    defaults_filename = os.path.join(test_data_dir, "refactor_default_tst_new_rep.json")
     final_s = parse_input_dictionaries(settings_filename, defaults_filename)
     opts = inflate_to_dict(final_s)
     
     #Try to generate gammas using dummy data
-    batches_train = pickle.load(open("test_files/predicted_train_elec_only.p", "rb"))
-    batches_valid = pickle.load(open("test_files/predicted_validation_elec_only.p", "rb"))
+    batches_train = pickle.load(open(os.path.join(test_data_dir, "predicted_train_elec_only.p"), "rb"))
+    batches_valid = pickle.load(open(os.path.join(test_data_dir, "predicted_validation_elec_only.p"), "rb"))
     all_train = list(reduce(lambda x, y : x + y, batches_train))
     all_valid = list(reduce(lambda x, y : x + y, batches_valid))
     #Do a correction to the format of the dictionaries to accomodate the new 

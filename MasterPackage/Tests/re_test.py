@@ -7,15 +7,20 @@ Created on Mon Nov  1 21:45:58 2021
 """
 A test for regular expression parsing of charges and dipoles
 """
-
 #%% Imports, definitions
-import re, os
-from MasterConstants import gross_charge, cm5_charge, dipole_line
-from DFTBPlus import add_dftb
+
+import os
 import pickle
+import re
 from copy import deepcopy
-from Auorg_1_1 import ParDict
+
 import numpy as np
+from Auorg_1_1 import ParDict
+from DFTBPlus import add_dftb
+from MasterConstants import cm5_charge, dipole_line, gross_charge
+
+from .helpers import test_data_dir
+
 
 #%% Code behind
 def test_charge_parsing() -> None:
@@ -25,7 +30,7 @@ def test_charge_parsing() -> None:
     gross_matcher = re.compile(gross_charge)
     cm5_matcher = re.compile(cm5_charge)
     
-    tst_file_name = "test_files/re_detailed_tst.out"
+    tst_file_name = os.path.join(test_data_dir, "re_detailed_tst.out")
     content = open(tst_file_name, 'r').read()
     
     gross_correct = ''' Atomic gross charges (e)
@@ -81,7 +86,7 @@ def test_dipole_parsing() -> None:
     debye_dipole_true = "Dipole moment:   -2.36953379   -5.12258567    0.13596542 Debye\n"
     
     dipole_matcher = re.compile(dipole_line)
-    tst_file_name = "test_files/re_detailed_tst.out"
+    tst_file_name = os.path.join(test_data_dir, "re_detailed_tst.out")
     content = open(tst_file_name, 'r').read()
     dipoles = dipole_matcher.findall(content)
     assert(len(dipoles) == 2)
@@ -102,7 +107,7 @@ def compare_charge_values() -> None:
     """
     charge_tol = 3E-6
     
-    dset_path = "test_files/small_tst_set.p"
+    dset_path = os.path.join(test_data_dir, "small_tst_set.p")
     dset = pickle.load(open(dset_path, 'rb'))
     dset_2 = deepcopy(dset)
     skf_dir = os.path.join(os.getcwd(), "Auorg_1_1/auorg-1-1") #Should match for any skf set used

@@ -7,18 +7,24 @@ Created on Wed Jul 21 19:15:47 2021
 Test module for testing construction of gammas from gammas saved per fold
 """
 #%% Imports, definitions
+
+import os
+import pickle
+
+import numpy as np
+from DataManager import load_config_tracker_per_fold, load_gammas_per_fold
 from InputLayer import combine_gammas_ctrackers
 from Training import sort_gammas_ctracks
-import pickle, os
-import numpy as np
-from DataManager import load_gammas_per_fold, load_config_tracker_per_fold
+
+from .helpers import test_data_dir
+
 
 #%% Code behind
 def test_gammas_combination():
     r"""Testing reading and fusing of gammas and configuration trackers
     """
     split_mapping = {0 : [[0],[1]]}
-    path = "test_files/gam_con_files"
+    path = os.path.join(test_data_dir, "gam_con_files")
     # path = "multiprocess_compute_test"
     
     gam_lst = load_gammas_per_fold(path)

@@ -4,17 +4,22 @@ Created on Fri Jun  4 16:35:35 2021
 
 @author: fhu14
 """
-
-from InputParser import construct_final_settings_dict,\
-    parse_input_dictionaries, collapse_to_master_settings
 import json
+import os
+
+from InputParser import (collapse_to_master_settings,
+                         construct_final_settings_dict,
+                         parse_input_dictionaries)
+
+from .helpers import test_data_dir
+
 
 def test_exception_handling():
     #Test exception handling with missing 'run_id' key in settings
-    with open("test_files/settings_empty.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "settings_empty.json"), "r") as handle:
         settings = json.load(handle)
     
-    with open("test_files/refactor_default_tst.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "refactor_default_tst.json"), "r") as handle:
         defaults = json.load(handle)
     
     print("Testing KeyError exception...")
@@ -30,10 +35,10 @@ def test_exception_handling():
         
 def test_total_reconstruction():
     #Test total reconstruction
-    with open("test_files/refactor_default_tst.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "refactor_default_tst.json"), "r") as handle:
         defaults = json.load(handle)
     
-    with open("test_files/settings_empty_runid.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "settings_empty_runid.json"), "r") as handle:
         settings = json.load(handle)
     
     print("Testing total reconstruction...")
@@ -50,10 +55,10 @@ def test_partial_reconstruction():
     #Test partial reconstruction
     test_keys = ["loaded_data_fields", "model_settings"]
     
-    with open("test_files/refactor_default_tst.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "refactor_default_tst.json"), "r") as handle:
         defaults = json.load(handle)
     
-    with open("test_files/settings_refactor_partial.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "settings_refactor_partial.json"), "r") as handle:
         settings = json.load(handle)
         
     print("Testing partial reconstruction...")
@@ -89,10 +94,10 @@ def test_inner_translation():
         training_settings -> ragged_dipole = false (settings)
         training_settings -> debug = false (default)
     '''
-    with open("test_files/refactor_default_tst.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "refactor_default_tst.json"), "r") as handle:
         defaults = json.load(handle)
     
-    with open("test_files/settings_refactor_differ.json", "r") as handle:
+    with open(os.path.join(test_data_dir, "settings_refactor_differ.json"), "r") as handle:
         settings = json.load(handle)
     
     print("Testing inner value translation")
@@ -128,8 +133,8 @@ def test_inner_translation():
     
 def test_object_conversion():
     #Using these same settings and default dictionaries, test the resulting settings object
-    final_settings_obj = parse_input_dictionaries("test_files/settings_refactor_differ.json",
-                                                  "test_files/refactor_default_tst.json")
+    final_settings_obj = parse_input_dictionaries(os.path.join(test_data_dir, "settings_refactor_differ.json"),
+                                                  os.path.join(test_data_dir, "refactor_default_tst.json"))
     
     print("Testing the conversion from dictionary to object...")
     
@@ -156,8 +161,8 @@ def test_object_conversion():
 
 def test_object_addition():
     #Checking that operator overload is functioning correctly.
-    final_settings_obj = parse_input_dictionaries("test_files/settings_refactor_differ.json",
-                                                  "test_files/refactor_default_tst.json")
+    final_settings_obj = parse_input_dictionaries(os.path.join(test_data_dir, "settings_refactor_differ.json"),
+                                                  os.path.join(test_data_dir, "refactor_default_tst.json"))
     
     print("Testing the addition operator overload for settings objects...")
     
@@ -183,8 +188,8 @@ def test_object_addition():
 def test_collapse_master():
     #Checking that operator overload is functioning correctly.
     print("Testing the addition operator overload and run_id...")
-    final_settings_obj = parse_input_dictionaries("test_files/settings_refactor_differ.json",
-                                                  "test_files/refactor_default_tst.json")
+    final_settings_obj = parse_input_dictionaries(os.path.join(test_data_dir, "settings_refactor_differ.json"),
+                                                  os.path.join(test_data_dir, "refactor_default_tst.json"))
     
     final_settings_obj = collapse_to_master_settings(final_settings_obj)
     assert('run_id' in final_settings_obj.__dict__)

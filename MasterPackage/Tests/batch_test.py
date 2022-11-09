@@ -7,18 +7,18 @@ Created on Tue Jun  8 12:36:15 2021
 TODO: Fix this test function!
 """
 #%% Imports, definitions
+
+import math
+import pickle
 from collections import OrderedDict
+
 import numpy as np
 import scipy
-
-from Geometry import random_triatomics, to_cart
-from DFTBpy import determine_fermi_level, fermi, DFTB
-
-import math, pickle
-from DFTBLayer import DFTBList, create_batch, create_dataset,\
-    np_segment_sum, maxabs
-
 from Auorg_1_1 import ParDict
+from DFTBLayer import (DFTBList, create_batch, create_dataset, maxabs,
+                       np_segment_sum)
+from DFTBpy import DFTB, determine_fermi_level, fermi
+from Geometry import random_triatomics, to_cart
 
 #%% Code behind
 

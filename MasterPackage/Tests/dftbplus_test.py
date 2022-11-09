@@ -7,8 +7,12 @@ Created on Mon Jul  5 12:50:30 2021
 
 #%% Imports, definitions
 import os
-from DFTBPlus import find_all_used_configs, filter_dataset, run_organics, read_detailed_out
 import pickle
+
+from DFTBPlus import (filter_dataset, find_all_used_configs, read_detailed_out,
+                      run_organics)
+
+from .helpers import test_data_dir
 
 #%% Code behind
 
@@ -121,13 +125,13 @@ def test_dftbplus_detailed_out():
     """
     print("Testing detailed.out parsing...")
     
-    file_path = "test_files/detailed.out"
+    file_path = os.path.join(test_data_dir, "detailed.out")
     result = read_detailed_out(file_path)
     assert(result['t'] == -4.8133377035)
     assert(result['e'] == -5.1997524973)
     assert(result['r'] == 0.3864147938)
     
-    file_path = "test_files/err_C1H1N3O2_zero.out"
+    file_path = os.path.join(test_data_dir, "err_C1H1N3O2_zero.out")
     result = read_detailed_out(file_path)
     assert(result['t'] == -15.6928067773)
     assert(result['e'] == -16.5861217217)

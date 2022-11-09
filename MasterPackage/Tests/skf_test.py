@@ -6,16 +6,19 @@ Created on Thu Jul 15 10:51:38 2021
 
 Test suite for different functionalities present in SKF writer.
 """
-
 #%% Imports, definitions
-from SKF import determine_index, write_skfs
-from MasterConstants import Model
-import os, pickle
-from DFTBPlus import run_organics
-import DFTBrepulsive #SKF, SKFSet, SKFBlockCreator
-from MasterConstants import atom_nums, atom_masses
-import Auorg_1_1
+
+import os
+import pickle
 import shutil
+
+import Auorg_1_1
+import DFTBrepulsive  # SKF, SKFSet, SKFBlockCreator
+from DFTBPlus import run_organics
+from MasterConstants import Model, atom_masses, atom_nums
+from SKF import determine_index, write_skfs
+
+from .helpers import test_data_dir
 
 #%% Code behind
 
@@ -58,12 +61,12 @@ def test_new_SKF_framework(clear_direc: bool):
     refacted_benchmark = 4.290744984048831
     
     #Parameters for writing SKFs
-    model_path = "test_files/skf_8020_100knot/Split0/saved_models.p"
+    model_path = os.path.join(test_data_dir, "skf_8020_100knot/Split0/saved_models.p")
     models = pickle.load(open(model_path, 'rb'))
     compute_S_block = True
     ref_direct = "Auorg_1_1/auorg-1-1"
     rep_mode = "old"
-    dest = "test_files/skf_8020_100knot_deriv_delete"
+    dest = os.path.join(test_data_dir, "skf_8020_100knot_deriv_delete")
     spl_ngrid = 50
     
     #Write the SKFs using the new framework
@@ -91,12 +94,12 @@ def test_new_SKF_framework(clear_direc: bool):
     assert(abs(err_kcal - skf_8020_benchmark) < tol)
     
     #Do another SKF set
-    model_path = "test_files/refacted_joined_spline_run/Split0/saved_models.p"
+    model_path = os.path.join(test_data_dir, "refacted_joined_spline_run/Split0/saved_models.p")
     models = pickle.load(open(model_path, 'rb'))
     compute_S_block = True
     ref_direct = "Auorg_1_1/auorg-1-1"
     rep_mode = "old"
-    dest = "test_files/refacted_joined_spline_run_deriv_delete"
+    dest = os.path.join(test_data_dir, "refacted_joined_spline_run_deriv_delete")
     spl_ngrid = 50
     
     #Write the new SKFs using the new framework
@@ -115,8 +118,8 @@ def test_new_SKF_framework(clear_direc: bool):
     
     if clear_direc:
         print("Doing some cleanup...")
-        shutil.rmtree("test_files/skf_8020_100knot_deriv_delete")
-        shutil.rmtree("test_files/refacted_joined_spline_run_deriv_delete")
+        shutil.rmtree(os.path.join(test_data_dir, "skf_8020_100knot_deriv_delete"))
+        shutil.rmtree(os.path.join(test_data_dir, "refacted_joined_spline_run_deriv_delete"))
     
     print("New SKF framework tests passed")
 
