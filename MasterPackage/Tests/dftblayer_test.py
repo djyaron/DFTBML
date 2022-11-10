@@ -23,28 +23,33 @@ TODO: THE CODE IS CURRENTLY BROKEN, NOT GOING TO RUN
 """
 #%% Imports, definitions
 
-import numpy as np
-import torch
-
-Tensor = torch.Tensor
-Array = np.ndarray
-import json
 import os
 import os.path
-import pickle
 from statistics import mean
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import Auorg_1_1
 import MIO_0_1
+import numpy as np
 import TestSKF
-from DFTBLayer import (DFTB_Layer, feed_generation, model_loss_initialization,
-                       total_type_conversion)
+import torch
+from DFTBLayer import DFTB_Layer, total_type_conversion
 from DFTBPlus import add_dftb
 from DFTBpy import _Gamma12
 from FoldManager import get_ani1data, single_fold_precompute
 from InputLayer import Input_layer_hubbard, repulsive_energy
 from InputParser import collapse_to_master_settings, parse_input_dictionaries
+
+from .helpers import (
+    auorg_dir,
+    get_dftbplus_executable,
+    mio_dir,
+    test_data_dir,
+    test_skf_dir,
+)
+
+Tensor = torch.Tensor
+Array = np.ndarray
 
 #%% Code behind
 
@@ -316,13 +321,13 @@ def run_layer_tests():
     
     tol_G = 1E-12
     tol_Val = 3E-5
-    settings_filename = os.path.join(os.getcwd(), "test_files", "dftb_layer_tst_settings.json")
-    defaults_filename = os.path.join(os.getcwd(), "test_files", "refactor_default_tst.json")
-    ani1_path = os.path.join(os.getcwd(), "test_files", "ANI-1ccx_clean_fullentry.h5")
-    skf_path_au = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
-    skf_path_mio = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
-    skf_path_home = os.path.join(os.getcwd(), "TestSKF", "skf_8020_no_trained_S")
-    exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+    settings_filename = os.path.join(test_data_dir, "dftb_layer_tst_settings.json")
+    defaults_filename = os.path.join(test_data_dir, "refactor_default_tst.json")
+    ani1_path = os.path.join(test_data_dir, "ANI-1ccx_clean_fullentry.h5")
+    skf_path_au = os.path.join(auorg_dir, "auorg-1-1")
+    skf_path_mio = os.path.join(mio_dir, "mio-0-1")
+    skf_path_home = os.path.join(test_skf_dir, "skf_8020_no_trained_S")
+    exec_path = get_dftbplus_executable()
     
     s_obj = parse_input_dictionaries(settings_filename, defaults_filename)
     s_obj = collapse_to_master_settings(s_obj)

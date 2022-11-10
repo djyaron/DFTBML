@@ -23,6 +23,7 @@ from typing import Dict
 
 import numpy as np
 from FoldManager import get_ani1data
+from .helpers import ani1_path
 
 
 #%% Code behind
@@ -39,9 +40,7 @@ def test_ani1_Zs_ordering():
     target = {"Etot" : "cc",
                "dipole" : "wb97x_dz.dipole",
                "charges" : "wb97x_dz.cm5_charges"}
-    
-    ani1_path = "ANI-1ccx_clean_fullentry.h5"
-    
+        
     all_mols_1 = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, ani1_path)
     
     for mol in all_mols_1:
@@ -101,8 +100,6 @@ def test_ani1_extraction():
     target = {"Etot" : "cc",
                "dipole" : "wb97x_dz.dipole",
                "charges" : "wb97x_dz.cm5_charges"}
-    
-    ani1_path = "ANI-1ccx_clean_fullentry.h5"
     
     small_set = get_ani1data(allowed_Zs, heavy_atoms, max_config, target, ani1_path)
     

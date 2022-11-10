@@ -18,7 +18,7 @@ from DFTBPlus import run_organics
 from MasterConstants import Model, atom_masses, atom_nums
 from SKF import determine_index, write_skfs
 
-from .helpers import test_data_dir
+from .helpers import auorg_dir, test_data_dir, ani1_path
 
 #%% Code behind
 
@@ -64,7 +64,7 @@ def test_new_SKF_framework(clear_direc: bool):
     model_path = os.path.join(test_data_dir, "skf_8020_100knot/Split0/saved_models.p")
     models = pickle.load(open(model_path, 'rb'))
     compute_S_block = True
-    ref_direct = "Auorg_1_1/auorg-1-1"
+    ref_direct = os.path.join(auorg_dir, "auorg-1-1")
     rep_mode = "old"
     dest = os.path.join(test_data_dir, "skf_8020_100knot_deriv_delete")
     spl_ngrid = 50
@@ -73,7 +73,6 @@ def test_new_SKF_framework(clear_direc: bool):
     write_skfs(models, atom_nums, atom_masses, compute_S_block, ref_direct, rep_mode, dest, spl_ngrid)
     
     #Now run them through DFTB+ with the proper settings from run_organics
-    data_path = "ANI-1ccx_clean_fullentry.h5"
     max_config = 1
     maxheavy = 8
     allowed_Zs = [1,6,7,8]
@@ -85,7 +84,7 @@ def test_new_SKF_framework(clear_direc: bool):
     pardict = Auorg_1_1.ParDict()
     rep_setting = "old"
     
-    err_Ha, err_kcal, _ = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
+    err_Ha, err_kcal, _ = run_organics(ani1_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
                                     exec_path, pardict, rep_setting)
     
     print(f"Error in Hartrees: {err_Ha}")
@@ -97,7 +96,7 @@ def test_new_SKF_framework(clear_direc: bool):
     model_path = os.path.join(test_data_dir, "refacted_joined_spline_run/Split0/saved_models.p")
     models = pickle.load(open(model_path, 'rb'))
     compute_S_block = True
-    ref_direct = "Auorg_1_1/auorg-1-1"
+    ref_direct = os.path.join(auorg_dir, "auorg-1-1")
     rep_mode = "old"
     dest = os.path.join(test_data_dir, "refacted_joined_spline_run_deriv_delete")
     spl_ngrid = 50
@@ -108,7 +107,7 @@ def test_new_SKF_framework(clear_direc: bool):
     #Now run them throughn DFTB+ with the proper settings from run_organics
     skf_dir = os.path.join(os.getcwd(), "test_files", "refacted_joined_spline_run_deriv_delete")
     
-    err_Ha, err_kcal, _ = run_organics(data_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
+    err_Ha, err_kcal, _ = run_organics(ani1_path, max_config, maxheavy, allowed_Zs, target, skf_dir,
                                     exec_path, pardict, rep_setting)
     
     print(f"Error in Hartrees: {err_Ha}")

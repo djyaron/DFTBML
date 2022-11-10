@@ -19,7 +19,7 @@ from Auorg_1_1 import ParDict
 from DFTBPlus import add_dftb
 from MasterConstants import cm5_charge, dipole_line, gross_charge
 
-from .helpers import test_data_dir
+from .helpers import auorg_dir, get_dftbplus_executable, mio_dir, test_data_dir
 
 
 #%% Code behind
@@ -110,10 +110,10 @@ def compare_charge_values() -> None:
     dset_path = os.path.join(test_data_dir, "small_tst_set.p")
     dset = pickle.load(open(dset_path, 'rb'))
     dset_2 = deepcopy(dset)
-    skf_dir = os.path.join(os.getcwd(), "Auorg_1_1/auorg-1-1") #Should match for any skf set used
-    skf_dir_2 = os.path.join(os.getcwd(), "MIO_0_1/mio-0-1")
+    skf_dir = os.path.join(auorg_dir, "auorg-1-1") #Should match for any skf set used
+    skf_dir_2 = os.path.join(mio_dir, "mio-0-1")
     
-    exec_path = os.path.join(os.getcwd(), "../../../dftbp/dftbplus-21.1.x86_64-linux/bin/dftb+")
+    exec_path = get_dftbplus_executable()
     par_dict = ParDict()
     
     #Do call on first dset and skf dir

@@ -9,10 +9,14 @@ Created on Mon Jul  5 12:50:30 2021
 import os
 import pickle
 
-from DFTBPlus import (filter_dataset, find_all_used_configs, read_detailed_out,
-                      run_organics)
+from DFTBPlus import (
+    filter_dataset,
+    find_all_used_configs,
+    read_detailed_out,
+    run_organics,
+)
 
-from .helpers import test_data_dir
+from .helpers import auorg_dir, get_dftbplus_executable, mio_dir, test_data_dir
 
 #%% Code behind
 
@@ -24,7 +28,7 @@ def test_molecule_exclusion() -> None:
         DFTB+ on a dataset of unseen molecules.
     """
     print("Testing molecule exclusion...")
-    dataset_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion")
+    dataset_path = os.path.join(test_data_dir, "molec_exclusion")
     name_conf_pairs = find_all_used_configs(dataset_path)
     dataset = pickle.load(open(os.path.join(dataset_path, "Fold0_molecs.p"), 'rb')) + \
         pickle.load(open(os.path.join(dataset_path, "Fold1_molecs.p"), 'rb'))
@@ -35,8 +39,8 @@ def test_molecule_exclusion() -> None:
     assert(len(cleaned_dataset) == 0)
     
     #General test for correct exclusion.
-    dataset_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion")
-    dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single0")
+    dataset_path = os.path.join(test_data_dir, "molec_exclusion")
+    dataset_ref_path = os.path.join(test_data_dir, "molec_exclusion", "molec_exclusion_single0")
     name_conf_pairs = find_all_used_configs(dataset_ref_path)
     dataset = pickle.load(open(os.path.join(dataset_path, "Fold0_molecs.p"), 'rb')) + \
         pickle.load(open(os.path.join(dataset_path, "Fold1_molecs.p"), 'rb'))
@@ -52,7 +56,7 @@ def test_molecule_exclusion() -> None:
     assert(nc_pair_set.difference(clean_name_set) == nc_pair_set)
     assert(clean_name_set.intersection(nc_pair_set) == set())
     
-    dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single1")
+    dataset_ref_path = os.path.join(test_data_dir, "molec_exclusion", "molec_exclusion_single1")
     name_conf_pairs = find_all_used_configs(dataset_ref_path)
     assert(len(name_conf_pairs) == 466)
     cleaned_dataset = filter_dataset(dataset, name_conf_pairs)
@@ -65,7 +69,7 @@ def test_molecule_exclusion() -> None:
     assert(clean_name_set.intersection(nc_pair_set) == set())
     
     #Ensure that the exclusion based on empirical formula works correctly
-    dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single1")
+    dataset_ref_path = os.path.join(test_data_dir, "molec_exclusion", "molec_exclusion_single1")
     name_conf_pairs = find_all_used_configs(dataset_ref_path)
     assert(len(name_conf_pairs) == 466)
     cleaned_dataset = filter_dataset(dataset, name_conf_pairs, "form")
@@ -74,7 +78,7 @@ def test_molecule_exclusion() -> None:
     train_name_set_only = set([pair[0] for pair in name_conf_pairs])
     assert(clean_name_set.intersection(train_name_set_only) == set())
     
-    dataset_ref_path = os.path.join(os.getcwd(), "test_files", "molec_exclusion", "molec_exclusion_single0")
+    dataset_ref_path = os.path.join(test_data_dir, "molec_exclusion", "molec_exclusion_single0")
     name_conf_pairs = find_all_used_configs(dataset_ref_path)
     assert(len(name_conf_pairs) == 1863)
     cleaned_dataset = filter_dataset(dataset, name_conf_pairs, "form")
@@ -90,22 +94,23 @@ def test_dftbplus_organics():
         apx_equal for testing. 
     """
     print("Testing DFTB+ run on organics...")
-    data_path = os.path.join(os.getcwd(), "test_files", "ANI-1ccx_clean_fullentry.h5")
+    data_path = os.path.join(test_data_dir, "ANI-1ccx_clean_fullentry.h5")
     max_config = 1
     maxheavy = 8
     allowed_Zs = [1,6,7,8]
     target = 'cc'
-    skf_dir = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
-    exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
+    skf_dir = os.path.join(auorg_dir, "auorg-1-1")
+    exec_path = get_dftbplus_executable()
+    
     from Auorg_1_1 import ParDict
     pardict = ParDict()
     #Not going to do filter testing, so values are not required for those 
     #   parameters. Also going to stick with mean abs error for testing purposes.
     
-    skf_dir_au = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
-    skf_dir_mio = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
-    skf_dir_refac_joined = os.path.join(os.getcwd(), "test_files", "refacted_joined_spline_run")
-    skf_dir_100knot = os.path.join(os.getcwd(), "test_files", "skf_8020_100knot")
+    skf_dir_au = os.path.join(auorg_dir, "auorg-1-1")
+    skf_dir_mio = os.path.join(mio_dir, "mio-0-1")
+    skf_dir_refac_joined = os.path.join(test_data_dir, "refacted_joined_spline_run")
+    skf_dir_100knot = os.path.join(test_data_dir, "skf_8020_100knot")
     
     skf_names = [skf_dir_au, skf_dir_mio, skf_dir_refac_joined, skf_dir_100knot]
     accepted_vals_kcal = [10.902432164852327, 11.498048267608118, 4.30573249547126,

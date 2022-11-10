@@ -28,7 +28,7 @@ from functools import reduce
 
 import Auorg_1_1
 
-from .helpers import test_data_dir
+from .helpers import auorg_dir, test_data_dir
 
 
 #%% Code behind
@@ -115,7 +115,7 @@ def test_lj_dispersion_against_dftbplus():
     fold_mapping = {0 : [[0],[1]]}
     fold_num = 0
     top_level_fold_path = os.path.join(test_data_dir, "fold_molecs_test_8020")
-    skf_dir = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
+    skf_dir = os.path.join(auorg_dir, "auorg-1-1")
     exec_path = "C:\\Users\\fhu14\\Desktop\\DFTB17.1Windows\\DFTB17.1Windows-CygWin\\dftb+"
     pardict = Auorg_1_1.ParDict()
     
