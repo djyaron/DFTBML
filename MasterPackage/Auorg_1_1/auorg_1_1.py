@@ -8,9 +8,10 @@
 
 # SKF parameter interface:
 import os
+
 from SKF import SkfInfo
 
-PARAMPATH = os.path.join(os.getcwd(), "Auorg_1_1", "auorg-1-1")
+PARAMPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Auorg_1_1", "auorg-1-1")
 
 def ParDict():
     elements = ['H', 'C', 'N', 'O', 'S', 'Au']
