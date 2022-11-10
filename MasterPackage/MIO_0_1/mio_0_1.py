@@ -10,7 +10,7 @@
 import os
 from SKF import SkfInfo
 
-PARAMPATH = os.path.join(os.getcwd(), "MIO_0_1", "mio-0-1")
+PARAMPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MIO_0_1", "mio-0-1")
 
 
 def ParDict(paramPath=PARAMPATH):
