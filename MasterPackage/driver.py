@@ -83,9 +83,16 @@ def run_training(settings_filename: str, defaults_filename: str, skf_method: str
         
         assert(all_models is model_save)
         assert(model_variables is variable_save)
+
+#%% Main block
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("settings", help = "Name of the settings file for the current hyperparameter settings")
+    parser.add_argument("defaults", help = "Name of the default settings file for the hyperparameters")
+    parser.add_argument("--verbose", help = "increase output verbosity", action = "store_true")
     
+    args = parser.parse_args()
+    settings, default = args.settings, args.defaults
+    #Fix the skf method as the new method
+    run_training(settings, default, skf_method = 'new')
     
-    
-    
-        
-        
