@@ -33,6 +33,8 @@ from .helpers import ani1_path, test_data_dir
 
 #%% Code behind
 
+local_fold_molecs = os.path.join(test_data_dir, "fold_molecs_internal")
+
 
 def run_fold_gen_test():
     allowed_Zs = [1, 6, 7, 8]
@@ -43,7 +45,6 @@ def run_fold_gen_test():
     lower_limit = 5
     num_folds = 6
     num_folds_lower = 3
-    local_fold_molecs = "fold_molecs_internal"
 
     print("Testing fold generation")
     folds = generate_folds(
@@ -67,18 +68,19 @@ def run_precompute_test(clear_direc: bool = True):
     resulting_settings_obj = parse_input_dictionaries(settings_filename, defaults_filename)
     opts = inflate_to_dict(resulting_settings_obj)
     final_settings = collapse_to_master_settings(resulting_settings_obj)
+
     # Do the graph computation
-    compute_graphs_from_folds(final_settings, "fold_molecs_internal", True)
+    compute_graphs_from_folds(final_settings, local_fold_molecs, True)
     # Now do the gammas computation for the entire dataset
-    precompute_gammas(opts, "fold_molecs_internal")
+    precompute_gammas(opts, local_fold_molecs)
     # Now do the gammas computation for each fold
-    precompute_gammas_per_fold(opts, "fold_molecs_internal")
+    precompute_gammas_per_fold(opts, local_fold_molecs)
     print("Precompute executed successfully.")
-    run_safety_check("fold_molecs_internal", [0, 1, 2, 3, 4, 5])
+    run_safety_check(local_fold_molecs, [0, 1, 2, 3, 4, 5])
     print("Safety check successfully executed for precomputed data")
     # Delete the directory at the end.
     if clear_direc:
-        shutil.rmtree("fold_molecs_internal")
+        shutil.rmtree(local_fold_molecs)
     pass
 
 
