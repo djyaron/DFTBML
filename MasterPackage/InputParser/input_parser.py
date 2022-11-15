@@ -162,7 +162,7 @@ def construct_final_settings_dict(settings_dict: Dict, default_dict: Dict) -> Di
         name given to the current run and the directory for saving the skf files at the end
         
         The settings_dict must contain the run_id key. With the refactored format
-        of the settings file, another leve of looping is necessary for each 
+        of the settings file, another level of looping is necessary for each 
         key.
     """
     final_dict = dict()

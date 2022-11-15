@@ -29,8 +29,8 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
         fold_mapping_dict (Dict): The dictionary indicating how to combine individual folds for training and
             validation. The first element of the entry is the training fold numbers and the
             second element of the entry is the validation fold numbers. Defaults to None
-        established_models (Dict): The all_models dictionary from a previous fold
-        established_variables (Dict): The model_variables dictionary from a previous fold
+        established_models (Dict): The all_models dictionary being carried over
+        established_variables (Dict): The model_variables dictionary being carried over
         
     Returns:
         all_models (Dict): Dictionary containing references to all the necessary models
@@ -42,7 +42,7 @@ def precompute_stage(s, par_dict: Dict, split_num: int, fold_mapping_dict: Dict,
         validation_dftblsts (List[DFTBList]): List of DFTBList objects for each of the validation feeds
         losses (Dict): Dictionary of loss targets and their associated weights
         all_losses (Dict): Dictionary of the loss objects, mapped by their aliases (e.g. 'Etot' : TotalEnergyLoss())
-        loss_tracker (Dict): A dictionary that will be populated with loss information
+        loss_tracker (Dict): A dictionary that will be populated with loss information during training
         training_batches (List[List[Dict]]): The individual batches for all the training feeds
         validation_batches (list[List[Dict]]): The individual batches for all the validation feeds
     """
