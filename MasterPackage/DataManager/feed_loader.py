@@ -27,6 +27,13 @@ def load_single_fold(s, top_level_fold_path: str, fold_num: int):
         dftb_lsts (List[DFTBList]): The DFTBList objects to use for the training
         batches (List[List[Dict]]): The molecules originally used to generate the 
             feeds; the ith batch matches the ith feed.
+    
+    Notes: The s.run_check flag indicates if a safety check is conducted on the
+        loaded data. DFTBML saves unprocessed versions of the training data, and the 
+        safety check consists of checking the loaded data against the unprocessed
+        data to ensure that the total_feed_combinator object is reconstituting the
+        saved data correctly. For efficiency sake, this check is neglected and 
+        was primarily a development tool.
     """
     total_fold_path = os.path.join(top_level_fold_path, f"Fold{fold_num}")
     print(f"Loading from {total_fold_path}")
@@ -95,7 +102,7 @@ def load_combined_fold(s, top_level_fold_path: str, split_num: int, fold_mapping
         training_batches, validation_batches
 
 def loading_fold(s, top_fold_path: str, fold_num: int):
-    r"""Loads the data from a given fold
+    r"""Loads the data from a single given fold
     
     Arguments:
         s (Settings): The settings object containing hyperparameter settings
@@ -109,7 +116,9 @@ def loading_fold(s, top_fold_path: str, fold_num: int):
         training_dftblsts (List[DFTBList]): List of DFTBList objects for training feeds
         validation_dftblsts (List[DFTBList]): List of DFTBList objects for validation feeds
         
-    Notes: The check will only be performed if required by the value in s
+    Notes: The check will only be performed if required by the value in s. This is 
+        not typically used but exists if one wishes to examine the data for a 
+        single fold.
     """
     current_folder_name = f"Fold{fold_num}"
     total_folder_path = os.path.join(top_fold_path, current_folder_name)

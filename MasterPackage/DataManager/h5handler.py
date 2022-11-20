@@ -11,7 +11,7 @@ Note: to go back from bytestring to normal string, you have to do
 
     x.decode('UTF-8') where x is the byte string representation
        
-With this method of working with h5 files, the only certain pieces of information
+With this method of working with h5 files, only certain pieces of information
 still need to be computed in the pre-computation stage. 
 
 Pleast note that saving to the h5 files should happen before any type conversions to
@@ -64,7 +64,7 @@ class model_variable_h5handler:
             Do note that for joined splines, only the variable coefficients will be saved. 
             This will have to be changed later if we intend on saving the variables. Alternatively, 
             saving the variables in a pickle file might be better since there aren't that many 
-            weights. For N many models, we have at most num_knots * N weights so save.
+            weights. For N many models, we have at most num_knots * N weights to save.
         """
         hf = h5py.File(filename, 'w')
         spline_keys, spline_vars = list(), list()
@@ -164,7 +164,7 @@ class per_molec_h5handler:
         Returns:
             None
         
-        Notes: None
+        Notes: See comments for workflow 
         """
         # First, get all the basis_sizes
         all_bsizes = list(feed['glabels'].keys())
