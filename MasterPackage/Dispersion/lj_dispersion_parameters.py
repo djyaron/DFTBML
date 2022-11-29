@@ -17,7 +17,7 @@ between hybridization differences, and the data will be represented on the basis
 of atomic numbers to work better with the other code infrastructure.
 
 For the VDW distance, the numbers here are in Angstroms and for the well depth,
-the numbers are originall in kcal/mol, but are converted to Hartrees following
+the numbers are originally in kcal/mol, but are converted to Hartrees following
 the conversion factor 627.5 kcal/mol = 1 Ha. 
 
 As more elements are needed, more of the data will be added to this module.
