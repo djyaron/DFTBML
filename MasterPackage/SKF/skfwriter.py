@@ -10,8 +10,6 @@ to a specific format as described in the slater-koster file format document
 Right now, the writer only handles simple format since we are not doing
 angular momenta up to f, only up to d. It is assumed that for all
 skf files constructed in this module, the simple format is being used
-
-TODO: NEED TO TEST NEW SKF CODE AFTER NEW DFTBREPULSIVE CODE INTEGRATED!
 """
 
 import numpy as np
@@ -130,7 +128,6 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     xnonzero = rgrid[inonzero]
     A, b = spline_model.pairwise_linear_model.linear_model(xnonzero)
     
-    # dgrids_consts = spline_model.pairwise_linear_model.linear_model(rgrid, 0)
     model_variables = spline_model.get_variables().detach().cpu().numpy()
     if hasattr(spline_model, "joined"):
         fixed_coefs = spline_model.get_fixed().detach().cpu().numpy()
@@ -138,7 +135,6 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     y_vals = np.dot(A, model_variables) + b
     # Instead of 0's, pad the front dummy values with the first non-zero 
     # values to allow for smoother spline interpolation
-    #Does this cause issues??
     ind = 0
     for index, elem in enumerate(y_vals):
         if elem != 0:
@@ -147,12 +143,6 @@ def get_yvals(model_spec: Model, rgrid: Array, all_models: Dict) -> Array:
     y_vals[:ind] = y_vals[ind]
     y_vals = np.hstack((y_vals, np.zeros(len(izero)))) #Add on the zeros
     assert(len(y_vals) == len(rgrid))
-    # Plot the values as a scatter to see what's being written to the skf
-    # files as a debugging step
-    # fig, ax = plt.subplots()
-    # ax.scatter(rgrid, y_vals)
-    # ax.set_title(f"{model_spec.oper}, {model_spec.Zs}, {model_spec.orb}")
-    # plt.show()
     return y_vals 
 
 def determine_index(model_spec: Model) -> int:
@@ -374,11 +364,6 @@ def compute_spline_repulsive(elems: tuple, all_models: Dict, ngrid: int = 50) ->
     #Obtain the spline, but given the file format we must
     # fit the spline with units of bohr radii vs hartree
     spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
-    # fig, ax = plt.subplots()
-    #Plot out the cubic spline fit for reference
-    # ax.plot(rgrid * ANGSTROM2BOHR, spl(rgrid * ANGSTROM2BOHR))
-    # ax.set_title(f"{elems}, rep spline ref")
-    # plt.show()
     #Coefficients of the spline
     assert(spl.c.shape[1] == ngrid - 1)
     return spl.c, rgrid, cutoff
@@ -412,26 +397,6 @@ def compute_spline_repulsive_vals(elems: tuple, all_models: Dict, ngrid: int = 5
     rgrid = np.linspace(xlow, cutoff, ngrid) #rgrid here is in angstroms
     r_vals = get_yvals(R_mods[0], rgrid, all_models)
     return rgrid, r_vals
-
-# def compute_spline_repulsive_new(elems: tuple, all_models: Dict, ngrid: int = 50) -> (Array, Array, float):
-#     r"""Computes the repulsive spline coefficients for the repulsive block 
-#         using the new repulsive model
-        
-#     Arguments, Returns: identical to compute_spline_repulsive
-    
-#     Notes: This is based on the new repulsive model, i.e. integration with
-#         DFTBrepulsive. The built-in method to the new repulsive model, 
-#         obtain_spline_vals(), is used to get the values out using a 
-#         given rgrid. 
-#     """
-#     #obtain the cutoff and range
-#     r_low, r_high = all_models['rep'].obtain_range(elems)
-#     cutoff = all_models['rep'].obtain_cutoff(elems)
-#     rgrid = np.linspace(r_low, cutoff, ngrid)
-#     r_vals = all_models['rep'].obtain_spline_vals(rgrid, elems)
-#     spl = CubicSpline(rgrid * ANGSTROM2BOHR, r_vals)
-#     assert(spl.c.shape[1] == ngrid - 1)
-#     return spl.c, rgrid, cutoff
 
 def compute_spline_repulsive_new(elems: tuple, all_models: Dict) -> Dict:
     r"""With the new repulsive model, the spline repulsive block should 
@@ -567,9 +532,6 @@ def write_single_skf_file(elems: tuple, all_models: Dict, atom_nums: Dict,
     #Dealing with the H,S datablock
     content = load_file_content(elems, ref_direc, atom_nums)
     grid_dist, ngrid = get_grid_info(content) #grid_dist in bohr here
-    #WARNING: HARDCODE TO INCREASE GRID DENSITY FOR SKFS, REMOVE LATER
-    # grid_dist /= 2
-    # ngrid *= 2 
     if compute_S_block: #When fitting S
         print("Computing S block")
         s_block = compute_S(elems, all_models, grid_dist, ngrid)
@@ -664,8 +626,6 @@ def main(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_block: 
                               ref_direc, rep_mode, str_sep, spline_ngrid, ext)
 
 #%% File Assembly (New method, using DFTBrepulsive)
-
-#TODO: Implement me!
 
 """
 These functions will use the functions written in the Header, H, and S block to assemble the
@@ -932,11 +892,9 @@ def write_skfs(all_models: Dict, atom_nums: Dict, atom_masses: Dict, compute_S_b
     
     #Now create all the SKF objects and write them to the necessary location
     for Zs in master_Z_dict:
-        # print(Zs)
         creator = SKFBlockCreator()
         header_HS_data, exp_coef, spl_xydata = master_Z_dict[Zs]['header_HS_data'],\
             master_Z_dict[Zs]['exp_coef'], xy_data[Zs]
-        # print(header_HS_data['mass'])
         header_HS_block = creator.create_header_HS_block(Zs, header_HS_data)
         spline_block = creator.create_spline_block(exp_coef, spl_xydata)
         doc_block = creator.create_doc_block([]) #No need for documentation right now
