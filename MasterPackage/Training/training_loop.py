@@ -87,17 +87,10 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
     if s.rep_setting == 'new':
         gamma_T, c_tracker_T = combine_gammas_ctrackers(train_gammas, train_c_trackers)
         gamma_V, c_tracker_V = combine_gammas_ctrackers(valid_gammas, valid_c_trackers)
-        # config_tracker_path = os.path.join(s.top_level_fold_path, "config_tracker.p")
-        # gammas_path = s.gammas_path
-        # try:
-        #     config_tracker = pickle.load(open(config_tracker_path, 'rb'))
-        #     gammas = pickle.load(open(gammas_path, 'rb'))
-        # except:
-        #     raise ValueError("Config tracker or gammas could not be found with dataset!")
         if init_repulsive:
             all_models['rep'] = DFTBRepulsiveModel([c_tracker_T, c_tracker_V], 
                                                    [gamma_T, gamma_V], 
-                                                   s.tensor_device, s.tensor_dtype, s.rep_integration) #Hardcoding mode as 'internal' right now
+                                                   s.tensor_device, s.tensor_dtype, s.rep_integration)
             print("Obtaining initial estimates for repulsive energies")
             all_models['rep'].initialize_rep_model(training_feeds, validation_feeds, 
                                                     training_batches, validation_batches, 
@@ -113,7 +106,6 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
     
     learning_rate = s.learning_rate
     optimizer = optim.Adam(list(model_variables.values()), lr = learning_rate, amsgrad = s.ams_grad_enabled)
-    #TODO: Experiment with alternative learning rate schedulers
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = s.scheduler_factor, 
                                                      patience = s.scheduler_patience, threshold = s.scheduler_threshold)
     
@@ -131,12 +123,10 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
                 if s.rep_setting == 'new':
                     output['Erep'] = all_models['rep'].add_repulsive_eners(feed, 'valid')
                 if s.dispersion_correction:
-                    # import pdb; pdb.set_trace()
                     output['Edisp'] = all_models['disp'].get_disp_energy(feed)
                 tot_loss = 0
                 for loss in all_losses:
                     if loss == 'Etot':
-                        # import pdb; pdb.set_trace()
                         res = all_losses[loss].get_value(output, feed, s.train_ener_per_heavy, s.rep_setting,
                                                          s.dispersion_correction)
                         val = losses[loss] * res[0]
@@ -183,7 +173,6 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
         #Training routine
         epoch_loss = 0.0
         
-        # import pdb; pdb.set_trace()
         
         for j, feed in enumerate(training_feeds):
             optimizer.zero_grad()
@@ -195,7 +184,6 @@ def training_loop(s, all_models: Dict, model_variables: Dict,
             tot_loss = 0
             for loss in all_losses:
                 if loss == 'Etot':
-                    # import pdb; pdb.set_trace()
                     res = all_losses[loss].get_value(output, feed, s.train_ener_per_heavy, s.rep_setting, 
                                                      s.dispersion_correction)
                     val = losses[loss] * res[0]

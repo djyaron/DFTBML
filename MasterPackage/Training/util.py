@@ -16,7 +16,7 @@ from MasterConstants import atom_nums, atom_masses
 #%% Code behind
 
 def paired_shuffle(lst_1: List, lst_2: List) -> (list, list):
-    r"""Shuffles two lists while maintaining element-wise corresponding ordering
+    r"""Shuffles two lists while maintaining element-wise ordering
     
     Arguments:
         lst_1 (List): The first list to shuffle

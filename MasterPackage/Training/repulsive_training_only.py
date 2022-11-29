@@ -98,9 +98,7 @@ def train_repulsive_model(dset_dir: str, settings_filename: str, defaults_filena
     V_batch_name = os.path.join(os.getcwd(), dset_dir, 'Fold1', 'processed_batches.p')
     training_batches = pickle.load(open(T_batch_name, 'rb'))
     validation_batches = pickle.load(open(V_batch_name, 'rb'))
-    # assert(len(training_batches) == 250)
     assert(len(training_batches) != len(validation_batches))
-    # assert(len(validation_batches) == 63)
     #Correct the data
     for batch in training_batches: 
         for mol in batch:
