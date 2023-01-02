@@ -241,10 +241,22 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
                     print(f"Warning: inflection point {inflect_point_target} not less than cutoff {model_cutoff} for {model_spec}")
                     
                 if spline_mode == 'joined':
-                    model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], device, dtype, inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    model = Input_layer_pairwise_linear_joined(model_spec, 
+                                                               spline, 
+                                                               par_dict, 
+                                                               config['cutoff'], 
+                                                               device, 
+                                                               dtype, 
+                                                               inflection_point_var = [inflect_point_var] if include_inflect else [])
                         
                 elif spline_mode == 'non-joined':
-                    model = Input_layer_pairwise_linear(model_spec, spline, par_dict, config['cutoff'], device, dtype, inflection_point_var = [inflect_point_var] if include_inflect else [])
+                    model = Input_layer_pairwise_linear(model_spec, 
+                                                        spline, 
+                                                        par_dict, 
+                                                        config['cutoff'], 
+                                                        device, 
+                                                        dtype, 
+                                                        inflection_point_var = [inflect_point_var] if include_inflect else [])
             else:
                 if spline_mode == 'joined':
                     model = Input_layer_pairwise_linear_joined(model_spec, spline, par_dict, config['cutoff'], device, dtype)
