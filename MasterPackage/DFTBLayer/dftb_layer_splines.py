@@ -4,16 +4,7 @@ Created on Sat Nov 14 14:05:22 2020
 
 @author: Frank
 """
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Sep  8 23:03:05 2020
 
-@author: Frank
-"""
-"""
-TODO:
-    1) Smarter initialization for the inflection point value?
-"""
 import pdb, traceback, sys
 
 import numpy as np
@@ -88,7 +79,7 @@ def create_graph_feed(config: Dict, batch: List[Dict], allowed_Zs: List[int], pa
     
     if 'S' not in config['opers_to_model']:
         fields_by_type['feed_constant'].extend(['S','phiS','Sevals'])
-    if 'G' not in config['opers_to_model']: #Testing not modelling G CHANGE BACK LATER
+    if 'G' not in config['opers_to_model']: 
         fields_by_type['feed_constant'].extend(['G'])
     
     fields_by_type['feed_SCF'] = \
@@ -186,9 +177,6 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             (oper, (elem1, elem2)) : cutoff
         
         This way, all the models using the given oper and elems will have the same cutoff
-        
-        TODO: Constrain the knots to be between 0 and cutoff, anything past that is 0. Need to apply 
-            this fix for everyting spline-related (inflection point, form penalty, etc.)
     """
     noise_magnitude = 0.0
     if len(model_spec.Zs) == 1:
@@ -200,8 +188,6 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             else:
                 print(f"Input to hubbard layer: {model_spec}")
                 model = Input_layer_hubbard(model_spec, model_variables, device, dtype)
-            #REMOVE THIS LINE LATER
-            # model = Input_layer_DFTB_val(model_spec)
         else:
             print("Using a debugging model for on-diagonal elements")
             model = Input_layer_DFTB_val(model_spec)
@@ -212,44 +198,10 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             minimum_value -= buffer
             maximum_value += buffer
             
-            #For countering numerical stability issues, try spacing out the knots at the end. This might end up becoming a 
-            #   hyperparameter of some sort. When the knots were not spaced out at the end, you get values for the third
-            #   derivative that are too high. 
-            #REMOVE THIS SECTION AFTER THE THIRD DERIVATIVE PENALTY IS FIGURED OUT!
-
-
-            # if model_spec.oper in ["H", "S"]:
-            #     intermediate_value = 4.0
-            #     intermediate_num_knots = 48
-            #     xknots_intermediate = np.linspace(minimum_value, intermediate_value, num = intermediate_num_knots)
-            #     remaining_diff = maximum_value - intermediate_value
-            #     knot_spacing = remaining_diff / 2 #98 knots, 2 remaining
-            #     starting_val = xknots_intermediate[-1]
-            #     remaining_knots = []
-            #     for i in range(2):
-            #         remaining_knots.append(starting_val + ((i + 1) * knot_spacing))
-            #     assert(remaining_knots == [4.25, 4.5])
-            #     xknots = np.append(xknots_intermediate, remaining_knots)
-            #     assert(len(xknots) == 50)
-            # else:
-            
             #simple knot initialization scheme (equidistant)
             xknots = np.linspace(minimum_value, maximum_value, num = num_knots) #Set maximum_value to cutoff, not 10 angstroms
             print(f"number of knots: {len(xknots)}")
             print(f"first knot: {xknots[0]}, second knot: {xknots[-1]}")
-            
-            #Get the correct cutoff for the model
-            # if cutoff_dict is not None:
-            #     Zs, Zs_rev = model_spec.Zs, (model_spec.Zs[1], model_spec.Zs[0])
-            #     oper = model_spec.oper
-            #     if (oper, Zs) in cutoff_dict:
-            #         model_cutoff = cutoff_dict[(oper, Zs)]
-            #     elif (oper, Zs_rev) in cutoff_dict:
-            #         model_cutoff = cutoff_dict[(oper, Zs_rev)]
-            #     else:
-            #         model_cutoff = joined_cutoff
-            # else:
-            #     model_cutoff = joined_cutoff
             
             #model_cutoff is now the position of the last knot (i.e. maximum_value)
             model_cutoff = maximum_value
@@ -259,26 +211,16 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             config = {'xknots' : xknots,
                       'equal_knots' : False,
                       'cutoff' : model_cutoff,
-                      'bconds' : 'last_only', #Running with 'last_only' boundary conditions again
+                      'bconds' : 'last_only',
                       'deg' : spline_deg,
-                      'max_der' : 4} #Hard-code to get the fourth derivative as the maximum derivative, requires 5th order splines
+                      'max_der' : 4} #Get 4th derivative, requires 5th order splines
             if spline_mode == 'joined':
                 spline = JoinedSplineModel(config)
-                
-                #REMOVE THESE LINES LATER
-                # model = Input_layer_DFTB(model_spec)
-                # return (model, 'opt')
                 
             elif spline_mode == 'non-joined':
                 spline = SplineModel(config)
                 #Checkn that the boundary conditions went through
                 assert(spline.bconds == [Bcond(-1, 0, 0.0), Bcond(-1, 1, 0.0)])
-                
-                # assert(spline.bconds == []) #Disable this assert because the boundary condtions are not empty now
-                
-                #REMOVE THESE LINES LATER
-                # model = Input_layer_DFTB(model_spec)
-                # return (model, 'opt')
                 
             elif spline_mode == 'debugging':
                 #Use this model for debugging purposes, just going to return the values computed in mod_raw
@@ -312,7 +254,6 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             #   transport to CPU first, but since this is done once at the beginning and the tensors are small, this is acceptable
             #   overhead.
             #cpu() after detach() to prevent superfluous copying, https://stackoverflow.com/questions/49768306/pytorch-tensor-to-numpy-array
-            ### UNCOMMENT THESE THREE LINES LATER!
             variables = model.get_variables().detach().cpu().numpy() 
             if apx_equal(np.sum(variables), 0):
                 return (model, 'noopt')
@@ -321,9 +262,6 @@ def get_model_value_spline(model_spec: Model, model_variables: Dict, spline_dict
             # Case of using OffDiagModel
             if spline_mode != 'debugging':
                 model = Input_layer_hubbard(model_spec, model_variables, device, dtype)
-                
-                #REMOVE THIS LINE LATER
-                #model = Input_layer_DFTB(model_spec)
             else:
                 print("Using a debugging model for off-diagonal elements")
                 model = Input_layer_DFTB(model_spec)
