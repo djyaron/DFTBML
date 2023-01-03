@@ -75,26 +75,7 @@ class Input_layer_pairwise_linear:
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
         model_vars, A, b = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) #Model vars fit based on angstrom x-axis
         
-        ypred = np.dot(A, model_vars) + b
-        y_diff = np.abs(ypred - ygrid)
-        print(f"Maximum absolute difference (kcal/mol): {np.max(y_diff) * 627}")
-        print(f"MAE difference (kcal/mol): {np.mean(y_diff) * 627}")
-        
-        fig, axs = plt.subplots()
-        axs.plot(rgrid, ygrid, label = "SKF integral table")
-        axs.plot(rgrid, ypred, label = "Interpolated integral table")
-        axs.xaxis.set_minor_locator(MultipleLocator(0.1))
-        axs.legend()
-        plt.show()
-        
-        ### TESTING CODE, REMOVE THIS CONDITIONAL LATER! INITIALIZING REPULSIVE
-        ### VARIABLES TO A VECTOR OF 0'S
-        # if (self.model.oper == 'R'):
-        #     self.variables = torch.zeros(len(model_vars), dtype = self.dtype, device = self.device)
-        #     print(f"Setting coefficient vector to zero for model {self.model}")
-        # else:
         self.variables = torch.tensor(model_vars, dtype = self.dtype, device = self.device)
-        ### END TESTING CODE
         
         self.variables.requires_grad = True
         if len(inflection_point_var) == 1:
@@ -165,8 +146,6 @@ class Input_layer_pairwise_linear:
         Notes: The matrix A and vector b returned by this function in the dictionary
             are initally numpy arrays, but they are converted to PyTorch tensors
             later on.
-        
-        TODO: Handle edge case of no non-zero values!
         """
         xeval = np.array([elem.rdist for elem in mod_raw]) #xeval are in angstroms
         nval = len(xeval)
