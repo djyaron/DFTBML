@@ -43,8 +43,6 @@ def torch_segment_sum(data: Tensor, segment_ids: Tensor, device: torch.device, d
     """
     max_id = torch.max(segment_ids)
     res = torch.zeros([max_id + 1], device = device, dtype = dtype)
-    # for i, val in enumerate(data):
-    #     res[segment_ids[i]] += val
     res = res.scatter_add(0, segment_ids.long(), data)
     return res
 
