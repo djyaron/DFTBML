@@ -185,7 +185,7 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
             r'}' + '\n')
         # A windows executable is only available for version 17.1
         #  https://sites.google.com/view/djmolplatform/get-dftb-17-1-windows
-        # and this version uses the OrbitalResolvedSCC keywork, instead of
+        # and this version uses the OrbitalResolvedSCC keyword, instead of
         # ShellResolvedSCC. We use parserversion = 5, so that more recent 
         # versions of DFTB+ will use OrbitalResolvedSCC
         dftbfile.write(
@@ -370,7 +370,6 @@ def parse_dipole(output_file: str, pattern: str, unit: str = 'Debye') -> Array:
         internally generated for training.  
     """
     assert(unit in ['Debye', 'au'])
-    #assert(unit == "Debye")
     dipole_matcher = re.compile(pattern)
     content = open(output_file, 'r').read()
     #The dipole regex pattern can be used with findall

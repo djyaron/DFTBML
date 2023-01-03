@@ -311,21 +311,6 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                 print(f"{mol['name']} our dftb failed")
             else:
                 print(f"{mol['name']} both our dftb and DFTB+ failed")
-            #ts = mol['targets']
-            #print(f"H5 elec {ts['pe']} rep {ts['pr']} sum {ts['pe'] +ts['pr']}" \
-            #      f"tot {ts['pt']}  diff {ts['pt'] - ts['pe'] -ts['pr']} ")
-            #print(f"{skf_type} on mol {imol} E(H) = {Ehartree:7.3f} " \
-            #  #f" diff resolved(kcal/mol) {np.abs(Ehartree-mol['targets']['dt'])*627.0:7.3e}" \
-            #  f" not resolved {np.abs(Ehartree-mol['targets']['pt'])*627.0:7.3e}" )
-
-# def compare_convergence(dataset):
-#     failed = dict()
-#     failed['our dftb'] = [x['name'] for x in dataset if not x['dconv'] and x['pconv']]
-#     failed['dftb+'] = [x['name'] for x in dataset if not x['pconv'] and x['dconv']]
-#     failed['both'] = [x['name'] for x in dataset if not x['pconv'] and not x['dconv']]
-#     for ftype,names in failed.items():
-#         print(f"{len(names)} molecules failed {ftype}")
-#         #print(names)
 
 #%% Analysis utilities
 
@@ -710,7 +695,6 @@ def compute_results_alt_targets(dataset: List[Dict], targets: List[List[str]], e
     
     losses = {tuple(k) : 0 for k in targets}
     for pairing in targets:
-        #import pdb; pdb.set_trace()
         pred_key, targ_key = pairing
         #zero-point calculation from DFTB+, so predictions are pzero
         pred_val = [mol['pzero'][pred_key] for mol in dataset]
