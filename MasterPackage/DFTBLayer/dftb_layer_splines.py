@@ -522,7 +522,7 @@ def assemble_ops_for_charges(feed: Dict, all_models: Dict, device: torch.device,
                 calc[oname][bsize] = rot_out[gather].reshape((len(feed['glabels'][bsize]),bsize,bsize))
     
     if 'S' not in feed['onames']:
-        calc['S'] = deepcopy(feed['S']) #Deepcopy operations may be too inefficient...
+        calc['S'] = deepcopy(feed['S'])
     if 'G' not in feed['onames']:
         calc['G'] = deepcopy(feed['G'])
     
@@ -549,7 +549,7 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, device: torch.d
     Notes: Both dQ and the occ_rho_mask are udpated for the feed
     """
     for bsize in op_dict['H'].keys():
-        np_Hs = op_dict['H'][bsize].detach().cpu().numpy() #Have to shift things back over to CPU, but not sure about this overhead...
+        np_Hs = op_dict['H'][bsize].detach().cpu().numpy()
         np_Gs, np_Ss = None, None
         if "G" in modeled_opers:
             np_Gs = op_dict['G'][bsize].detach().cpu().numpy()
@@ -560,13 +560,9 @@ def update_charges(feed: Dict, op_dict: Dict, dftblst: DFTBList, device: torch.d
             curr_H = np_Hs[i]
             curr_G = np_Gs[i] if np_Gs is not None else None
             curr_S = np_Ss[i] if np_Ss is not None else None
-            # if (curr_G is None):
-            #     print("G is not included in charge update")
-            # if (curr_S is None):
-            #     print("S is not included in charge update")
             newQ, occ_rho_mask_upd, _ = curr_dftb.get_dQ_from_H(curr_H, newG = curr_G, newS = curr_S) #Modelling both S and G
             newQ, occ_rho_mask_upd = torch.tensor(newQ, dtype = dtype, device = device).unsqueeze(1), torch.tensor(occ_rho_mask_upd, dtype = dtype, device = device)
-            feed['dQ'][bsize][i] = newQ # Change dQ to newQ instead
+            feed['dQ'][bsize][i] = newQ
             feed['occ_rho_mask'][bsize][i] = occ_rho_mask_upd
 
 def create_spline_config_dict(data_dict_lst: List[Dict]) -> Dict:
