@@ -61,7 +61,6 @@ class FormPenaltyLoss(LossModel):
             class-level seen_dgrid_dict or seen_concavity_dict rather than recomputed. Adds the dgrids, concavity, and current
             models into the feed. Because the spline models are all aliased, everything is connected.
         """
-        #Flag for debugging only
         calculations_performed = False
         
         if f"form_penalty_{self.type}" not in feed:
@@ -103,15 +102,8 @@ class FormPenaltyLoss(LossModel):
                                               FormPenaltyLoss.seen_dgrid_dict[model_spec][1])
                 else:
                     calculations_performed = True
-                    #UNCOMMENT THIS LATER!!!
                     rlow, rhigh = current_model.pairwise_linear_model.r_range()
-                    # rlow, rhigh = 0, 10.0
                     xgrid = np.linspace(rlow, rhigh, self.density)
-                    #Enforce that the second derivative has the right sign 
-                    #   at the knots only
-                    # xgrid = current_model.pairwise_linear_model.xknots
-                    #We only need the first and second derivative for the dgrids
-                    #Including the constants, especially important for the joined splines!
                     print(f"xgrid: {rlow}, {rhigh}, {len(xgrid)}")
                     dgrids = [current_model.pairwise_linear_model.linear_model(xgrid, 1), #monotonic
                               current_model.pairwise_linear_model.linear_model(xgrid, 2), #convex
@@ -142,7 +134,6 @@ class FormPenaltyLoss(LossModel):
         form_penalty_dict = feed[f"form_penalty_{self.type}"]
         total_loss = 0
         for model_spec in form_penalty_dict:
-            # if model_spec.oper != 'G':
             if (rep_method == 'new') and (model_spec.oper == 'R'):
                 continue #Skip built-in repulsive models if using DFTBrepulsive implementation
             pairwise_lin_mod, concavity, third_deriv_sign, dgrids, xgrid = form_penalty_dict[model_spec]
@@ -150,7 +141,6 @@ class FormPenaltyLoss(LossModel):
             assert(concavity in [True, False])
             assert(third_deriv_sign in ['pos','neg'])
             inflection_point_val = pairwise_lin_mod.get_inflection_pt()
-            # print(model_spec, inflection_point_val)
             penalty_model = None
             #Break this conditional block between convex and smooth, dgrids[1] is for convex and dgrids[2] is for smooth
             if self.type == "convex":

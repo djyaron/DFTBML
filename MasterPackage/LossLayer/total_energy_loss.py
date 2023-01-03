@@ -136,7 +136,6 @@ class TotalEnergyLoss(LossModel):
                     computed_result = output['Erep'][bsize] + output['Eelec'][bsize] + output['Eref'][bsize] + output['Edisp'][bsize]
                 if per_atom_flag:
                     computed_result = torch.div(computed_result, n_heavy)
-                #temp_result = output['Erep'][bsize] + output['Eelec'][bsize]
             elif rep_method == 'new':
                 if (not add_dispersion):
                     computed_result = output['Eelec'][bsize]
@@ -146,7 +145,6 @@ class TotalEnergyLoss(LossModel):
                     computed_result = torch.div(computed_result, n_heavy) + output['Erep'][bsize]
                 else:
                     computed_result = computed_result + (output['Erep'][bsize] * n_heavy)
-                #temp_result = torch.div(temp_result, n_heavy)
             
             #Store the predictions by bsize as numpy arrays. Individual 
             #   components of the energy are stored separately to allow for 

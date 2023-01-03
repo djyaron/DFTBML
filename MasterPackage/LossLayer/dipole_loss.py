@@ -41,15 +41,6 @@ class DipoleLoss(LossModel):
             real dipoles to the feed. Note that the debug mode does not currently work for DipoleLoss2.
         """
         if ('dipole_mat' not in feed) and ('dipoles' not in feed):
-            # needed_fields = ['dipole_mat']
-            # geom_batch = list()
-            # for molecule in molecs:
-            #     geom = Geometry(molecule['atomic_numbers'], molecule['coordinates'].T)
-            #     geom_batch.append(geom)
-                    
-            # batch = create_batch(geom_batch)
-            # dftblist = DFTBList(batch)
-            # result = create_dataset(batch,dftblist,needed_fields)
             dipole_mat_dict = dict()
             for bsize, glabels in feed['glabels'].items():
                 bsize_coords = [molecs[x]['coordinates'].T for x in glabels] #Should be list of (3, Natom) arrays
@@ -72,11 +63,6 @@ class DipoleLoss(LossModel):
                 #Also need to pull the dipoles from the molecules for comparison
                 #Trick is going to be here
                 for bsize, glabels in feed['glabels'].items():
-                    # curr_molec_rs = [molecs[x]['coordinates'].T for x in glabels]
-                    # curr_molec_charges = [molecs[x]['targets']['charges'] for x in glabels]
-                    # assert(len(curr_molec_rs) == len(curr_molec_charges))
-                    # indices = [i for i in range(len(curr_molec_rs))]
-                    # results = list(map(lambda x : np.matmul(curr_molec_rs[x], curr_molec_charges[x]), indices))
                     results = [molecs[x]['targets']['dipole'] for x in glabels]
                     real_dipvecs[bsize] = np.array(results)
                 feed['dipole_mat'] = dipole_mats

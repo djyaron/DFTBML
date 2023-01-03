@@ -27,10 +27,6 @@ defined in dftb_layer_splines_3.py
 Note: torch.einsum is used here in place of np.einsum because only torch.einsum 
 works on tensors that require gradients, and the gradients need to be maintained throughout
 forward prop for back prop
-
-TODO: Figure out system for classifying if model should concave up or concave down
-    Possible solution: Know this initially and pass in a flag? Probably easier than
-    trying to figure it out on the fly...
 '''
 class ModelPenalty:
 
@@ -175,7 +171,6 @@ class ModelPenalty:
             c = torch.cat([c, other_coefs])
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv), torch.tensor(consts)
-        #p_monotonic = torch.einsum('j,ij->i', c, deriv) + consts
         p_monotonic = torch.matmul(deriv, c) + consts
         #For a monotonically increasing potential (i.e. concave down integral), the
         # First derivative should be positive, so penalize the negative terms. Otherwise,
@@ -183,9 +178,7 @@ class ModelPenalty:
         if self.neg_integral:
             p_monotonic = -1 * p_monotonic
             p_monotonic = m(p_monotonic)
-            # p_monotonic [p_monotonic > 0] = 0
         else:
-            # p_monotonic [p_monotonic < 0] = 0 
             p_monotonic = m(p_monotonic)
         monotonic_penalty = torch.matmul(p_monotonic, p_monotonic) / len(p_monotonic)
         return monotonic_penalty
@@ -215,11 +208,9 @@ class ModelPenalty:
             c = torch.cat([c, other_coefs])
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv, dtype = c.dtype, device = c.device), torch.tensor(consts, dtype = c.dtype, device = c.device)
-        #p_convex = torch.einsum('j,ij->i', c, deriv) + consts
         p_convex = torch.matmul(deriv, c) + consts
         if (self.inflect_x_val is not None): #Compute the penalty grid if an inflection point is present
             penalty_grid = self.compute_penalty_vec()
-            #p_convex = torch.einsum('i,i->i', p_convex, penalty_grid) #Multiply the p_convex by the penalty_grid
             p_convex = p_convex * penalty_grid
         # Case on whether the spline should be concave up or down
         if self.neg_integral:
@@ -228,7 +219,6 @@ class ModelPenalty:
             p_convex = -1 * p_convex
             p_convex = m(p_convex)
         # Equivalent of RMS penalty
-        #convex_penalty = torch.einsum('i,i->', p_convex, p_convex) / len(p_convex)
         convex_penalty = torch.matmul(p_convex, p_convex) / p_convex.shape[0]
         return convex_penalty
     
@@ -248,9 +238,6 @@ class ModelPenalty:
             which is the case because of the simple univariate curvature of the splines. The 
             implementation of the penalty is analagous to the convex penalty
         """
-        
-        # raise NotImplementedError("Method get_smooth_penalty() not implemented!")
-        
         smooth_penalty = 0
         m = torch.nn.ReLU() #Use ReLU to select for sign
         c = self.input_pairwise_lin.get_variables()
@@ -293,7 +280,6 @@ class ModelPenalty:
         deriv, consts = self.dgrid[0], self.dgrid[1]
         deriv, consts = torch.tensor(deriv, dtype = c.dtype, device = c.device), torch.tensor(consts, dtype = c.dtype, device = c.device)
         pred_third_der = torch.matmul(deriv, c) + consts
-        # L2_norm = torch.sqrt(torch.sum(torch.square(pred_third_der)))
         #Make this definition more consistent with other penalties
         L2_norm = torch.matmul(pred_third_der, pred_third_der) / pred_third_der.shape[0]
         L2_norm = torch.sqrt(L2_norm)

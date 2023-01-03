@@ -61,12 +61,6 @@ class ChargeLoss(LossModel):
                 for bsize in feed['basis_sizes']:
                     glabels = feed['glabels'][bsize]
                     total_charges = [molecs[x]['targets']['charges'] for x in glabels]
-                    # starting_len = len(total_charges[0])
-                    # try:
-                    #     assert (all(len(ele) == starting_len for ele in total_charges))
-                    # except:
-                    #     print("Something went wrong with length of charges")
-                    #     print([molecs[x] for x in glabels])
                     charge_dict[bsize] = total_charges
                 feed['charges'] = charge_dict
     
