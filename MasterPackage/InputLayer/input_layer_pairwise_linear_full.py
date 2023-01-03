@@ -24,7 +24,7 @@ class Input_layer_pairwise_linear:
                  cutoff: float, device: torch.device, dtype: torch.dtype,
                  inflection_point_var: List[float] = [], ngrid: int = 100, 
                  noise_magnitude: float = 0.0) -> None:
-        r"""Creates a cubic spline model that is allowed to vary over the entire spanned distance
+        r"""Creates a spline model that is allowed to vary over the entire spanned distance
         
         Arguments:
             model (Model): A named tuple of the form ('oper', 'Zs', 'orb'), where
@@ -33,8 +33,7 @@ class Input_layer_pairwise_linear:
                 (e.g. (1,)), and 'orb' is a string representing the orbitals being considered
                 (e.g. 'ss' for two s-orbital interactions)
             pairwise_linear_model (SplineModel): An instance of the SplineModel from
-                SplineModel_v3.py, used for managing cubic splines that vary
-                over the entire distance
+                Spline, used for managing splines that vary over the entire distance
             par_dict (Dict): Dictionary of the DFTB Slater-Koster parameters for atomic interactions 
                 between different elements, indexed by a string 'elem1-elem2'. For example, the
                 Carbon-Carbon interaction is accessed using the key 'C-C'
@@ -65,7 +64,7 @@ class Input_layer_pairwise_linear:
             their gradients are initialized to allow training.
         """
         self.model = model
-        self.pairwise_linear_model= pairwise_linear_model
+        self.pairwise_linear_model = pairwise_linear_model
         self.cutoff = cutoff
         self.dtype = dtype
         self.device = device
@@ -76,14 +75,7 @@ class Input_layer_pairwise_linear:
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
         model_vars,_,_ = fit_linear_model(self.pairwise_linear_model, rgrid,ygrid) #Model vars fit based on angstrom x-axis
         
-        ### TESTING CODE, REMOVE THIS CONDITIONAL LATER! INITIALIZING REPULSIVE
-        ### VARIABLES TO A VECTOR OF 0'S
-        # if (self.model.oper == 'R'):
-        #     self.variables = torch.zeros(len(model_vars), dtype = self.dtype, device = self.device)
-        #     print(f"Setting coefficient vector to zero for model {self.model}")
-        # else:
         self.variables = torch.tensor(model_vars, dtype = self.dtype, device = self.device)
-        ### END TESTING CODE
         
         self.variables.requires_grad = True
         if len(inflection_point_var) == 1:
@@ -154,8 +146,6 @@ class Input_layer_pairwise_linear:
         Notes: The matrix A and vector b returned by this function in the dictionary
             are initally numpy arrays, but they are converted to PyTorch tensors
             later on.
-        
-        TODO: Handle edge case of no non-zero values!
         """
         xeval = np.array([elem.rdist for elem in mod_raw]) #xeval are in angstroms
         nval = len(xeval)

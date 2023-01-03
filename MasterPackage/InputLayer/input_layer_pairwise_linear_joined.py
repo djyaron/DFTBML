@@ -72,10 +72,6 @@ class Input_layer_pairwise_linear_joined:
         rgrid = np.linspace(rlow, rhigh, ngrid)
         ygrid = get_dftb_vals(model, par_dict, rgrid)
         ygrid = ygrid + noise_magnitude * np.random.randn(len(ygrid))
-        # fig, axs = plt.subplots()
-        # axs.scatter(rgrid, ygrid)
-        # axs.set_title(f"{model}")
-        # plt.show()
         variable_vars, fixed_vars = pairwise_linear_model.fit_model(rgrid, ygrid)
         #Initialize the optimizable torch tensor for the variable coefficients
         # of the spline and the fixed part that's cat'd on each time
