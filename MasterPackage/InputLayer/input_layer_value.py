@@ -77,7 +77,6 @@ class Input_layer_value:
             init_value = init_value + noise_magnitude * np.random.randn(1)
         if (self.model.oper == 'G') and (not (hub1 == hub2 == val)):
             print(self.model, hub1, hub2, val)
-            # raise ValueError("Hubbard inconsistency detected!")
         self.value[0]= init_value
         self.variables = torch.tensor(self.value, device = self.device, dtype = self.dtype)
         self.variables.requires_grad = True

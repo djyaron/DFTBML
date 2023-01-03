@@ -66,7 +66,6 @@ class Reference_energy:
         self.values = np.append(self.values, np.array([0]))
         if (not (prev_values is None)) and  len(prev_values) > 0:
             #Load previous values if they are given
-            #FOR DEBUGGING PURPOSES ONLY
             assert(len(prev_values) == len(self.values))
             self.values = np.array(prev_values)
         self.variables = torch.tensor(self.values, dtype = self.dtype, device = self.device)
