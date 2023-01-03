@@ -347,7 +347,6 @@ class DFTB_Layer:
             
         """
         model_vals = list()
-        #Maybe won't need additional filtering here if going off feed['models']
         if mode == 'train':
             for model_spec in data_input['models']: 
                 model_vals.append( all_models[model_spec].get_values(data_input[model_spec]) )
@@ -367,8 +366,8 @@ class DFTB_Layer:
                 elif (model_spec.oper == 'G') and (len(model_spec.Zs) == 1) and (len(model_spec.orb) == 2)\
                     and (model_spec.orb[0] != model_spec.orb[1]):
                     #Specifically singling out the cases such as Model(oper = 'G', Zs = (7,), orb = 'ps')
-                    #This is only for debugging. Also need to isolate the 
-                    #Model("G", (1, ), 'ss') because there is no Model("G", (1, ), 's')
+                    #Also need to isolate the Model("G", (1, ), 'ss')
+                    #because there is no Model("G", (1, ), 's')
                     curr_mod_raw = data_input['mod_raw'][model_spec]
                     hub1_mod = Model("G", model_spec.Zs, model_spec.orb[0] * 2)
                     hub2_mod = Model("G", model_spec.Zs, model_spec.orb[1] * 2)
@@ -404,28 +403,21 @@ class DFTB_Layer:
                     calc[oname][bsize] = rot_out[gather].reshape((len(data_input['glabels'][bsize]),bsize,bsize))
         
         if 'S' not in data_input['onames']:
-            calc['S'] = deepcopy(data_input['S']) #Deepcopy operations may be too inefficient...
+            calc['S'] = deepcopy(data_input['S'])
         if 'G' not in data_input['onames']:
             calc['G'] = deepcopy(data_input['G'])
         
-        #At this point, we have H and G operators with requires_grad...
+        #At this point, we have H and G operators with requires_grad
         
         ## CONSTRUCT THE FOCK OPERATORS ##
         calc['F'] = {}
         calc['dQ'] = {}
         calc['Erep'] = {}
         for bsize in data_input['basis_sizes']:
-        
-            # rho = data_input['rho'][bsize] #Unnecessary, just copying dQ
-            # qbasis = rho * calc['S'][bsize] #Unnecessary, just copying dQ
-            # GOP  = torch.sum(qbasis,2,keepdims=True) #Unnecessary, just copying dQ
-            # qNeutral = data_input['qneutral'][bsize] #Unnecessary, just copying dQ
-            #calc['dQ'][bsize] = data_input['dQ'][bsize] #Use data_input['dQ'][bsize] here
             ep = torch.matmul(calc['G'][bsize], data_input['dQ'][bsize])
             couMat = ((-0.5 * calc['S'][bsize]) *  (ep + torch.transpose(ep, -2, -1)))
             calc['F'][bsize] = calc['H'][bsize] + couMat 
-            vals = net_vals[data_input['gather_for_rep'][bsize].long()] # NET VALS ERROR OCCURS HERE
-            #The segment_sum is going to be problematic
+            vals = net_vals[data_input['gather_for_rep'][bsize].long()]
             if self.repulsive_method == 'old':
                 calc['Erep'][bsize] = torch_segment_sum(vals,
                                     data_input['segsum_for_rep'][bsize].long(), self.device, self.dtype)
@@ -440,13 +432,13 @@ class DFTB_Layer:
             fock = calc['F'][bsize]
             if 'phiS' not in list(data_input.keys()):
                 # Eigenvalues in ascending order, eigenvectors are orthogonal, use conditional broadening
-                # Try first with default broadening factor of 1E-12
+                # Use default broadening factor of 1E-12
                 if self.method == 'new':
-                    symeig = SymEigB.apply #Can this be done on GPU?
+                    symeig = SymEigB.apply
                     Svals, Svecs = symeig(S1, 'cond')
                 elif self.method == 'old':
-                    Svals, Svecs = torch.symeig(S1, eigenvectors = True) #How does this work on GPU?
-                phiS = torch.matmul(Svecs, torch.diag_embed(torch.pow(Svals, -0.5))) #Changed this to get the diagonalization and multiplication to work
+                    Svals, Svecs = torch.symeig(S1, eigenvectors = True)
+                phiS = torch.matmul(Svecs, torch.diag_embed(torch.pow(Svals, -0.5)))
             else:
                 phiS = data_input['phiS'][bsize]
             fockp = torch.matmul(torch.transpose(phiS, -2, -1), torch.matmul(fock, phiS))
@@ -468,8 +460,7 @@ class DFTB_Layer:
             orb_filled = torch.mul(occ_mask, orb)
             rho = 2.0 * torch.matmul(orb_filled, torch.transpose(orb_filled, -2, -1))
             calc['rho'][bsize] = rho
-            ener1 = torch.sum(torch.mul(rho.view(rho.size()[0], -1), calc['H'][bsize].view(calc['H'][bsize].size()[0], -1)), 1) #I think this is fine since calc['Eelec'] is a 1D array
-            #dQ = calc['dQ'][bsize] #dQ is just copied but not calculated
+            ener1 = torch.sum(torch.mul(rho.view(rho.size()[0], -1), calc['H'][bsize].view(calc['H'][bsize].size()[0], -1)), 1)
             qbasis = rho * calc['S'][bsize] 
             GOP  = torch.sum(qbasis,2,keepdims=True)
             qNeutral = data_input['qneutral'][bsize]
