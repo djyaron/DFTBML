@@ -881,7 +881,7 @@ def model_loss_initialization(training_feeds: List[Dict], validation_feeds: List
             #Additional step of clearing the FormPenaltyLoss
             all_losses[loss].clear_class_dicts()
         elif loss == "dipole":
-            all_losses['dipole'] = DipoleLoss() #Use DipoleLoss2 for dipoles computed from ESP charges!
+            all_losses['dipole'] = DipoleLoss()
             loss_tracker['dipole'] = [list(), list(), 0]
         elif loss == "charges":
             all_losses['charges'] = ChargeLoss()
@@ -919,7 +919,7 @@ def model_sort(model_specs: List[Model]) -> List[Model]:
         else:
             all_other_mods.append(mod)
     #The key here prioritizes the same orbital over different orbitals, 
-    #   but without differentiating between different 
+    #   but without differentiating between different orbital specs
     sorted_g_single = sorted(single_g_mods, key = lambda x : 0 if x.orb[0] == x.orb[1] else 1)
     sorted_mods = sorted_g_single + all_other_mods
     return sorted_mods
@@ -983,7 +983,6 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
         #Need to do an intermediate step of sorting the models
         sorted_mods = model_sort(feed['models'])
         for model_spec in sorted_mods:
-            # print(model_spec)
             if (model_spec not in all_models):
                 print(model_spec)
                 mod_res, tag = get_model_value_spline(model_spec, model_variables, model_range_dict, par_dict,
@@ -993,7 +992,6 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
                                                         spline_mode, spline_deg,
                                                         off_diag_opers, include_inflect)
                 all_models[model_spec] = mod_res
-                #all_models[model_spec] = get_model_dftb(model_spec)
                 if tag != 'noopt' and not isinstance(mod_res, Input_layer_hubbard):
                     # Do not add redundant variables for the OffDiagModel. Nothing
                     # is done for off-diagonal model variables
@@ -1002,12 +1000,10 @@ def feed_generation(feeds: List[Dict], feed_batches: List[List[Dict]], all_losse
                         old_oper, old_zs, old_orb = model_spec
                         new_mod = Model(old_oper, old_zs, old_orb + '_inflect')
                         model_variables[new_mod] = all_models[model_spec].get_inflection_pt()
-                # Detach it from the computational graph (unnecessary)
+                # Detach it from the computational graph
                 elif tag == 'noopt':
                     all_models[model_spec].variables.requires_grad = False
             model = all_models[model_spec]
-            # print(model_spec)
-            # print(model_spec == Model(oper='R', Zs=(8, 8), orb='ss'))
             feed[model_spec] = model.get_feed(feed['mod_raw'][model_spec])
         
         for loss in all_losses:
@@ -1085,46 +1081,6 @@ def total_type_conversion(training_feeds: List[Dict], validation_feeds: List[Dic
     for feed in validation_feeds:
         recursive_type_conversion(feed, ignore_keys, device, dtype)
 
-
-
-
-
-
-# Old version of function
-# def model_range_correction(model_range_dict: Dict, correction_dict: Dict, universal_high: float = None) -> Dict:
-#     r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict
-    
-#     Arguments:
-#         model_range_dict (Dict): Dictionary mapping model_specs to their ranges in angstroms as tuples of the form
-#             (rlow, rhigh)
-#         correction_dict (Dict): Dictionary mapping model_specs to their new low ends in angstroms. Here,
-#             The keys are element tuples (elem1, elem2) and the values are the new low ends.
-#             All models modelling the interactions between elements (a, b) will have the
-#             same low end
-#         universal_high (float): The maximum distance bound for all spline models.
-#             Defaults to None
-    
-#     Returns:
-#         new_dict (Dict): The corrected model range dictionary
-    
-#     Notes: If a models' element pair does not appear in the correction_dict, its range
-#         is left unchanged, i.e. it is determined by the Modraw values of the 
-#         used data.
-#     """
-#     new_dict = dict()
-#     for mod, dist_range in model_range_dict.items():
-#         xlow, xhigh = dist_range
-#         Zs, Zs_rev = mod.Zs, (mod.Zs[1], mod.Zs[0])
-#         if Zs in correction_dict:
-#             #Safeguard to ensure that low-end distances are a valid correction
-#             assert(xlow > correction_dict[Zs])
-#             xlow = correction_dict[Zs]
-#         elif Zs_rev in correction_dict:
-#             assert(xlow > correction_dict[Zs_rev])
-#             xlow = correction_dict[Zs_rev]
-#         new_dict[mod] = (xlow, xhigh if universal_high is None else universal_high)
-#     return new_dict
-
 def model_range_correction(model_range_dict: Dict, low_correction_dict: Dict, cutoff_dictionary: Dict, joined_cutoff: float) -> Dict:
     r"""Corrects the lower bound values of the spline ranges in model_range_dict using correction_dict
     
@@ -1179,14 +1135,6 @@ def model_range_correction(model_range_dict: Dict, low_correction_dict: Dict, cu
             
     return new_dict
 
-
-
-
-
-
-
-
-
 def energy_correction(molec: Dict) -> None:
     r"""Performs in-place total energy correction for the given molecule by dividing Etot/nheavy
     
@@ -1201,8 +1149,6 @@ def energy_correction(molec: Dict) -> None:
     heavy_counts = [zcount[x] for x in ztypes if x > 1]
     num_heavy = sum(heavy_counts)
     molec['targets']['Etot'] = molec['targets']['Etot'] / num_heavy
-
-
 
 if __name__ == "__main__":
     pass
