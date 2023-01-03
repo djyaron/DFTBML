@@ -137,7 +137,7 @@ class Input_layer_hubbard:
         """
         zero_indices = feed['zero_indices'].long()
         nonzero_indices = feed['nonzero_indices'].long()
-        r12 = feed['nonzero_distances'] * 1.889725989 #Multiply by ANGSTROM2BOHR to get correct values, need to verify why this is the case?
+        r12 = feed['nonzero_distances'] * 1.889725989 
         nelements = len(zero_indices) + len(nonzero_indices)
         results = torch.zeros([nelements], dtype = self.dtype, device = self.device)
         
