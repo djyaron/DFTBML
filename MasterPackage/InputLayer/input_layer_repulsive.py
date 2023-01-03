@@ -434,13 +434,6 @@ class DFTBRepulsiveModel:
         #Now with the predictions added to the batches, time to solve for the initial
         #   repulsive model
         self.train_update_model(training_batches, validation_batches, opts)
-        # train_input = self.generate_repulsive_input(training_batches, 'train')
-        # valid_input = self.generate_repulsive_input(validation_batches, 'valid')
-        # self.mod = train_repulsive_model(train_input, opts, self.gammas_train)
-        # self.pred_train = repulsive_model_predict(self.mod, train_input, opts, self.gammas_train)
-        # self.pred_valid = repulsive_model_predict(self.mod, valid_input, opts, self.gammas_valid)
-        
-        # self.compute_repulsive_energies(training_batches + validation_batches, opts)
             
         #Having trained the repulsive model, extract the coefficients and get the 
         #   reference energy information
@@ -529,7 +522,7 @@ class DFTBRepulsiveModel:
             curr_iconfigs = feed['iconfigs'][bsize]
             assert(np.array(curr_names).shape == np.array(curr_iconfigs).shape)
             true_indices = [tracker[x[0]].index(x[1]) for _, x in enumerate(zip(curr_names, curr_iconfigs))]
-            #Turn it into a torch tensor since everything is a tensor in later calcs?
+            #Turn it into a torch tensor since everything is a tensor in later calcs
             if self.mode == 'external':
                 #In the external case, we create a tensor from numpy arrays
                 rep_dict[bsize] = torch.tensor([   pred[pair[0]]['prediction'][pair[1]] for _, pair in enumerate(zip(curr_names, true_indices))   ],
@@ -553,7 +546,6 @@ class DFTBRepulsiveModel:
         Notes: This method takes advantage of the exposed driver function 
             get_spline_block(), which takes in the models and options. 
         """
-        # self.spl_block = get_spline_block(self.mod, opts)
         raise ValueError("calc_spline_block was called, should not have been called!")
     
     def get_ref_ener_info(self, init: bool) -> Dict:
