@@ -7,6 +7,13 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 Main DFTBML paper: https://arxiv.org/abs/2210.11682
 DFTB Layer background: https://pubs.acs.org/doi/full/10.1021/acs.jctc.8b00873
 
+# Installation and Dependencies
+---
+DFTBML is currently not integrated through Anaconda or Pip, though this might change in the future. To install DFTBML, simply clone the repository using Git and use the code directly. Everything needed for DFTBML is contained within the DFTBML directory, with some additional files and directories at the top level. 
+
+In terms of dependencies, see the requirements.txt document in the repository top-level directory. We recommend that you work within a virtual environment set up through Anaconda or miniconda, which should have many of the required scientific computing packages included upon installation. Instructions for how to set up Anaconda can be found here: https://www.anaconda.com/products/distribution
+
+# Pre-trained models
 # Usage
 # Data
 # Known Limitations
