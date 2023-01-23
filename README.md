@@ -4,8 +4,8 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 
 # Relevant Publications
 ---
-Main DFTBML paper: https://arxiv.org/abs/2210.11682
-DFTB Layer background: https://pubs.acs.org/doi/full/10.1021/acs.jctc.8b00873
+- Main DFTBML paper: https://arxiv.org/abs/2210.11682
+- DFTB Layer background: https://pubs.acs.org/doi/full/10.1021/acs.jctc.8b00873
 
 # Installation and Dependencies
 ---
