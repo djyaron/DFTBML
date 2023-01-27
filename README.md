@@ -14,6 +14,9 @@ DFTBML is currently not integrated through Anaconda or Pip, though this might ch
 In terms of dependencies, see the requirements.txt document in the repository top-level directory. We recommend that you work within a virtual environment set up through Anaconda or miniconda, which should have many of the required scientific computing packages included upon installation. Instructions for how to set up Anaconda can be found here: https://www.anaconda.com/products/distribution
 
 # Pre-trained models
+---
+A key advantage of DFTBML is that trained models can be saved as Slater-Koster files, otherwise known as SKF files. This file format is compatible with mainstream electronic structure calculation and molecular dynamics packages such as [DFTB+](https://dftbplus.org/), [AMBER](https://ambermd.org/), and [CP2K](https://www.cp2k.org/). The SKF files for pre-trained models can be found under the SKF directory along with the experimental conditions used to generate them. 
+
 # Usage
 # Data
 # Known Limitations
