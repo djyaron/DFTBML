@@ -4,8 +4,8 @@ This directory contains all the SKF files used to generate the results in the ma
 
 Each directory contains the following:
 - The SKF files for the elements C, O, N, and H. There are a total of 16 SKF files per directory specifying every possible element pair. 
-- A pickle file called ref_params.p. Depending on what method DFTBML is trained to, these parameters are used to perform a linear reference energy correction between the output of DFTBML and the target _ab initio_ method. 
-- A json file containing the experimental parameters used for the experiment that generated the SKF files. This takes the form of a vector of constants for each atom type and a constant term.
+- A pickle file called ref_params.p. Depending on what method DFTBML is trained to, these parameters are used to perform a linear reference energy correction between the output of DFTBML and the target _ab initio_ method. This takes the form of a vector of constants for each atom type and a constant term.
+- A json file containing the experimental parameters used for the experiment that generated the SKF files. 
 
 These SKFs are ready to use directly. However, note that each SKF set was trained to minimize the residual errors against a given _ab initio_ method after applying a linear reference energy correction. The idea is that using the DFTB level energies calculated using these SKFs, applying a linear reference energy correction with the trained parameters contained in ref_params.p will correct the prediction up to the level of the _ab initio_ target without any additional cost or calculation.
 
