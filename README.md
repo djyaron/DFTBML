@@ -7,7 +7,7 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 - Main DFTBML paper: https://arxiv.org/abs/2210.11682
 - DFTB Layer background: https://pubs.acs.org/doi/full/10.1021/acs.jctc.8b00873
 
-# Installation and Dependencies
+# Installation
 ---
 1. Clone the repository:
 ```
@@ -28,11 +28,31 @@ conda activate DFTBML
 cd DFTBML
 python directory_setup.py
 ```
+If everything runs without error, then you are good to go.
 
 # Pre-trained models
 ---
 A key advantage of DFTBML is that trained models can be saved as Slater-Koster files, otherwise known as SKF files. This file format is compatible with mainstream electronic structure calculation and molecular dynamics packages such as [DFTB+](https://dftbplus.org/), [AMBER](https://ambermd.org/), and [CP2K](https://www.cp2k.org/). The SKF files for pre-trained models can be found under the Example_SKFs directory along with the experimental conditions used to generate them. 
 
-# Usage
+# Training the model
+---
+## Preparing the raw data
+The first step to training the DFTBML model is preparing the data. Unlike traditional machine learning, data preparation for DFTBML requires a precomputation process which generates batches in the format required for feeding through the network. The precomputation process is discussed in the following section, but first we will discuss how to best store and work with raw molecular data. 
+
+We adopt a straightforward representation where each molecule is described by a single python dictionary and a dataset is a list of such dictionaries. To further streamline the file I/O around the raw data, we choose to save datasets and intermediate data structures using the pickle utility. To save something to pickle, one does the following:
+```python
+import pickle
+with open("{filename}.p", "wb") as handle:
+    pickle.dump(object, handle)
+```
+where the ```object``` is a generic python object. The advantage of this approach is that thanks to object serialization, anything in python can be directly saved to a pickle file and recovered later without additional processing. To load something from a pickle file, do the following:
+```python
+import pickle
+with open("{filename}.p", "rb") as handle:
+    object = pickle.load(handle)
+```
+
+Each molecule dictionary has the following entries:
+
 # Data
 # Known Limitations
