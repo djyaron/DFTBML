@@ -9,9 +9,25 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 
 # Installation and Dependencies
 ---
-DFTBML is currently not integrated through Anaconda or Pip, though this might change in the future. To install DFTBML, simply clone the repository using Git and use the code directly. Everything needed for DFTBML is contained within the DFTBML directory, with some additional files and directories at the top level. 
-
-In terms of dependencies, see the requirements.txt document in the repository top-level directory. We recommend that you work within a virtual environment set up through Anaconda or miniconda, which should have many of the required scientific computing packages included upon installation. Instructions for how to set up Anaconda can be found here: https://www.anaconda.com/products/distribution
+1. Clone the repository:
+```
+git clone https://github.com/djyaron/dftbtorch.git
+cd dftbtorch
+```
+2. Verify that everything works by running [tox](https://tox.wiki/en/latest/index.html):
+```
+tox
+```
+3. Create and activate the virtual environment
+```
+conda create env -f environment.yml
+conda activate DFTBML
+```
+4. Run the directory_setup.py file 
+```
+cd DFTBML
+python directory_setup.py
+```
 
 # Pre-trained models
 ---
