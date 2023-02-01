@@ -226,8 +226,9 @@ We need to make two edits to `exp6.json`. First, we need to change the `top_leve
 ```
 The `run_id` field indicates the name of the directory containing our trained model SKF files and metadata that will appear in the `benchtop_wdir/results` directory, so it's important to set this to something meaningful. `top_level_fold_path` again points to the directory that we want to use for training. Most of the other settings can be left as is, though you may want to decrease `nepochs` from 2500 to some smaller value to save time on training.
 
-Once this is set up, go back to the DFTBML directory level and run the following command in your terminal:
+Once this is set up, go back to the DFTBML directory level. Activate the virtual environment and run the following command in your terminal:
 ```
+>> conda activate DFTBML
 >> nohup python benchtop.py &
 ```
 We use the `nohup` command here because training usually takes a long time, so running it headlessly in the background is both convenient and safer. You will notice that a file will appear called `benchtop_wdir/EXP_LOG.txt`. This is a basic log file that will indicate the start and end times of experiments, as well as any safety checks that were conducted during the course of training. 
