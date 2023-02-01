@@ -264,8 +264,62 @@ The `Split0` directory that appears inside `benchtop_wdir/dsets/example_datasets
 Congratulations on successfully training DFTBML!
 
 ## Model evaluation
+Now that we have successfully trained the model, the next step is to evaluate the trained model by running the resulting SKF files on a test set of molecules. In principle, this can be done using a number of different software packages for quantum chemical calculations, but all the DFTBML testing done during development used [DFTB+](https://dftbplus.org/). The instructions provided here are for evaluating the model using DFTB+.
 
+First, we need to move our resulting SKFs from `benchtop_wdir/results` to `analysis_dir/results`. Our directory structure is now:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    ├── example_dataset/
+    │   └── ...
+    ├── benchtop_wdir/
+    │   ├── EXP_LOG.txt
+    │   ├── dsets/
+    │   │   └── example_dataset/
+    │   │       └── ...
+    │   ├── results/
+    │   │   └── example_train_results/
+    │   │       └── ...
+    │   ├── settings_files/
+    │   │   ├── exp6.json
+    │   │   └── refactor_default_tst.json
+    │   └── tmp/
+    │       └── exp6_TMP.txt
+    └── analysis_dir/
+        ├── results/
+        │   └── exmaple_train_results/
+        │       └── ...
+        └── analysis_files/
+```
+We no longer need to worry about `benchtop_wdir`, so all diagrams from now on will only focus on `analysis_dir`. The script we need to run to analyze our results is `analysis.py`, which can be used to either analyze one set of SKFs or a collection of SKFs. Even though we only have one set of results, the command line argument for analyzing a collection of SKFs is simpler, so we will use that functionality here.
 
+First, move your test set into the `analysis_dir/example_train_results` directory. Your test set should similarly be in the molecule dictionary representaiton and the file should be named `test_set.p`. Our directory now looks like this:
+```
+.
+└── DFTBML/
+    ├── ...
+    └── analysis_dir/
+        ├── results/
+        │   └── exmaple_train_results/
+        │       ├── ...
+        │       └── test_set.p
+        └── analysis_files/
+```
+To run the evaluation, we need access to the dftb+ binary. To install DFTB, follow the installation instructions at https://dftbplus.org/ for your system. Then, open up the `analyze.py` script and change the `exec_path` variable to point to the `dftb+` binary in your system.
 
+Now to run the analysis, make sure the virtual environment is activated and run the script in your terminal from the DFTBML directory level:
+```
+>> nohup python analyze.py internal Y analysis_dir/results N &
+```
+Note that the analyze.py script takes four arguments. They are as follows:
+|Argument|Data Type|Possible Values|Description|
+|---|---|---|---|
+|`dset`|`string`|Either a file path or `internal`|The name of the dataset to use. Setting this argument as `internal` means the code will search for the `test_set.p` file stored in the results directory|
+|`batch`|`string`| `Y` or `N`|Whether you are analyzing a collection of SKF directories (`Y`) or a single SKF directory (`N`)|
+|`skf_dir`|`string`|Usually `analysis_dir/results`|Location where the result SKF directories are stored|
+|`fit_fresh_ref`|`string`|`Y` or `N`|Toggle for applying a fresh reference energy fit. Used for cases of SKF files without trained reference energy parameters (e.g. the default parameter sets listed with DFTB+)|
+
+Running the above command will perform the analysis for you. The transient input files should be written to the `dftbscratch` directory which is setup by `directory_steup.py`. 
 # Data
 # Known Limitations
