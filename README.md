@@ -53,6 +53,12 @@ with open("{filename}.p", "rb") as handle:
 ```
 
 Each molecule dictionary has the following entries:
+|Field|Data Type|Dimension|Description|
+|---|---|---|---|
+|`name`|`str`|N/A|The empirical formula of the molecule, e.g. C1H4 for methane|
+|`iconfig`|`int`|N/A|Arbitrary index used to distinguish between different molecules with the same empirical formula|
+|`atomic_numbers`|`np.ndarray[uint8]`|($$N_{atom}$$,)|Array of atomic numbers specifying all the element types in the molecule|
+|`coordinates`|`np.ndarray[float32]`|($$N_{atom}$$, 3)|Array of atomic cartesian coordinates given in Angstroms $$\AA$$|
 
 # Data
 # Known Limitations
