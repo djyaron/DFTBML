@@ -169,7 +169,101 @@ The contents of the `Fold0` and `Fold1` directories have been ommitted for clari
 ```
 
 ## Training DFTBML
-With our precomputed dataset `example_dataset`, we can now begin training the model. To begin, we need to create a configuration json file 
+With our precomputed dataset `example_dataset`, we can now begin training the model. To begin, we need to create a configuration json file that specifies the parameters of our training session. This includes the generic machine learning parameters such as the number of epochs and the learning rate as well as more nuanced DFTBML-specific parameters. An example configuration file, `exp6.json`, is contained in `example_configs`.
+
+Part of installing DFTBML was running the `directory_setup.py` script. This sets up the following directories inside of DFTBML:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    ├── example_dataset/
+    │   └── ...
+    ├── benchtop_wdir/
+    │   ├── dsets/
+    │   ├── results/
+    │   ├── settings_files/
+    │   │   └── refactor_default_tst.json
+    │   └── tmp/
+    └── analysis_dir/
+        ├── analysis_files/
+        └── results/
+```
+Training requires `benchtop_wdir`. We will return to `analysis_dir` when we discuss benchmarking our trained models.
+
+First, we need to copy our dataset into `benchtop_wdir/dsets` and our experiment file, `exp6.json`, into `benchtop_wdir/settings_files`. Then our directory structure is as follows:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    ├── example_dataset/
+    │   └── ...
+    ├── benchtop_wdir/
+    │   ├── dsets/
+    │   │   └── example_dataset/
+    │   │       └── ...
+    │   ├── results/
+    │   ├── settings_files/
+    │   │   ├── exp6.json
+    │   │   └── refactor_default_tst.json
+    │   └── tmp/
+    └── analysis_dir/
+        ├── analysis_files/
+        └── results/
+```
+We need to make two edits to `exp6.json`. First, we need to change the `top_level_fold_path` field so that it points to our dataset from the level of DFTBML as our working directory, and we also need to change the `run_id` field:
+```
+#Other contents of dset_settings.json
+
+    "loaded_data_fields": {
+        "loaded_data": true,
+        "top_level_fold_path": "benchtop_wdir/dsets/example_dset",
+        "run_check": false,
+
+#Other contents of dset_settings.json
+    
+    "run_id" : "example_train_result"
+}
+```
+The `run_id` field indicates the name of the directory containing our trained model SKF files and metadata that will appear in the `benchtop_wdir/results` directory, so it's important to set this to something meaningful. `top_level_fold_path` again points to the directory that we want to use for training. Most of the other settings can be left as is, though you may want to decrease `nepochs` from 2500 to some smaller value to save time on training.
+
+Once this is set up, go back to the DFTBML directory level and run the following command in your terminal:
+```
+>> nohup python benchtop.py &
+```
+We use the `nohup` command here because training usually takes a long time, so running it headlessly in the background is both convenient and safer. You will notice that a file will appear called `benchtop_wdir/EXP_LOG.txt`. This is a basic log file that will indicate the start and end times of experiments, as well as any safety checks that were conducted during the course of training. 
+
+After training, the results will show up in the `benchtop_wdir/results` directory. Our directory structure now looks as follows:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    ├── example_dataset/
+    │   └── ...
+    ├── benchtop_wdir/
+    │   ├── EXP_LOG.txt
+    │   ├── dsets/
+    │   │   └── example_dataset/
+    │   │       ├── ...
+    │   │       └── Split0/
+    │   │           └── ...
+    │   ├── results/
+    │   │   └── example_train_result/
+    │   │       └── ...
+    │   ├── settings_files/
+    │   │   ├── exp6.json
+    │   │   └── refactor_default_tst.json
+    │   └── tmp/
+    │       └── exp6_TMP.txt
+    └── analysis_dir/
+        ├── analysis_files/
+        └── results/
+```
+The `Split0` directory that appears inside `benchtop_wdir/dsets/example_datasets` also appears in `benchtop_wdir/results/example_train_result/` and contains some additional metadata about training (epoch times, data for loss curve visualization, etc.). The file that appears in `benchtop_wdir/tmp` is a placeholder to prevent experiments from overriding each other in the case of distributed training across multiple servers. At this point, the `example_train_result` directory is ready for analysis. 
+
+Congratulations on successfully training DFTBML!
+
+## Model evaluation
+
 
 
 # Data
