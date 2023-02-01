@@ -73,8 +73,11 @@ Adding additional targets is an ongoing project.
 Because DFTBML was developed, trained, and benchmarked using the ANI-1ccx dataset from Olexandr Isayev and colleagues, utilities already exist to convert the ANI-1ccx hdf5 format to the molecule dictionary representation described above. Otherwise, you will have to massage your data into the correct format. 
 
 ## Setting up a precomputation
-Once you have a set of molecular data in the molecule dictionary representation, the next step is to set up a precomputation. This is a fairly involved process because of the inherent complexity of the internal batch representation used in DFTBML, but here we provide a simple working example that should be sufficient for most applications. 
-
+Once you have a set of molecular data in the molecule dictionary representation, the next step is to set up a precomputation. This is a fairly involved process because of the inherent complexity of the internal batch representation used in DFTBML, but here we provide a simple working example that should be sufficient for most applications. First, copy the `dataset.p` file from the `example_configs` directory to the DFTBML level and also make a directory called `precompute_test`:
+```
+>> cp example_configs/dataset.p .
+>> mkdir precompute_test
+```
 Our directory setup is as follows, where we are working with DFTBML as our current working directory:
 ```
 .
