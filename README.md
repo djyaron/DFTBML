@@ -279,7 +279,7 @@ First, we need to move our resulting SKFs from `benchtop_wdir/results` to `analy
     │   │   └── example_dataset/
     │   │       └── ...
     │   ├── results/
-    │   │   └── example_train_results/
+    │   │   └── example_train_result/
     │   │       └── ...
     │   ├── settings_files/
     │   │   ├── exp6.json
@@ -288,7 +288,7 @@ First, we need to move our resulting SKFs from `benchtop_wdir/results` to `analy
     │       └── exp6_TMP.txt
     └── analysis_dir/
         ├── results/
-        │   └── exmaple_train_results/
+        │   └── exmaple_train_result/
         │       └── ...
         └── analysis_files/
 ```
@@ -301,7 +301,7 @@ First, move your test set into the `analysis_dir/example_train_results` director
     ├── ...
     └── analysis_dir/
         ├── results/
-        │   └── exmaple_train_results/
+        │   └── exmaple_train_result/
         │       ├── ...
         │       └── test_set.p
         └── analysis_files/
@@ -321,5 +321,25 @@ Note that the analyze.py script takes four arguments. They are as follows:
 |`fit_fresh_ref`|`string`|`Y` or `N`|Toggle for applying a fresh reference energy fit. Used for cases of SKF files without trained reference energy parameters (e.g. the default parameter sets listed with DFTB+)|
 
 Running the above command will perform the analysis for you. The transient input files should be written to the `dftbscratch` directory which is setup by `directory_steup.py`. 
+
+Once the analysis is complete, you will find the results under the `analysis_files` directory. In our case, the directory structure should look like:
+```
+.
+└── DFTBML/
+    ├── ...
+    └── analysis_dir/
+        ├── results/
+        │   └── exmaple_train_result/
+        │       ├── ...
+        │       └── test_set.p
+        └── analysis_files/
+            ├── analysis_example_train_result.txt
+            └── analysis_example_train_result.p
+```
+The text file contains a readout of the evaluation metrics (MAE on energy and different targets) while the pickle file contains the test set molecules where each molecule dictionary is updated with the DFTB+ calculation results. This is useful if you wish to perform further analysis on your results on a per-molecule basis, such as looking at the rates of convergence or outlier occurrence. 
+
+## Next steps
+That concludes this tutorial on the DFTBML training pipeline. This was intended as a quick start guide for first-time users who just want to gain some fmailiarity with the code base and the high-level steps involved with parameterizing based on a given class of systems. Of course, there are a lot of other features built into DFTBML that are accessible through the configuration json files, so for those interested in contributing or designing more elaborate experiments, we recommend looking at the documentation provided at [WIP]. 
+
 # Data
 # Known Limitations
