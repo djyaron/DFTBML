@@ -28,7 +28,7 @@ conda activate DFTBML
 cd DFTBML
 python directory_setup.py
 ```
-If everything runs without error, then you are good to go.
+If everything runs without error, then you are good to go. Note that while DFTBML is known to work on Windows systems, running it on a Linux operating system is preferable. 
 
 # Pre-trained models
 ---
@@ -75,6 +75,14 @@ Because DFTBML was developed, trained, and benchmarked using the ANI-1ccx datase
 ## Setting up a precomputation
 Once you have a set of molecular data in the molecule dictionary representation, the next step is to set up a precomputation. This is a fairly involved process because of the inherent complexity of the internal batch representation used in DFTBML, but here we provide a simple working example that should be sufficient for most applications. 
 
+Our directory setup is as follows, where we are working with DFTBML as our current working directory:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    └── precompute_test/
+```
+
 The first step is to partition your dataset into a training and validation set. It is also good practice to set aside a disjoint test set of molecules for benchmarking the model performance later, but the test set is not involved in the precomputation process. Assuming that you have your dataset saved in the molecule dictionary representation in a file called `dataset.p`, a simple 80-20 train-valid split can be achieved as follows:
 ```python
 import pickle, random
@@ -84,14 +92,85 @@ with open("dataset.p", "rb") as handle:
     index = int(len(mols) * 0.8)
     train_mols, valid_mols = mols[:index], mols[index:]
 ```
-Once you have the two sets of molecules separated out, save them to the directory where you will perform the precomputation. In the example below, we are saving to an existing directory called `precompute_test`:
+Once you have the two sets of molecules separated out, save them to the directory where you will perform the precomputation. In the example below, we are saving to an existing directory called `precompute_test` which sits inside the `DFTBML` directory:
 ```python
 with open("precompute_test/Fold0_molecs.p", "wb") as handle:
     pickle.dump(train_mols, handle)
 with open("precompute_test/Fold1_molecs.p", "wb") as handle:
     pickle.dump(valid_mols, handle)
 ```
-Note that the specific names given, `Fold0_molecs.p` and `Fold1_molecs.p`, do matter since the code searches for all pickle files conforming to the generic pattern of `Fold[0-9]+_molecs.p`. Once you have saved the pickle files to the directory, the next step is to get 
+Note that the specific names given, `Fold0_molecs.p` and `Fold1_molecs.p`, do matter since the code searches for all pickle files conforming to the generic pattern of `Fold[0-9]+_molecs.p`. Once you have saved the pickle files to the directory, the next step is to get a configuration file for the precompute. An example of one can be found in the `example_configs` directory inside `DFTBML`, called `dset_settings.json`. The json format is used for all DFTBML configuration files. Copy the `dset_settings.json` file into the `precompute_test` directory. 
+
+For a basic precomputation, the only thing that needs to be changed in the `dset_settings.json` file is the field `top_level_fold_path`. Most paths are set from the perspective of `DFTBML` being the current working directory, and it is expected that most of the work occurs within the `DFTBML` directory. In our example, we set the `top_level_fold_path` to `precompute_test`:
+```
+#Other contents of dset_settings.json
+
+    "loaded_data_fields": {
+        "loaded_data": true,
+        "top_level_fold_path": "precompute_test",
+        "run_check": false,
+
+#Other contents of dset_settings.json
+```
+Our overall directory structure now looks something like this:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    └── precompute_test/
+        ├── Fold0_molecs.p
+        ├── Fold1_molecs.p
+        └── dset_settings.json
+```
+Now we execute the precompute. With DFTBML still as our working directory, copy and paste the following code into a script, which we will call `precompute_run_script.py`:
+```python
+if __name__ == "__main__":
+    from precompute_driver import precompute_folds
+    from DatasetGeneration import process_settings_files
+    
+    current_default_file = "example_configs/refactor_default_tst.json"
+    current_settings_file = "precompute_test/dset_settings.json"
+    s_obj, opts = process_settings_files(current_settings_file, current_default_file)
+    
+    precompute_folds(s_obj, opts, s_obj.top_level_fold_path, True)
+```
+Activate your virtual environment and then run the script in the terminal:
+```
+>> conda activate DFTBML
+>> python precompute_run_script.py
+```
+Depending on the size of your dataset, the precompute process may take a period of time. For this reason, we recommend running it headlessly using nohup in the background:
+```
+>> nohup python precompute_run_script.py &
+```
+Note that this only applies to linux systems. Once the precompute has completed, you will find that the `precompute_test` directory will become populated as follows:
+```
+.
+└── DFTBML/
+    ├── dataset.p
+    └── precompute_test/
+        ├── Fold0_molecs.p
+        ├── Fold1_molecs.p
+        ├── dset_settings.json
+        ├── config_tracker.p
+        ├── Fold0/
+        │   └── ...
+        ├── Fold0_config_tracker.p
+        ├── Fold0_gammas.p
+        ├── Fold1/
+        │   └── ...
+        ├── Fold1_config_tracker.p
+        ├── Fold1_gammas.p
+        └── gammas.p
+```
+The contents of the `Fold0` and `Fold1` directories have been ommitted for clarity. The entire directory `precompute_test` is now considered a precompute dataset and can be fed into DFTBML for model training. For clarity, let's rename this dataset as follows:
+```
+>> mv precompute_test example_dataset
+```
+
+## Training DFTBML
+With our precomputed dataset `example_dataset`, we can now begin training the model. To begin, we need to create a configuration json file 
+
 
 # Data
 # Known Limitations
