@@ -26,6 +26,8 @@ if __name__ == "__main__":
         os.mkdir("analysis_dir")
         os.mkdir("analysis_dir/analysis_files")
         os.mkdir("analysis_dir/results")
+    if not os.path.isdir("dftbscratch"):
+        os.mkdir("dftbscratch")
     
     try:
         assert(os.path.isdir("example_configs"))
