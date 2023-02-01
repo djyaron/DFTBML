@@ -28,7 +28,7 @@ if __name__ == "__main__":
         os.mkdir("analysis_dir/results")
     
     try:
-        assert(os.path.isdir("example_configs")
+        assert(os.path.isdir("example_configs"))
     except:
         raise ValueError("Missing example_configs directory!")
     
