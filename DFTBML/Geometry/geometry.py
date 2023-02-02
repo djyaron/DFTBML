@@ -51,7 +51,7 @@ class Geometry(object):
            is less than addon_for_isbonded + the sum or their covalent radii
 
         """
-        self.z                      = np.asarray(z,np.int).copy()
+        self.z                      = np.asarray(z,np.int_).copy()
         self.rcart                  = np.asarray(rcart).copy()
         self.natom                  = len(self.z)
         self.addon_for_isbonded     = addon_for_isbonded

@@ -49,7 +49,7 @@ class Repulsion(object):
     def add_to_batch(self, glabel, batch):
         numAtom = len(self._atomList)
         nvals = int((numAtom**2 - numAtom)/2)
-        indices = np.zeros([nvals], dtype = np.int)
+        indices = np.zeros([nvals], dtype = np.int_)
         icount = 0
         for ind1, atom1 in enumerate(self._atomList):
             for ind2, atom2 in enumerate(self._atomList):

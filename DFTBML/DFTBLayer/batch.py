@@ -327,7 +327,7 @@ class Batch(object):
     def set_mol_oper(self, index_matrix ):
         if self.current_oper not in self.opers_to_model:
             return
-        val = index_matrix.astype(np.int)
+        val = index_matrix.astype(np.int_)
         if self.current_oper == 'S':
             np.fill_diagonal(val, 1)
         self.mol_oper[(self.current_glabel,self.current_oper)] = val
@@ -353,7 +353,7 @@ class Batch(object):
     def set_rep_oper(self, glabel, index_matrix ):
         if 'R' not in self.opers_to_model:
             return
-        val = index_matrix.astype(np.int)
+        val = index_matrix.astype(np.int_)
         self.rep_geom[glabel] = val
 
     def add_geometry(self, glabel, geom, gtype = None, charge=0, mult=1, 
@@ -390,7 +390,7 @@ class Batch(object):
         Oind = self.mol_oper[(glabel,oper)]
         nbasis = Oind.shape[0]
         
-        raw_indices = np.array([r.index for r in self.raw_data],np.int)
+        raw_indices = np.array([r.index for r in self.raw_data],np.int_)
         raw_values  = np.array([r.dftb for r in self.raw_data])
         raw = np.zeros(np.max(raw_indices)+1)
         raw[raw_indices] = raw_values
@@ -610,7 +610,7 @@ class Batch(object):
         glabels_all = self.get_glabels()
         for bsize, glabels in glabels_all.items():
             gtypes = [self.gtype[x] for x in glabels]
-            res[bsize] = np.array([gtype_to_i[x] for x in gtypes],dtype=np.int)
+            res[bsize] = np.array([gtype_to_i[x] for x in gtypes],dtype=np.int_)
         return res
         
     # TODO: Moved to DFTBList. Delete from here once tested.
@@ -816,7 +816,7 @@ class Batch(object):
             rots = [r for r in self.rot_data if r.rot.shape == s]
             temp1 = [rot.raw_indices for rot in rots]
             temp2 = list(chain.from_iterable(temp1))
-            gather_for_rot = np.array([net_lookup[i] for i in temp2],np.int)
+            gather_for_rot = np.array([net_lookup[i] for i in temp2],np.int_)
             
             temp1 = [rot.rot_indices for rot in rots]
             rot_indices.extend(list(chain.from_iterable(temp1)))
@@ -836,7 +836,7 @@ class Batch(object):
                     look_up = {i:n for n, i in enumerate(rot_indices)}
                     oind2 = [look_up[i] for i in oind]
                     gtemp.extend(oind2)
-                gather_for_oper[oname][bsize] = np.array(gtemp,np.int)
+                gather_for_oper[oname][bsize] = np.array(gtemp,np.int_)
 
 
         # For repulsion, we want to use tf.segment_sum to sum over all
@@ -856,8 +856,8 @@ class Batch(object):
                     # into the correct position
                     gather.extend( netraw_indices )
                     indices.extend([igeom] * len(netraw_indices))
-                gather_for_rep[bsize] = np.array(gather,  np.int)
-                segsum_for_rep[bsize] = np.array(indices, np.int)
+                gather_for_rep[bsize] = np.array(gather,  np.int_)
+                segsum_for_rep[bsize] = np.array(indices, np.int_)
 
         return rot_gathers, gather_for_oper, gather_for_rep, \
                segsum_for_rep
