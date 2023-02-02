@@ -345,4 +345,11 @@ The text file contains a readout of the evaluation metrics (MAE on energy and di
 That concludes this tutorial on the DFTBML training pipeline. This was intended as a quick start guide for first-time users who just want to gain some fmailiarity with the code base and the high-level steps involved with parameterizing based on a given class of systems. Of course, there are a lot of other features built into DFTBML that are accessible through the configuration json files, so for those interested in contributing or designing more elaborate experiments, we recommend looking at the documentation provided at [WIP]. 
 
 # Data
+As shown in the main manuscript, the two major datasets used for model development, training, and benchmarking are the ANI-1ccx dataset and the COMP6 dataset. The publications describing these datasets are:
+- COMP6 Dataset: https://aip.scitation.org/doi/10.1063/1.5023802
+- ANI-1ccx: https://www.nature.com/articles/s41597-020-0473-z
+
 # Known Limitations
+- DFTBML currently only works with organic molecules containing C, O, N, and H, but extending to elements with higher angular momenta is underway
+- Additional interactions and forces need to be implemented, such as finite temperature effects and dispersion
+- Additional targets for training need to be added beyond just total energy, dipoles, and atomic charges
