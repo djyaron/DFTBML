@@ -655,7 +655,89 @@ class Batch(object):
                 dipole[ilabel,:,:] = geom.rcart[:,onatom]
             # convert from amu Angstrom to debye (http://cccbdb.nist.gov/debye.asp)
             res[bsize] = dipole / 0.208194
-        return res        
+        return res
+
+    ### DO NOT USE WITHOUT TESTING
+
+    def one_center_dipole():
+        """
+        This formula came from Tanya's notes
+
+        Assuming n = 2 since we are doing organics
+        """
+        n = 2
+        s, p = 1, 1 #Replace with correct parameter values!
+        first_term = ((2 * n) + 1) * (2**((2*n) + 1)) * ((s * p)**(n + 0.5))
+        second_term = (3**0.5) * ((s + p)**((2*n) + 2)
+        return first_term / second_term
+         
+    def get_XYZ_mat(self):
+        """
+        First attempt at generating the XYZ matrices required for 
+        incorporating influence of an external field
+        Currently only generates the diagonal matrix of the respective
+           coordinates X, Y, Z
+        TODO: Generate off-diagonal elements correctly
+
+        Notes: This function is tied to the GetOnAtom() and GetShellBasis()
+            methods of the dftb object. The GetOnAtom() extracts the indices
+            of the atoms. For example, for a single carbon atom, you get the following
+            for shellbasis and onatom:
+            
+            shellbasis = [[0], [1,2,3]]
+            onatom = [0, 0, 0, 0]
+
+            Assuming only organics, the off-diagonal element locations in the 
+            one-centered dipole integral can be found as the intersection of 
+            the index 0 and index 1, 2, or 3 for the px, py, or pz orbitals
+            (assuming 1, 2, 3 = x, y, z). 
+        """
+        res = OrderedDict()
+        #Maps the basis size to the glabels which are the 
+        #   indices of different geometries in the list of geometries
+        glabels_all = self.get_glabels()
+        for bsize, glabels in glabels_all.items():
+            #Stacked XYZ matrices for all the molecules of the given bsize
+            X = np.zeros([len(glabels), bsize, bsize], dtype = np.float64)
+            Y = np.zeros([len(glabels), bsize, bsize], dtype = np.float64)
+            Z = np.zeros([len(glabels), bsize, bsize], dtype = np.float64)
+            for ilabel, glabel in enumerate(glabels):
+                dftb = self.get_dftb(glabel)
+                geom = self.get_geom(glabel)
+                #GetOnAtom() and GetShellBasis() in dftb.py
+                onatom = np.array(dftb.GetOnAtom(), dtype = np.int64)
+                shellbasis = np.array(dftb.GetShellBasis(), dtype = np.int64)
+                #Assumption that X, Y, Z are mapped to 0, 1, 2 indices 
+                #   The assignment of x, y, z does matter here because 
+                #   that determines the ordering of the off-diagonal elements
+                #geom.rcart has shape (3, Natom)
+                X[ilabel,:,:] = np.diag(geom.rcart[0, onatom])
+                Y[ilabel,:,:] = np.diag(geom.rcart[1, onatom])
+                Z[ilabel,:,:] = np.diag(geom.rcart[2, onatom])
+                #At this point need to figure out how to add the off-diagonal element 
+                #   We exploit the fact that in shell basis, the coupling of the s
+                #   orbital and p orbitals can be found in O(n) time by looking for 
+                #   lists of length 1 (s) that are right before lists of length 3 (px, py, pz).
+                #   Then, the location in the matrix is element 0 of the length 1 list and
+                #   element 0, 1, or 2 of the length 3 list (assuming 0, 1, 2 -> x, y, z)
+                for j in range(len(shellbasis) - 1):
+                    curr_elem = shellbasis[j]
+                    next_elem = shellbasis[j + 1]
+                    #s orbital next to p orbital
+                    if (len(curr_elem) == 1) and (len(next_elem) == 3):
+                        #X coordinate matrix
+                        s_ind = curr_elem[0]
+                        X[ilabel, s_ind, next_elem[0]] = one_center_dipole()
+                        X[ilabel, s_ind, next_elem[0]] = one_center_dipole() #Symmetric about the diagonal
+                        #Y coordinate matrix
+                        Y[ilabel, s_ind, next_elem[1]] = one_center_dipole()
+                        Y[ilabel, s_ind, next_elem[1]] = one_center_dipole()
+                        #Z coordinate matrix
+                        Z[ilabel, s_ind, next_elem[2]] = one_center_dipole()
+                        Z[ilabel, s_ind, next_elem[2]] = one_center_dipole()
+            res[bsize] = np.array([X, Y, Z]) #(3, n_glabel, bsize, bsize) tensor
+        return res      
+    ###        
 
     def get_atom_ids(self):
         # atom on which the orbital resides, returns dict
