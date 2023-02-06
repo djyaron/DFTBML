@@ -668,7 +668,7 @@ class Batch(object):
         n = 2
         s, p = 1, 1 #Replace with correct parameter values!
         first_term = ((2 * n) + 1) * (2**((2*n) + 1)) * ((s * p)**(n + 0.5))
-        second_term = (3**0.5) * ((s + p)**((2*n) + 2)
+        second_term = (3**0.5) * ((s + p)**((2*n) + 2))
         return first_term / second_term
          
     def get_XYZ_mat(self):
