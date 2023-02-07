@@ -20,7 +20,7 @@ tox
 ```
 3. Create and activate the virtual environment
 ```
-conda create env -f environment.yml
+conda env create -f environment.yml
 conda activate DFTBML
 ```
 4. Run the directory_setup.py file 
