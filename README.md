@@ -219,7 +219,7 @@ We need to make two edits to `exp6.json`. First, we need to change the `top_leve
 
     "loaded_data_fields": {
         "loaded_data": true,
-        "top_level_fold_path": "benchtop_wdir/dsets/example_dset",
+        "top_level_fold_path": "benchtop_wdir/dsets/example_dataset",
         "run_check": false,
 
 #Other contents of dset_settings.json
