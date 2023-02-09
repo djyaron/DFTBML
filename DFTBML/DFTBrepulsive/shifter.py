@@ -30,7 +30,7 @@ class Shifter:
         atom_counts = fset.iloc[:, -len(dset.atypes())-1:-1]
         self.atypes = tuple(SYM2ATOM[_atype] for _atype in atom_counts.columns)
         targets = fset.iloc[:, -1:]
-        self.shifter.fit(X=atom_counts, y=targets)
+        self.shifter.fit(X=atom_counts.values, y=targets)
         self.coef = self.shifter.coef_
         self.intercept = self.shifter.intercept_
 
