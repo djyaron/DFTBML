@@ -155,7 +155,7 @@
             ]
         },
         "charge_update_epochs": 10,
-        "nepochs": 2500,
+        "nepochs": 200,
         "n_worker": 1
     },
     "optim_sched_settings": {
