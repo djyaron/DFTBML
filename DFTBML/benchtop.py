@@ -330,7 +330,7 @@ def copy_results_files(directory_name: str) -> None:
     #   module and can be translated over from there with minimal modifications.,
     destination = os.path.join(RESULTS_DIR_PATH, directory_name)
     if os.path.isdir(destination):
-        shutil.remove(destination)
+        shutil.rmtree(destination)
         rm_msg = f"Cleared pre-existing results directory at {destination}"
         print(rm_msg)
         write_to_log(rm_msg)
