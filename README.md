@@ -14,14 +14,14 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 git clone https://github.com/djyaron/dftbtorch.git
 cd dftbtorch
 ```
-2. Verify that everything works by running [tox](https://tox.wiki/en/latest/index.html):
-```
-tox
-```
-3. Create and activate the virtual environment
+2. Create and activate the virtual environment
 ```
 conda env create -f environment.yml
 conda activate DFTBML
+```
+3. Verify that everything works by running [tox](https://tox.wiki/en/latest/index.html):
+```
+tox
 ```
 4. Run the directory_setup.py file 
 ```
