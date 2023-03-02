@@ -33,12 +33,17 @@ import re
 from SKF import SkfInfo
 
 nums = { #Switch this out with MasterConstants later
-        'H' : 1,
-        'C' : 6,
-        'N' : 7,
-        'O' : 8,
+        'H'  : 1,
+        'C'  : 6,
+        'N'  : 7,
+        'O'  : 8,
         'Au' : 79,
-        'S': 16
+        'S'  : 16,
+        'Cl' : 17,
+        'F'  : 9,
+        'P'  : 15,
+        'I'  : 53,
+        'Br' : 35
         }
 
 
