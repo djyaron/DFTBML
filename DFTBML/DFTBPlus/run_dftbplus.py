@@ -25,7 +25,7 @@ from subprocess import call
 import numpy as np
 Array = np.ndarray
 from .dftbplus import write_dftb_infile, read_dftb_out, read_detailed_out, parse_charges_dat,\
-        compute_ESP_dipole, parse_dipole, parse_charges_output
+        compute_ESP_dipole, parse_dipole, parse_charges_output, parse_forces 
 from .util import sequential_outlier_exclusion
 from FoldManager import get_ani1data, count_nheavy
 from h5py import File
@@ -134,7 +134,7 @@ def load_au(au_type, max_mol, max_config, include_au2):
 def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, do_our_dftb: bool = True, 
              do_dftbplus: bool = True, fermi_temp: float = None, parse: str = 'detailed', charge_form: str = "gross",
              dipole_unit: str = "Debye",
-             dispersion: bool = False) -> None:
+             dispersion: bool = False, scratch_dir = 'dftbscratch') -> None:
     r"""Runs and parses out the DFTB+ results and adds them to the molecule
         dictionaries for a given dataset. 
     
@@ -159,6 +159,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
             Defaults to 'Debye'.
         dispersion (bool): Whether or not to include the dispersion block
             in the DFTB in file. Defaults to False
+        scratch_dir (str): The scratch directory to use. Defaults to dftbscratch.
     
     Returns:
         None
@@ -174,7 +175,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
         DFTBoptions = {'ShellResolvedSCC': False}
     else:
         DFTBoptions = {'ShellResolvedSCC': True}
-    scratch_dir = "dftbscratch"
+    scratch_dir = scratch_dir
     if (not os.path.isdir(scratch_dir)):
         os.mkdir(scratch_dir)
     savefile_dir_path = os.path.join(scratch_dir, "save_files")
@@ -270,6 +271,8 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                         res2['charges_dat_gross'] = charges_dat_gross #Information saved for testing/debugging purposes
                         dipole_ESP = compute_ESP_dipole(charges, rcart)
                         res2['dipole_ESP'] = dipole_ESP #Useful to have the ESP dipole as another quantity of comparison
+                        #Assume from now on that the results.tag file is enabled, so parse the forces from that
+                        res2['frc'] = parse_forces(os.path.join(scratch_dir, 'results.tag'))
 
                     res2['conv'] = True
                     if fermi_temp is None:
@@ -283,6 +286,7 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                                 dftb_savefile)
                 except Exception as e:
                     print("made it inside the exception in run_dftbplus.py")
+                    print(str(e))
                     if fermi_temp is None:
                         dftb_savefile = os.path.join(scratch_dir,'auout',
                                                      'err_' + mol['name']+'_zero.out')

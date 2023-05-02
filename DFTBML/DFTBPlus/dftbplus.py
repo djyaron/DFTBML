@@ -175,11 +175,16 @@ def write_dftb_infile(Zs: List[int], rcart_angstroms: Array,
         #CM5 charges. Also, including the mulliken analysis and CM5 charges 
         #ensures the dipole moments are outputted in detailed.out (although not sure
         #how to do proper conversion to Debye)
+        #Also add to this now to enable Force calculations and to write out the 
+        #results.tag file
         dftbfile.write(
             r'}' + '\n' +
-            r'Options { WriteChargesAsText = Yes }' + '\n' +
+            r'Options {' + '\n' + 
+            r'   WriteChargesAsText = Yes' + '\n' + 
+            r'   WriteResultsTag = Yes' + '\n' + 
+            r'}' + '\n' +
             r'Analysis {' + '\n' +
-            r'   CalculateForces = No' + '\n' +
+            r'   CalculateForces = Yes' + '\n' +
             r'   MullikenAnalysis = Yes' + '\n' +
             r'   CM5{}' + '\n' +
             r'}' + '\n')
@@ -450,3 +455,40 @@ def compute_ESP_dipole(charges: Array, rcart_angstrom: Array) -> Array:
     assert(len(rcart_angstrom.shape) == 2) #2 dimensional array
     assert(len(charges.shape) == 1) #1 dimensional array
     return np.dot(rcart_angstrom.T, charges)
+
+def parse_forces(output_file: str):
+    r"""Parses the forces generated from the DFTB+ results.tag file
+    
+    Arguments:
+        output_file: The name of the results file that needs to be parsed
+            out. Typically defaults to results.tag, but specified here as a
+            user input for maximal flexibility
+    
+    Returns:
+        forces (Array): Array of shape (Natom, 3) containing the forces output from
+            DFTB+
+
+    Notes:
+        DFTB+ uses atomic units internally, meaning that the forces which 
+            are output by DFTB+ are in units of Ha/Bohr. Keep this in mind 
+            when calculating differences in forces
+    """
+    content = open(output_file, 'r').readlines()
+    force_line = None
+    force_line_ind = None
+    for i, line in enumerate(content):
+        if line.split()[0] == 'forces':
+            force_line = line
+            force_line_ind = i
+            break
+    #Do some analysis to get the correct shape
+    shape_specification = force_line.split()[-1]
+    shape_lst = shape_specification.split(":")
+    dimensions = shape_lst[-1]
+    natoms = int(dimensions.split(',')[-1])
+    force_block = content[force_line_ind + 1 : force_line_ind + 1 + natoms]
+    assert('orbital' in content[force_line_ind + 1 + natoms])
+    force_arr = np.zeros((natoms, 3))
+    for j, frc_line in enumerate(force_block):
+        force_arr[j] = list(map(lambda x : float(x), frc_line.split()))
+    return force_arr

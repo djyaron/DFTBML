@@ -47,7 +47,9 @@ target = {'dt': 'dftb.energy',  # Dftb Total
             'td': 'tpno_ccsd(t)_dz.energy',  # Tpno Dz
             'nd': 'npno_ccsd(t)_dz.energy',  # Npno Dz
             'nt': 'npno_ccsd(t)_tz.energy',
-            'cc': 'ccsd(t)_cbs.energy'}
+            'cc': 'ccsd(t)_cbs.energy',
+            'frc_tz' : 'wb97x_tz.forces',    #DFT TZ forces
+            'frc_dz' : 'wb97x_dz.forces'}    #DFT DZ forces
 
 ani1_path = "ANI-1ccx_clean_fullentry.h5"
 exclude = []
