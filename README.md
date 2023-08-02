@@ -11,7 +11,7 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 ---
 1. Clone the repository:
 ```
-git clone https://github.com/djyaron/dftbtorch.git
+git clone https://github.com/djyaron/DFTBML.git
 cd dftbtorch
 ```
 2. Create and activate the virtual environment
