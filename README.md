@@ -12,7 +12,7 @@ DFTBML provides a systematic way to parameterize the Density Functional-based Ti
 1. Clone the repository:
 ```
 git clone https://github.com/djyaron/DFTBML.git
-cd dftbtorch
+cd DFTBML
 ```
 2. Create and activate the virtual environment
 ```
@@ -33,6 +33,27 @@ If everything runs without error, then you are good to go. Note that while DFTBM
 # Pre-trained models
 ---
 A key advantage of DFTBML is that trained models can be saved as Slater-Koster files, otherwise known as SKF files. This file format is compatible with mainstream electronic structure calculation and molecular dynamics packages such as [DFTB+](https://dftbplus.org/), [AMBER](https://ambermd.org/), and [CP2K](https://www.cp2k.org/). The SKF files for pre-trained models can be found under the Example_SKFs directory along with the experimental conditions used to generate them. 
+
+# Reproducing a result from the paper
+---
+We provide the necessary data and scripts to run our entire workflow with a dataset containing 20000 molecules and a CC-level energy target. This directory, called `20000_cc_reproduction`, is contained within the DFTBML directory and contains three bash scripts corresponding to the three steps of the workflow: `precompute_step.sh`, `train_step.sh`, and `analysis_step.sh`. For a more in-depth tutorial and explanation of these three steps, see the next section on "Training the model". 
+
+The scripts are intended to be run one at a time, as follows:
+```bash
+>> cd DFTBML
+>> cp 20000_cc_reproduction/precompute_step.sh .
+>> bash precompute_step.sh
+# Wait for the precompute to finish
+>> cp 20000_cc_reproduction/train_step.sh .
+>> bash train_step.sh
+# Wait for the model to finish training
+>> cp 20000_cc_reproduction/analysis_step.sh .
+>> bash analysis_step.sh
+# Wait for analysis to finish  
+```
+Before executing the `analysis_step.sh` script, make sure you have correctly set the `exec_path` variable in `analyze.py` to point to the `dftb+` binary in your installation of [DFTB+](https://dftbplus.org/). We recommend using version 21.1. 
+
+Note that this reproduction will take on the order of multiple days from precomputing through training through analyzing, and is best done on a computing cluster with adequate memory and RAM. For a smaller example, see the next section on "Training the model". 
 
 # Training the model
 ---
@@ -74,7 +95,7 @@ Because DFTBML was developed, trained, and benchmarked using the ANI-1ccx datase
 
 ## Setting up a precomputation
 Once you have a set of molecular data in the molecule dictionary representation, the next step is to set up a precomputation. This is a fairly involved process because of the inherent complexity of the internal batch representation used in DFTBML, but here we provide a simple working example that should be sufficient for most applications. First, copy the `dataset.p` file from the `example_configs` directory to the DFTBML level and also make a directory called `precompute_test`:
-```
+```bash
 >> cp example_configs/dataset.p .
 >> mkdir precompute_test
 ```
@@ -138,12 +159,12 @@ if __name__ == "__main__":
     precompute_folds(s_obj, opts, s_obj.top_level_fold_path, True)
 ```
 Activate your virtual environment and then run the script in the terminal:
-```
+```bash
 >> conda activate DFTBML
 >> python precompute_run_script.py
 ```
 Depending on the size of your dataset, the precompute process may take a period of time. For this reason, we recommend running it headlessly using nohup in the background:
-```
+```bash
 >> nohup python precompute_run_script.py &
 ```
 Note that this only applies to linux systems. Once the precompute has completed, you will find that the `precompute_test` directory will become populated as follows:
@@ -167,7 +188,7 @@ Note that this only applies to linux systems. Once the precompute has completed,
         └── gammas.p
 ```
 The contents of the `Fold0` and `Fold1` directories have been ommitted for clarity. The entire directory `precompute_test` is now considered a precompute dataset and can be fed into DFTBML for model training. For clarity, let's rename this dataset as follows:
-```
+```bash
 >> mv precompute_test example_dataset
 ```
 
@@ -230,7 +251,7 @@ We need to make two edits to `exp6.json`. First, we need to change the `top_leve
 The `run_id` field indicates the name of the directory containing our trained model SKF files and metadata that will appear in the `benchtop_wdir/results` directory, so it's important to set this to something meaningful. `top_level_fold_path` again points to the directory that we want to use for training. Most of the other settings can be left as is, though you may want to decrease `nepochs` from 2500 to some smaller value to save time on training.
 
 Once this is set up, go back to the DFTBML directory level. Activate the virtual environment and run the following command in your terminal:
-```
+```bash
 >> conda activate DFTBML
 >> nohup python benchtop.py &
 ```
@@ -309,10 +330,10 @@ First, move your test set into the `analysis_dir/example_train_results` director
         │       └── test_set.p
         └── analysis_files/
 ```
-To run the evaluation, we need access to the dftb+ binary. To install DFTB, follow the installation instructions at https://dftbplus.org/ for your system. Then, open up the `analyze.py` script and change the `exec_path` variable to point to the `dftb+` binary in your system.
+To run the evaluation, we need access to the dftb+ binary. To install DFTB, follow the installation instructions at https://dftbplus.org/ for your system. Then, open up the `analyze.py` script and change the `exec_path` variable to point to the `DFTB+` binary in your system. We recommend using version 21.1.
 
 Now to run the analysis, make sure the virtual environment is activated and run the script in your terminal from the DFTBML directory level:
-```
+```bash
 >> nohup python analyze.py internal Y analysis_dir/results N &
 ```
 Note that the analyze.py script takes four arguments. They are as follows:
