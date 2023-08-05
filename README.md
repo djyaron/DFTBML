@@ -36,24 +36,24 @@ A key advantage of DFTBML is that trained models can be saved as Slater-Koster f
 
 # Reproducing a result from the paper
 ---
-We provide the necessary data and scripts to run our entire workflow with a dataset containing 20000 molecules and a CC-level energy target. This directory, called `20000_cc_reproduction`, is contained within the DFTBML directory and contains three bash scripts corresponding to the three steps of the workflow: `precompute_step.sh`, `train_step.sh`, and `analysis_step.sh`. For a more in-depth tutorial and explanation of these three steps, see the next section on "Training the model". 
+We provide the necessary data and scripts to run our entire workflow with a dataset containing 20000 molecules and 2500 molecules, both at a CC-level energy target. These directories, called `20000_cc_reproduction` and `2500_cc_reproduction`, respectively, are contained within the DFTBML directory. Each directory contains three bash scripts corresponding to the three steps of the workflow: `precompute_step.sh`, `train_step.sh`, and `analysis_step.sh`. For a more in-depth tutorial and explanation of these three steps, see the next section on "Training the model". Note that the `2500_cc_reproduction` is similar to the process done in "Training the model", but using the same split that was used in the paper.  
 
 The scripts are intended to be run one at a time, as follows:
 ```bash
 >> cd DFTBML
->> cp 20000_cc_reproduction/precompute_step.sh .
+>> cp 2500_cc_reproduction/precompute_step.sh .
 >> bash precompute_step.sh
 # Wait for the precompute to finish
->> cp 20000_cc_reproduction/train_step.sh .
+>> cp 2500_cc_reproduction/train_step.sh .
 >> bash train_step.sh
 # Wait for the model to finish training
->> cp 20000_cc_reproduction/analysis_step.sh .
+>> cp 2500_cc_reproduction/analysis_step.sh .
 >> bash analysis_step.sh
 # Wait for analysis to finish  
 ```
 Before executing the `analysis_step.sh` script, make sure you have correctly set the `exec_path` variable in `analyze.py` to point to the `dftb+` binary in your installation of [DFTB+](https://dftbplus.org/). We recommend using version 21.1. 
 
-Note that this reproduction will take on the order of multiple days from precomputing through training through analyzing, and is best done on a computing cluster with adequate memory and RAM. For a smaller example, see the next section on "Training the model". 
+The `2500_cc_reproduction` workflow will take around two days to run whereas the `20000_cc_reproduction` will take much longer. It is best to do these calculations on a computing cluster with adequate memory and RAM. To see the process for setting up a smaller example, see the next section on "Training the model".  
 
 # Training the model
 ---
