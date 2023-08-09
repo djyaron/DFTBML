@@ -178,10 +178,16 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
     scratch_dir = scratch_dir
     if (not os.path.isdir(scratch_dir)):
         os.mkdir(scratch_dir)
+    
     savefile_dir_path = os.path.join(scratch_dir, "save_files")
     if not os.path.isdir(savefile_dir_path):
         os.mkdir(savefile_dir_path)
         print(f"Created directory at {savefile_dir_path}")
+    
+    errfile_dir_path = os.path.join(scratch_dir, 'err_files')
+    if not os.path.isdir(errfile_dir_path):
+        os.mkdir(errfile_dir_path)
+        print(f"Created directory at {errfile_dir_path}")
     
     if fermi_temp is not None:
         DFTBoptions['FermiTemp'] = fermi_temp
@@ -288,10 +294,10 @@ def add_dftb(dataset: List[Dict], skf_dir: str, exec_path: str, pardict: Dict, d
                     print("made it inside the exception in run_dftbplus.py")
                     print(str(e))
                     if fermi_temp is None:
-                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                        dftb_savefile = os.path.join(errfile_dir_path,
                                                      'err_' + mol['name']+'_zero.out')
                     else:
-                        dftb_savefile = os.path.join(scratch_dir,'auout',
+                        dftb_savefile = os.path.join(errfile_dir_path,
                                                      'err_' + mol['name']+'_300.out')
                     shutil.copy(os.path.join(scratch_dir,'detailed.out'), 
                                 dftb_savefile)
