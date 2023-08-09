@@ -34,6 +34,23 @@ If everything runs without error, then you are good to go. Note that while DFTBM
 ---
 A key advantage of DFTBML is that trained models can be saved as Slater-Koster files, otherwise known as SKF files. This file format is compatible with mainstream electronic structure calculation and molecular dynamics packages such as [DFTB+](https://dftbplus.org/), [AMBER](https://ambermd.org/), and [CP2K](https://www.cp2k.org/). The SKF files for pre-trained models can be found under the Example_SKFs directory along with the experimental conditions used to generate them. 
 
+# Performing an analysis with pre-trained models
+---
+We can use the pretrained models in the `Example_SKFs` directory to get results and avoid the training step. For this process, we will choose the pretrained model, `DFTBML_CC_20000`, trained on 20000 molecules for CC-level energies. Any other pretrained model can be used by substituting its name in the following steps.
+
+In the `analyze.py` file, change the `exec_path` variable to point to the `dftb+` binary of your [DFTB+ installation](https://dftbplus.org/). We recommend using version 21.1.
+
+Run these scripts one at a time:
+```bash
+>> cp -r Example_SKFs/DFTBML_CC_20000 DFTBML/analysis_dir/results
+# copy your test set into the directory. Ours is test_set.p and can be found in the 20000_cc_reproduction directory
+>> cp DFTBML/20000_cc_reproduction/dset_20000_cc/test_set.p DFTBML/analysis_dir/results/DFTBML_CC_20000
+>> cd DFTBML
+>> nohup python analyze.py internal Y analysis_dir/results N &
+```
+
+Your results will populate the `dftbscratch` and `analysis_dir` directories.
+
 # Reproducing a result from the paper
 ---
 We provide the necessary data and scripts to run our entire workflow with a dataset containing 20000 molecules and 2500 molecules, both at a CC-level energy target. These directories, called `20000_cc_reproduction` and `2500_cc_reproduction`, respectively, are contained within the DFTBML directory. Each directory contains three bash scripts corresponding to the three steps of the workflow: `precompute_step.sh`, `train_step.sh`, and `analysis_step.sh`. For a more in-depth tutorial and explanation of these three steps, see the next section on "Training the model". Note that the `2500_cc_reproduction` is similar to the process done in "Training the model", but using the same split that was used in the paper.  
