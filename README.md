@@ -51,7 +51,7 @@ The scripts are intended to be run one at a time, as follows:
 >> bash analysis_step.sh
 # Wait for analysis to finish  
 ```
-Before executing the `analysis_step.sh` script, make sure you have correctly set the `exec_path` variable in `analyze.py` to point to the `dftb+` binary in your installation of [DFTB+](https://dftbplus.org/). We recommend using version 21.1. 
+Before executing the `analysis_step.sh` script, make sure you have correctly set the `exec_path` variable in `analyze.py` to point to the `dftb+` binary in your installation of [DFTB+](https://dftbplus.org/). We recommend using version 21.1. The results of the analysis will be contained in the `analysis_dir/analysis_files` directory, where there is a text file and pickle file version of the results for each experiment analyzed.
 
 The `2500_cc_reproduction` workflow will take around two days to run whereas the `20000_cc_reproduction` will take much longer. It is best to do these calculations on a computing cluster with adequate memory and RAM. To see the process for setting up a smaller example, see the next section on "Training the model".  
 
