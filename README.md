@@ -60,7 +60,7 @@ Run these scripts one at a time:
 >> nohup python analyze.py internal Y analysis_dir/results N &
 ```
 
-Your results will populate the `dftbscratch` and `analysis_dir` directories.
+Your results will populate the `dftbscratch` and `analysis_dir` directories. Results are saved for each molecule dictionary (pickle file) and summarized in a text file.
 
 # Reproducing a result from the paper
 ---
