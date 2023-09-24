@@ -41,6 +41,10 @@ python directory_setup.py
 ```
 If everything runs without error, then you are good to go. Note that while DFTBML is known to work on Windows systems, running it on a Linux operating system is preferable. 
 
+# Usage support
+---
+If you are interested in using DFTBML or adapting it for your system(s) of interest, feel free to reach out to David Yaron (yaron@cmu.edu) or Frank Hu (frankhu@stanford.edu) with any questions.
+
 # Pre-trained models
 ---
 A key advantage of DFTBML is that trained models can be saved as Slater-Koster files, otherwise known as SKF files. This file format is compatible with mainstream electronic structure calculation and molecular dynamics packages such as [DFTB+](https://dftbplus.org/), [AMBER](https://ambermd.org/), and [CP2K](https://www.cp2k.org/). The SKF files for pre-trained models can be found under the Example_SKFs directory along with the experimental conditions used to generate them. 
